@@ -40,6 +40,7 @@ public class ConfigurationPlanDTO {
    protected String description;
    protected String serviceId;
    protected String backendEndpoint;
+   protected Long backendEndpointTimeout;
    protected List<String> excludedOperations;
    protected List<String> includedOperations;
    protected String backendSecretId;
@@ -142,5 +143,13 @@ public class ConfigurationPlanDTO {
 
    public void setInitialAccessToken(String initialAccessToken) {
       this.initialAccessToken = initialAccessToken;
+   }
+
+   public Long getBackendEndpointTimeout() {
+      return backendEndpointTimeout;
+   }
+
+   public void setBackendEndpointTimeout(Long backendEndpointTimeout) {
+      this.backendEndpointTimeout = backendEndpointTimeout;
    }
 }

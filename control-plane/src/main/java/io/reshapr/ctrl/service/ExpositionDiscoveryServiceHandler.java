@@ -335,6 +335,7 @@ public class ExpositionDiscoveryServiceHandler extends ExpositionDiscoveryServic
             .setId(configuration.id)
             .setName(configuration.name)
             .setBackendEndpoint(configuration.backendEndpoint)
+            .setBackendEndpointTimeout(configuration.backendEndpointTimeout != null ? configuration.backendEndpointTimeout : 3_000L)
             .addAllExcludedOperations(configuration.excludedOperations != null ? configuration.excludedOperations : List.of())
             .addAllIncludedOperations(configuration.includedOperations != null ? configuration.includedOperations : List.of());
 

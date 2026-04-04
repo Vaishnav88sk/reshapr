@@ -48,6 +48,9 @@ public class ConfigurationPlan extends TenantAwareEntity {
    @Column(name = "backend_endpoint", nullable = false)
    public String backendEndpoint;
 
+   @Column(name = "backend_endpoint_timeout")
+   public Long backendEndpointTimeout;
+
    @Type(JsonType.class)
    @Column(columnDefinition = "JSONB", name = "excluded_operations")
    public List<String> excludedOperations;

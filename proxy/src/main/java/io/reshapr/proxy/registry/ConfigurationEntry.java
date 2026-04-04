@@ -25,6 +25,7 @@ public record ConfigurationEntry(
       String id,
       String name,
       String backendEndpoint,
+      Long backendEndpointTimeout,
       List<String> excludedOperations,
       List<String> includedOperations,
       String apiKey,

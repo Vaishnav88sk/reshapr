@@ -42,6 +42,7 @@ message Configuration {
   optional string apiKey = 6;
   optional OAuth2Configuration oauth2Configuration = 7;
   optional Secret backendSecret = 8;
+  optional int64 backendEndpointTimeout = 9;  // For backendEndpoint Timeout
 }
 
 message OAuth2Configuration {

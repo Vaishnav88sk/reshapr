@@ -148,6 +148,7 @@ public class ConfigurationPlanManagerService {
       existingPlan.name = configurationPlan.name;
       existingPlan.description = configurationPlan.description;
       existingPlan.backendEndpoint = configurationPlan.backendEndpoint;
+      existingPlan.backendEndpointTimeout = configurationPlan.backendEndpointTimeout;
       existingPlan.includedOperations = configurationPlan.includedOperations;
       existingPlan.excludedOperations = configurationPlan.excludedOperations;
       if (backendSecretId != null) {

@@ -67,8 +67,11 @@ public class ProxyService {
     * @return A BackendResponse containing the status code, body, and headers from the backend response.
     */
    public BackendResponse callBackend(ConfigurationEntry configuration, URI externalUrl, String method, Map<String, List<String>> headers, String body) {
+      long timeoutMs = configuration.backendEndpointTimeout() != null ? configuration.backendEndpointTimeout() : 3_000L;
+
       HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
             .uri(externalUrl)
+            .timeout(Duration.ofMillis(timeoutMs))
             .method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
 
       // Some headers are restricted in HttpClient and must not be propagated.
@@ -115,8 +118,8 @@ public class ProxyService {
          // Return the response as is.
          return new BackendResponse(response.statusCode(), response.body(), response.headers().map());
       } catch (HttpTimeoutException e) {
-         logger.errorf("Proxy timeout calling backend '%s': %s", externalUrl, e.getMessage());
-         return new BackendResponse(504, "Gateway Timeout: backend did not respond in time".getBytes(StandardCharsets.UTF_8), Map.of());
+         logger.errorf("Proxy timed out after %dms calling: '%s'", timeoutMs, externalUrl);
+         return new BackendResponse(504, ("Backend timed out after " + timeoutMs + "ms").getBytes(StandardCharsets.UTF_8), Map.of());
       } catch (ConnectException e) {
          logger.errorf("Proxy connection refused by backend '%s': %s", externalUrl, e.getMessage());
          return new BackendResponse(503, "Service Unavailable: backend refused the connection".getBytes(StandardCharsets.UTF_8), Map.of());
