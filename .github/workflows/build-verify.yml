@@ -1,6 +1,8 @@
 name: build-verify-package
 on:
   push:
+    branches:
+      - main
     paths-ignore:
       #- '.github/**'
       - '.gitignore'
