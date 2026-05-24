@@ -16,7 +16,7 @@ import io.fabric8.kubernetes.api.model.admission.v1.AdmissionResponseBuilder;
 import io.fabric8.kubernetes.api.model.admission.v1.AdmissionReview;
 import io.fabric8.kubernetes.api.model.admission.v1.AdmissionReviewBuilder;
 
-import io.github.vishwakarma.zjsonpatch.JsonDiff;
+import io.fabric8.zjsonpatch.JsonDiff;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.POST;
@@ -53,8 +53,7 @@ public class MutatingWebhookResource {
                     .withResponse(new AdmissionResponseBuilder()
                             .withUid(uid)
                             .withAllowed(true)
-                            .build())
-                    .build();
+                            .build()).build();
         }
 
         try {
@@ -108,19 +107,19 @@ public class MutatingWebhookResource {
                     .withResponse(new AdmissionResponseBuilder()
                             .withUid(uid)
                             .withAllowed(false)
-                            .withNewStatus()
+                            .withStatus(new io.fabric8.kubernetes.api.model.StatusBuilder()
                                 .withCode(500)
                                 .withMessage(e.getMessage())
-                            .endStatus()
+                                .build())
                             .build())
                     .build();
         }
     }
 
-    private String generatePatch(Pod originalPod, Pod mutatedPod) throws JsonProcessingException {
-        var originalNode = objectMapper.valueToTree(originalPod);
-        var mutatedNode = objectMapper.valueToTree(mutatedPod);
-        var patchNode = JsonDiff.asJson(originalNode, mutatedNode);
-        return objectMapper.writeValueAsString(patchNode);
-    }
+private String generatePatch(Pod originalPod, Pod mutatedPod) throws JsonProcessingException {
+    var originalNode = objectMapper.valueToTree(originalPod);
+    var mutatedNode = objectMapper.valueToTree(mutatedPod);
+    var patchNode = JsonDiff.asJson(originalNode, mutatedNode);
+    return objectMapper.writeValueAsString(patchNode);
+}
 }

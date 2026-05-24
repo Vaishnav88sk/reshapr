@@ -168,11 +168,7 @@
       <scope>provided</scope>
     </dependency>
 
-    <dependency>
-      <groupId>io.github.vishwakarma</groupId>
-      <artifactId>zjsonpatch</artifactId>
-      <version>0.6.2</version>
-    </dependency>
+
 
     <dependency>
       <groupId>io.quarkus</groupId>

@@ -45,7 +45,7 @@ public class MutatingWebhookResourceTest {
 
         AdmissionRequest request = new AdmissionRequestBuilder()
                 .withUid("test-uid")
-                .withNewKind("Pod", "v1")
+                .withNewKind("", "Pod", "v1")
                 .withObject(pod)
                 .build();
 
@@ -87,7 +87,7 @@ public class MutatingWebhookResourceTest {
 
         AdmissionRequest request = new AdmissionRequestBuilder()
                 .withUid("test-uid")
-                .withNewKind("Pod", "v1")
+                .withNewKind("", "Pod", "v1")
                 .withObject(pod)
                 .build();
 
