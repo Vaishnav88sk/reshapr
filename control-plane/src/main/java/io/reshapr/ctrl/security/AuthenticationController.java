@@ -46,6 +46,7 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.NewCookie;
@@ -131,8 +132,7 @@ public class AuthenticationController {
       }
 
       // Generate a token for the authenticated user
-      String token = generateTokenForUser(RESHAPR_IDENTITY_PROVIDER, user, user.defaultOrganization.name);
-      logger.infof("Authentication successful for user: %s", loginRequest.username);
+      String token = resolveOrganizationAndGenerateToken(RESHAPR_IDENTITY_PROVIDER, user);
 
       return Response.ok(token).build();
    }
@@ -238,8 +238,7 @@ public class AuthenticationController {
       }
 
       // Generate a token for the authenticated user
-      String token = generateTokenForUser(RESHAPR_IDENTITY_PROVIDER, user, user.defaultOrganization.name);
-      logger.infof("Authentication successful for user: %s", user.username);
+      String token = resolveOrganizationAndGenerateToken(RESHAPR_IDENTITY_PROVIDER, user);
 
       return Response.seeOther(URI.create(redirectUri + "?token=" + token)).build();
    }
@@ -298,8 +297,13 @@ public class AuthenticationController {
       }
 
       // Generate a token for the authenticated user.
-      String token = generateTokenForUser(RESHAPR_IDENTITY_PROVIDER, user, user.defaultOrganization.name);
-      logger.infof("Authentication successful for user: %s", user.username);
+      String token;
+      try {
+         token = resolveOrganizationAndGenerateToken(RESHAPR_IDENTITY_PROVIDER, user);
+      } catch (WebApplicationException e) {
+         TemplateInstance instance = Templates.onboardingError(username, organizationName, redirectUri, e.getMessage());
+         return Response.ok(instance.render()).build();
+      }
 
       // Reset onboarding cookie to prevent replaying the onboarding.
       NewCookie cookie = new NewCookie.Builder(RESHAPR_ONBOARDING_COOKIE)
@@ -328,15 +332,10 @@ public class AuthenticationController {
          return Response.status(Response.Status.NOT_FOUND).entity("User not found").build();
       }
 
-      if (user.defaultOrganization == null) {
-         logger.warnf("User %s has no default organization", loginRequest.username);
-         return Response.status(Response.Status.BAD_REQUEST).entity("User has no organization").build();
-      }
-
       // Generate a JWT token for the user.
-      String token = generateTokenForUser("delegated", user, user.defaultOrganization.name);
+      String token = resolveOrganizationAndGenerateToken("delegated", user);
 
-      logger.infof("Delegated login token generated for user: %s (org: %s)", user.username, user.defaultOrganization.name);
+      logger.infof("Delegated login token generated for user: %s", user.username);
       return Response.ok(token).build();
    }
 
@@ -445,6 +444,30 @@ public class AuthenticationController {
             .claim("email", user.email)
             .sign();
 
+      return token;
+   }
+
+   private Organization resolveDefaultOrganization(User user) {
+      if (user.defaultOrganization != null) {
+         return user.defaultOrganization;
+      }
+      if (user.organizations != null && !user.organizations.isEmpty()) {
+         // Fallback to the first available organization
+         return user.organizations.get(0);
+      }
+      return null;
+   }
+
+   private String resolveOrganizationAndGenerateToken(String authorityId, User user) {
+      Organization defaultOrg = resolveDefaultOrganization(user);
+      if (defaultOrg == null) {
+         logger.warnf("User %s has no organizations assigned", user.username);
+         throw new WebApplicationException("User has no organizations assigned", Response.Status.FORBIDDEN);
+      }
+
+      String token = generateTokenForUser(authorityId, user, defaultOrg.name);
+      logger.infof("Authentication successful for user: %s (org: %s)", user.username, defaultOrg.name);
+      
       return token;
    }
 }
