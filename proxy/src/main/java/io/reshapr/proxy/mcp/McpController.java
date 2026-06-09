@@ -543,23 +543,20 @@ public class McpController {
       Span currentSpan = Span.current();
       String traceId = currentSpan.getSpanContext().isValid() ? currentSpan.getSpanContext().getTraceId() : null;
 
+      // Capture all values needed for the audit event BEFORE going async,
+      // since request/serverRequest objects may not be safe to access later.
+      final String method = request.method();
+      final Object requestId = request.id();
+      final Object requestParams = request.params();
+      final String serviceName = service.name();
+      final String serviceVersion = service.version();
+      final String organizationId = service.organizationId();
+      final String sourceIp = serverRequest.remoteAddress() != null ? serverRequest.remoteAddress().host() : null;
+      SessionInfo sessionInfo = getSessionInfo(serverRequest);
+      final String sessionId = sessionInfo != null ? sessionInfo.getId() : null;
+
       // Execute audit event sending asynchronously.
       Thread.startVirtualThread(() -> {
-         // Capture all values needed for the audit event before going async,
-         // since request/serverRequest objects may not be safe to access later.
-         String method = request.method();
-         Object requestId = request.id();
-         Object requestParams = request.params();
-         String serviceName = service.name();
-         String serviceVersion = service.version();
-         String organizationId = service.organizationId();
-         String sourceIp = serverRequest.remoteAddress() != null ? serverRequest.remoteAddress().host() : null;
-         String sessionId = null;
-         SessionInfo sessionInfo = getSessionInfo(serverRequest);
-         if (sessionInfo != null) {
-            sessionId = sessionInfo.getId();
-         }
-
          // Determine outcome and error code from the result.
          String outcome = AuditEvent.OUTCOME_SUCCESS;
          Integer errorCode = null;
