@@ -16,9 +16,9 @@
 package io.reshapr.proxy.security;
 
 import io.reshapr.proxy.registry.ConfigurationEntry;
+import io.reshapr.proxy.registry.ExpositionEntry;
 import io.reshapr.proxy.registry.GatewayRegistry;
 import io.reshapr.proxy.registry.OAuth2ConfigurationEntry;
-import io.reshapr.proxy.registry.ServiceEntry;
 
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.ws.rs.GET;
@@ -53,17 +53,33 @@ public class WellKnownController {
    }
 
    @GET
-   @Path("/oauth-protected-resource/mcp/{serviceId}")
+   @Path("/oauth-protected-resource/mcp/{expositionId}")
    @Produces(MediaType.APPLICATION_JSON)
-   public Response getWellKnownOAuthProtectedResource(@PathParam("serviceId") String serviceId) {
-      logger.infof("Handling a Mcp well-known OAuth protected resource call on service: %s", serviceId);
+   public Response getWellKnownOAuthProtectedResource(@PathParam("expositionId") String expositionId) {
+      logger.infof("Handling a Mcp well-known OAuth protected resource call on exposition: %s", expositionId);
 
-      ServiceEntry serviceEntry = gatewayRegistry.getService(serviceId);
-      if (serviceEntry == null) {
-         logger.errorf("Service with id '%s' not found", serviceId);
+      ExpositionEntry exposition = gatewayRegistry.getExpositionById(expositionId);
+      if (exposition == null) {
+         logger.errorf("Exposition with id '%s' not found", expositionId);
          return Response.status(Response.Status.NOT_FOUND).build();
       }
-      return getWellKnownOAuthProtectedResource(serviceEntry, true);
+      return getWellKnownOAuthProtectedResource(exposition, "/mcp/" + expositionId);
+   }
+
+   @GET
+   @Path("/oauth-protected-resource/mcp/{organizationId}/{expositionName}")
+   @Produces(MediaType.APPLICATION_JSON)
+   public Response getWellKnownOAuthProtectedResourceByName(@PathParam("organizationId") String organizationId,
+                                                            @PathParam("expositionName") String expositionName) {
+      logger.infof("Handling a Mcp well-known OAuth protected resource call on exposition '%s' in organization '%s'",
+            expositionName, organizationId);
+
+      ExpositionEntry exposition = gatewayRegistry.getExpositionByName(organizationId, expositionName);
+      if (exposition == null) {
+         logger.errorf("Exposition '%s' in organization '%s' not found", expositionName, organizationId);
+         return Response.status(Response.Status.NOT_FOUND).build();
+      }
+      return getWellKnownOAuthProtectedResource(exposition, "/mcp/" + organizationId + "/" + expositionName);
    }
 
    @GET
@@ -78,28 +94,28 @@ public class WellKnownController {
          service = service.replace('+', ' ');
       }
 
-      ServiceEntry serviceEntry = gatewayRegistry.getService(organizationId, service, version);
-      if (serviceEntry == null) {
+      ExpositionEntry exposition = gatewayRegistry.getElectedExpositionByServiceCoordinates(organizationId, service, version);
+      if (exposition == null) {
          logger.errorf("Service '%s', version: '%s' in organization: '%s' not found", service, version, organizationId);
          return Response.status(Response.Status.NOT_FOUND).build();
       }
-      return getWellKnownOAuthProtectedResource(serviceEntry, false);
+      String resourcePath = "/mcp/" + organizationId + "/" + service.replace(' ', '+') + "/" + version;
+      return getWellKnownOAuthProtectedResource(exposition, resourcePath);
    }
 
    /**
-    * Get the well-known OAuth protected resource metadata for a given service according
+    * Get the well-known OAuth protected resource metadata for a given exposition according
     * https://datatracker.ietf.org/doc/html/rfc9728.
-    * @param service The service entry for which the metadata is requested.
+    * @param exposition The exposition for which the metadata is requested.
+    * @param resourcePath The MCP resource path (relative to the gateway FQDN) matching the called endpoint.
     * @return A Response containing the OAuth protected resource metadata or an error response.
     */
-   private Response getWellKnownOAuthProtectedResource(ServiceEntry service, boolean useId) {
-      ConfigurationEntry configuration = gatewayRegistry.getConfiguration(service);
+   private Response getWellKnownOAuthProtectedResource(ExpositionEntry exposition, String resourcePath) {
+      ConfigurationEntry configuration = exposition.configuration();
 
       if (configuration != null && configuration.oauth2Configuration() != null) {
          OAuth2ConfigurationEntry oauth2Config = configuration.oauth2Configuration();
-         String resource = useId ? "https://" + fqdns.getFirst() + "/mcp/" + service.id()
-               : "https://" + fqdns.getFirst() + "/mcp/" + service.organizationId()
-               + "/" + service.name().replace(' ', '+') + "/" + service.version();
+         String resource = "https://" + fqdns.getFirst() + resourcePath;
 
          OAuth2ProtectedResourceMetadata metadata = new OAuth2ProtectedResourceMetadata(
                resource,
@@ -109,7 +125,7 @@ public class WellKnownController {
          );
          return Response.ok(metadata).build();
       }
-      logger.errorf("Service '%s' is not configured for OAuth2", service.name());
+      logger.errorf("Service '%s' is not configured for OAuth2", exposition.service().name());
       return Response.status(Response.Status.NOT_FOUND).build();
    }
 }

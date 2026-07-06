@@ -42,6 +42,9 @@ public class ActiveExposition extends TenantAwareEntity {
    @Column(name = "created_on", columnDefinition = "TIMESTAMP WITH TIME ZONE")
    public OffsetDateTime createdOn;
 
+   @Column(name = "exposition_name")
+   public String name;
+
    @Embedded
    @AttributeOverride(name="id", column=@Column(name="service_id"))
    @AttributeOverride(name="name", column=@Column(name="service_name"))

@@ -25,6 +25,7 @@ import io.reshapr.proxy.proxy.ProxyService;
 import io.reshapr.proxy.context.MethodHandlingInfo;
 import io.reshapr.proxy.context.MethodHandlingContext;
 import io.reshapr.proxy.registry.ConfigurationEntry;
+import io.reshapr.proxy.registry.ExpositionEntry;
 import io.reshapr.proxy.registry.GatewayRegistry;
 import io.reshapr.proxy.registry.ServiceEntry;
 import io.reshapr.proxy.security.SecureEndpoint;
@@ -60,6 +61,9 @@ public class McpController {
    /** Get a JBoss logging logger. */
    private final Logger logger = Logger.getLogger(getClass());
 
+   /** Response header advertising the deterministic per-exposition endpoint for a legacy service call. */
+   public static final String HEADER_PREFERRED_ENDPOINT = "X-Reshapr-Preferred-Endpoint";
+
    private final GatewayRegistry gatewayRegistry;
    private final SessionStore sessionStore;
    private final WorkCache workCache;
@@ -90,21 +94,41 @@ public class McpController {
    }
 
    @POST
-   @Path("/{serviceId}")
+   @Path("/{expositionId}")
    @Produces(MediaType.APPLICATION_JSON)
    @SecureEndpoint
-   public Response handleHttpStreamable(@PathParam("serviceId") String serviceId,
+   public Response handleHttpStreamable(@PathParam("expositionId") String expositionId,
                                         McpSchema.JSONRPCRequest request, HttpHeaders headers, HttpServerRequest serverRequest,
                                         @Context ContainerRequestContext requestContext) {
 
-      ServiceEntry serviceEntry = gatewayRegistry.getService(serviceId);
-      if (serviceEntry == null) {
-         String errorMsg = String.format("Service with id '%s' not found", serviceId);
+      ExpositionEntry exposition = gatewayRegistry.getExpositionById(expositionId);
+      if (exposition == null) {
+         String errorMsg = String.format("Exposition with id '%s' not found", expositionId);
          logger.warn(errorMsg);
          return Response.status(Response.Status.NOT_FOUND).entity(errorMsg).build();
       }
 
-      return handleMcpRequest(serviceEntry, request, headers, serverRequest, requestContext);
+      return handleMcpRequest(exposition, request, headers, serverRequest, requestContext, null);
+   }
+
+   @POST
+   @Path("/{organizationId}/{expositionName}")
+   @Produces(MediaType.APPLICATION_JSON)
+   @SecureEndpoint
+   @AddingSpanAttributes
+   public Response handleHttpStreamableByName(@SpanAttribute("organizationId") @PathParam("organizationId") String organizationId,
+                                              @SpanAttribute("expositionName") @PathParam("expositionName") String expositionName,
+                                              McpSchema.JSONRPCRequest request, HttpHeaders headers, HttpServerRequest serverRequest,
+                                              @Context ContainerRequestContext requestContext) {
+
+      ExpositionEntry exposition = gatewayRegistry.getExpositionByName(organizationId, expositionName);
+      if (exposition == null) {
+         String errorMsg = String.format("Exposition '%s' in organization: '%s' not found", expositionName, organizationId);
+         logger.warn(errorMsg);
+         return Response.status(Response.Status.NOT_FOUND).entity(errorMsg).build();
+      }
+
+      return handleMcpRequest(exposition, request, headers, serverRequest, requestContext, null);
    }
 
    @POST
@@ -123,21 +147,32 @@ public class McpController {
          service = service.replace('+', ' ');
       }
 
-      ServiceEntry serviceEntry = gatewayRegistry.getService(organizationId, service, version);
-      if (serviceEntry == null) {
+      // Legacy endpoint: resolve the elected exposition (last configuration plan) of the service.
+      ExpositionEntry exposition = gatewayRegistry.getElectedExpositionByServiceCoordinates(organizationId, service, version);
+      if (exposition == null) {
          String errorMsg = String.format("Service '%s', version: '%s' in organization: '%s' not found", service, version, organizationId);
          logger.warn(errorMsg);
          return Response.status(Response.Status.NOT_FOUND).entity(errorMsg).build();
       }
 
-      return handleMcpRequest(serviceEntry, request, headers, serverRequest, requestContext);
+      // Advertise the deterministic per-exposition endpoint that resolves this exact configuration plan.
+      return handleMcpRequest(exposition, request, headers, serverRequest, requestContext, buildPreferredEndpoint(exposition));
    }
 
-   private Response handleMcpRequest(@SpanAttribute("service") ServiceEntry service, McpSchema.JSONRPCRequest request,
+   /** Build the deterministic endpoint path advertised for a legacy service call (by name when available). */
+   private String buildPreferredEndpoint(ExpositionEntry exposition) {
+      if (exposition.name() != null && !exposition.name().isBlank()) {
+         return "/mcp/" + exposition.service().organizationId() + "/" + exposition.name();
+      }
+      return "/mcp/" + exposition.id();
+   }
+
+   private Response handleMcpRequest(ExpositionEntry exposition, McpSchema.JSONRPCRequest request,
                                      HttpHeaders headers, HttpServerRequest serverRequest,
-                                     ContainerRequestContext requestContext) {
+                                     ContainerRequestContext requestContext, @Nullable String preferredEndpoint) {
+      ServiceEntry service = exposition.service();
       if (logger.isDebugEnabled()) {
-         logger.debugf("Handling a Mcp Http call on service: %s", service.id());
+         logger.debugf("Handling a Mcp Http call on exposition: %s (service %s)", exposition.id(), service.id());
          logger.debugf("Request body: %s", request);
          logger.debugf("Request headers: %s", headers.getRequestHeaders());
       }
@@ -154,20 +189,25 @@ public class McpController {
                getSessionInfo(headers),
                userId);
          ScopedValue.where(MethodHandlingContext.METHOD_HANDLING_INFO, handlingInfo).run(() -> {
-            resultRef.set(handleMcpRequest(service, request, headers));
+            resultRef.set(handleMcpRequest(exposition, request, headers));
          });
 
          // Compose a Response based on result.
          McpHandlerResult result = resultRef.get();
 
          // Emit audit log if enabled for this configuration.
-         emitAuditEvent(service, request, result, startNanos, serverRequest, userId);
+         emitAuditEvent(exposition, request, result, startNanos, serverRequest, userId);
 
          Response.ResponseBuilder responseBuilder = Response.ok(result.message());
          if (result.headers() != null) {
             result.headers().forEach((key, value) -> value.forEach(
                   headerValue -> responseBuilder.header(key, headerValue)
             ));
+         }
+
+         // Advertise the deterministic per-exposition endpoint when serving a legacy service call.
+         if (preferredEndpoint != null) {
+            responseBuilder.header(HEADER_PREFERRED_ENDPOINT, preferredEndpoint);
          }
 
          // Now add the mandatory MCP headers bound to session.
@@ -199,37 +239,37 @@ public class McpController {
 
    /**
     * Handle the MCP request and return a JSONRPCResponse.
-    * @param service The service entry for which the request is made.
+    * @param exposition The exposition for which the request is made.
     * @param request The JSONRPCRequest to handle.
     * @param headers The HTTP headers associated with the request.
     * @return A JSONRPCMessage representing the result of the request handling.
     */
-   private McpHandlerResult handleMcpRequest(ServiceEntry service, McpSchema.JSONRPCRequest request, HttpHeaders headers) {
+   private McpHandlerResult handleMcpRequest(ExpositionEntry exposition, McpSchema.JSONRPCRequest request, HttpHeaders headers) {
       McpHandlerResult result = null;
       switch (request.method()) {
          case McpSchema.METHOD_INITIALIZE ->
-            result = handleInitializeRequest(request, service);
+            result = handleInitializeRequest(request, exposition);
 
          case McpSchema.METHOD_PROMPTS_LIST ->
-            result = handlePromptListRequest(request, service);
+            result = handlePromptListRequest(request, exposition);
 
          case McpSchema.METHOD_PROMPTS_GET ->
-            result = handlePromptGetRequest(request, service);
+            result = handlePromptGetRequest(request, exposition);
 
          case McpSchema.METHOD_RESOURCES_LIST ->
-            result = handleResourceListRequest(request, service);
+            result = handleResourceListRequest(request, exposition);
 
          case McpSchema.METHOD_RESOURCES_TEMPLATES_LIST ->
-            result = handleResourceTemplateListRequest(request, service);
+            result = handleResourceTemplateListRequest(request, exposition);
 
          case McpSchema.METHOD_RESOURCES_READ ->
-            result = handleResourceReadRequest(request, service);
+            result = handleResourceReadRequest(request, exposition);
 
          case McpSchema.METHOD_TOOLS_LIST ->
-            result = handleToolsListRequest(request, service);
+            result = handleToolsListRequest(request, exposition);
 
          case McpSchema.METHOD_TOOLS_CALL ->
-            result = handleToolsCallRequest(request, headers.getRequestHeaders(), service);
+            result = handleToolsCallRequest(request, headers.getRequestHeaders(), exposition);
       }
 
       if (result == null) {
@@ -255,7 +295,8 @@ public class McpController {
    }
 
    /** Handle the MCP initialize request. */
-   private McpHandlerResult handleInitializeRequest(McpSchema.JSONRPCRequest request, ServiceEntry service) {
+   private McpHandlerResult handleInitializeRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
+      ServiceEntry service = exposition.service();
       McpSchema.InitializeRequest initializeRequest = mapper.convertValue(request.params(),
             new TypeReference<McpSchema.InitializeRequest>() {
             });
@@ -287,21 +328,21 @@ public class McpController {
    }
 
    /** Handle the MCP prompt/list request. */
-   private McpHandlerResult handlePromptListRequest(McpSchema.JSONRPCRequest request, ServiceEntry service) {
+   private McpHandlerResult handlePromptListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
       // Build a MCP Prompt Builder based on available elements in registry.
-      McpPromptBuilder builder = buildMcpPromptBuilder(service);
+      McpPromptBuilder builder = buildMcpPromptBuilder(exposition);
 
       return toMcpHandlerResult(request, new McpSchema.ListPromptsResult(builder.listPrompts(), null));
    }
 
    /** Handle the MCP prompt/get request. */
-   private McpHandlerResult handlePromptGetRequest(McpSchema.JSONRPCRequest request, ServiceEntry service) {
+   private McpHandlerResult handlePromptGetRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
       McpSchema.SimpleRequest promptGetRequest = mapper.convertValue(request.params(),
             new TypeReference<McpSchema.SimpleRequest>() {
             });
 
       // Build a MCP Prompt Builder based on available elements in registry.
-      McpPromptBuilder builder = buildMcpPromptBuilder(service);
+      McpPromptBuilder builder = buildMcpPromptBuilder(exposition);
 
       McpSchema.PromptMessage prompt = builder.getPrompt(promptGetRequest);
 
@@ -309,43 +350,44 @@ public class McpController {
    }
 
    /** Handle the MCP resource/list request. */
-   private McpHandlerResult handleResourceListRequest(McpSchema.JSONRPCRequest request, ServiceEntry service) {
+   private McpHandlerResult handleResourceListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
       // Build a MCP Resource Builder based on available elements in registry.
-      McpResourceBuilder builder = buildMcpResourceBuilder(service);
+      McpResourceBuilder builder = buildMcpResourceBuilder(exposition);
 
       return toMcpHandlerResult(request, new McpSchema.ListResourcesResult(builder.listResources(), null));
    }
 
    /** Handle the MCP resource/templates/list request. */
-   private McpHandlerResult handleResourceTemplateListRequest(McpSchema.JSONRPCRequest request, ServiceEntry service) {
+   private McpHandlerResult handleResourceTemplateListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
       // Build a MCP Resource Builder based on available elements in registry.
-      McpResourceBuilder builder = buildMcpResourceBuilder(service);
+      McpResourceBuilder builder = buildMcpResourceBuilder(exposition);
 
       return toMcpHandlerResult(request, new McpSchema.ListResourceTemplatesResult(builder.listResourceTemplates(), null));
    }
 
    /** Handle the MCP resource/read request. */
-   private McpHandlerResult handleResourceReadRequest(McpSchema.JSONRPCRequest request, ServiceEntry service) {
+   private McpHandlerResult handleResourceReadRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
       McpSchema.ReadResourceRequest resourceReadRequest = mapper.convertValue(request.params(),
             new TypeReference<McpSchema.ReadResourceRequest>() {
             });
 
-      // Get configuration plan for service.
-      ConfigurationEntry configuration = gatewayRegistry.getConfiguration(service);
+      // Get configuration plan from exposition.
+      ConfigurationEntry configuration = exposition.configuration();
 
       // Build a MCP Resource Builder based on available elements in registry.
-      McpResourceBuilder builder = buildMcpResourceBuilder(service);
+      McpResourceBuilder builder = buildMcpResourceBuilder(exposition);
 
       return toMcpHandlerResult(request, new McpSchema.ReadResourceResult(builder.readResource(resourceReadRequest, configuration)));
    }
 
    /** Handle the MCP tools/list request. */
-   private McpHandlerResult handleToolsListRequest(McpSchema.JSONRPCRequest request, ServiceEntry service) {
-      // Get configuration plan for service.
-      ConfigurationEntry configuration = gatewayRegistry.getConfiguration(service);
+   private McpHandlerResult handleToolsListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
+      ServiceEntry service = exposition.service();
+      // Get configuration plan from exposition.
+      ConfigurationEntry configuration = exposition.configuration();
 
       // Build converter based on service type.
-      McpToolConverter converter = toolCallExecutor.buildMcpToolConverter(service);
+      McpToolConverter converter = toolCallExecutor.buildMcpToolConverter(exposition);
 
       List<McpSchema.Tool> tools = converter.getAvailableOperations(service).stream()
             .filter(operation -> ToolCallExecutor.isExposedOperation(configuration, operation))
@@ -359,13 +401,13 @@ public class McpController {
 
    /** Handle the MCP tools/call request. */
    private McpHandlerResult handleToolsCallRequest(McpSchema.JSONRPCRequest request, Map<String, List<String>> headers,
-         ServiceEntry service) {
+         ExpositionEntry exposition) {
       McpSchema.SimpleRequest toolRequest = mapper.convertValue(request.params(),
             new TypeReference<McpSchema.SimpleRequest>() {
             });
 
       // Delegate the whole tool call resolution and invocation to the executor.
-      ToolCallExecutor.ToolCallOutcome outcome = toolCallExecutor.execute(service, toolRequest.name(),
+      ToolCallExecutor.ToolCallOutcome outcome = toolCallExecutor.execute(exposition, toolRequest.name(),
             toolRequest.arguments(), headers);
 
       return switch (outcome) {
@@ -405,25 +447,26 @@ public class McpController {
          new McpSchema.JSONRPCResponse.JSONRPCError(code, message, data));
    }
 
-   private McpPromptBuilder buildMcpPromptBuilder(ServiceEntry service) {
-      return new ReshaprPromptsMcpPromptBuilder(service,
-            gatewayRegistry.getAttachedArtifacts(service), workCache, mapper);
+   private McpPromptBuilder buildMcpPromptBuilder(ExpositionEntry exposition) {
+      return new ReshaprPromptsMcpPromptBuilder(exposition.service(),
+            exposition.attachedArtifacts(), workCache, mapper);
    }
 
-   private McpResourceBuilder buildMcpResourceBuilder(ServiceEntry service) {
-      return new ReshaprResourcesMcpResourceBuilder(service,
-            gatewayRegistry.getAttachedArtifacts(service), workCache, mapper, proxyService);
+   private McpResourceBuilder buildMcpResourceBuilder(ExpositionEntry exposition) {
+      return new ReshaprResourcesMcpResourceBuilder(exposition.service(),
+            exposition.attachedArtifacts(), workCache, mapper, proxyService);
    }
 
 
    /**
-    * Emit an audit event asynchronously if audit logging is enabled for this service's configuration.
+    * Emit an audit event asynchronously if audit logging is enabled for this exposition's configuration.
     * Runs on a virtual thread to avoid impacting the request response time.
     */
-   private void emitAuditEvent(ServiceEntry service, McpSchema.JSONRPCRequest request,
+   private void emitAuditEvent(ExpositionEntry exposition, McpSchema.JSONRPCRequest request,
                                McpHandlerResult result, long startNanos,
                                HttpServerRequest serverRequest, @Nullable String userId) {
-      ConfigurationEntry configuration = gatewayRegistry.getConfiguration(service);
+      ServiceEntry service = exposition.service();
+      ConfigurationEntry configuration = exposition.configuration();
       if (configuration == null || !configuration.audit()) {
          logger.debugf("Audit logging is not enabled for config on service '%s'", service.id());
          return;

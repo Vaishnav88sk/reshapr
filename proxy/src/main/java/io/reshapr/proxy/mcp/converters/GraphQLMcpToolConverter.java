@@ -154,7 +154,7 @@ public class GraphQLMcpToolConverter extends McpToolConverter {
 
    /** */
    private Document getDocument() throws Exception {
-      String major = String.valueOf(service.hashCode());
+      String major = artifact.id();
       String minor = CACHE_KEYS_PREFIX + "document";
       Object value = workCache.get(major, minor);
       if (value instanceof Document document) {
@@ -171,7 +171,7 @@ public class GraphQLMcpToolConverter extends McpToolConverter {
 
    /** */
    private ObjectNode getInputSchemaNode(OperationEntry operation) {
-      String major = String.valueOf(service.hashCode());
+      String major = artifact.id();
       String minor = CACHE_KEYS_PREFIX + operation.hashCode() + "-schema";
       Object value = workCache.get(major, minor);
       if (value instanceof ObjectNode inputSchemaNode) {

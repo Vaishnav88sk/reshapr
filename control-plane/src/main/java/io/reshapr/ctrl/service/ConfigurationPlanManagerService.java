@@ -16,12 +16,9 @@
 package io.reshapr.ctrl.service;
 
 import io.reshapr.ctrl.model.ConfigurationPlan;
-import io.reshapr.ctrl.model.Exposition;
-import io.reshapr.ctrl.model.GatewayGroup;
 import io.reshapr.ctrl.model.Service;
+import io.reshapr.ctrl.repository.ArtifactRepository;
 import io.reshapr.ctrl.repository.ConfigurationPlanRepository;
-import io.reshapr.ctrl.repository.ExpositionRepository;
-import io.reshapr.ctrl.repository.GatewayGroupRepository;
 import io.reshapr.ctrl.repository.SecretRepository;
 import io.reshapr.ctrl.repository.ServiceRepository;
 
@@ -31,8 +28,9 @@ import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @ApplicationScoped
@@ -45,10 +43,7 @@ public class ConfigurationPlanManagerService {
    private final ServiceRepository serviceRepository;
    private final SecretRepository secretRepository;
    private final ExpositionManagerService expositionManagerService;
-   private final GatewayManagerService gatewayManagerService;
-   private final GatewayGroupRepository gatewayGroupRepository;
-   private final ExpositionRepository expositionRepository;
-   private final TokenManagerService tokenManagerService;
+   private final ArtifactRepository artifactRepository;
 
 
    /**
@@ -57,23 +52,17 @@ public class ConfigurationPlanManagerService {
     * @param serviceRepository The repository for managing services.
     * @param secretRepository The repository for managing secrets.
     * @param expositionManagerService The service for managing expositions.
-    * @param gatewayManagerService The service for managing gateways.
-    * @param gatewayGroupRepository The repository for managing gateway groups.
-    * @param tokenManagerService The service for managing tokens.
+    * @param artifactRepository The repository for managing artifacts.
     *
     */
    public ConfigurationPlanManagerService(ConfigurationPlanRepository configurationPlanRepository, ServiceRepository serviceRepository,
-                                          SecretRepository secretRepository, ExpositionManagerService expositionManagerService, GatewayManagerService gatewayManagerService,
-                                          GatewayGroupRepository gatewayGroupRepository, ExpositionRepository expositionRepository,
-                                          TokenManagerService tokenManagerService) {
+                                          SecretRepository secretRepository, ExpositionManagerService expositionManagerService,
+                                          ArtifactRepository artifactRepository) {
       this.configurationPlanRepository = configurationPlanRepository;
       this.serviceRepository = serviceRepository;
       this.secretRepository = secretRepository;
       this.expositionManagerService = expositionManagerService;
-      this.gatewayManagerService = gatewayManagerService;
-      this.gatewayGroupRepository = gatewayGroupRepository;
-      this.expositionRepository = expositionRepository;
-      this.tokenManagerService = tokenManagerService;
+      this.artifactRepository = artifactRepository;
    }
 
    /**
@@ -111,6 +100,9 @@ public class ConfigurationPlanManagerService {
       }
       configurationPlan.service = service;
 
+      // Validate/normalize the selected artifacts (by name) against the service's attached artifacts.
+      configurationPlan.includedArtifacts = validateIncludedArtifacts(serviceId, configurationPlan.includedArtifacts);
+
       if (backendSecretId != null) {
          logger.debugf("Setting backend secret with id %s for configuration plan %s", backendSecretId, configurationPlan.name);
          configurationPlan.backendSecret = secretRepository.findById(backendSecretId);
@@ -138,7 +130,8 @@ public class ConfigurationPlanManagerService {
     * @throws DependencyNotFoundException if the backend secret is not found
     */
    @Transactional
-   public ConfigurationPlan updateConfigurationPlan(ConfigurationPlan configurationPlan, @Nullable String backendSecretId) throws DependencyNotFoundException {
+   public ConfigurationPlan updateConfigurationPlan(ConfigurationPlan configurationPlan, @Nullable String backendSecretId)
+         throws DependencyNotFoundException {
       logger.debugf("Updating configuration plan with id %s", configurationPlan.id);
       ConfigurationPlan existingPlan = configurationPlanRepository.findById(configurationPlan.id);
       if (existingPlan == null) {
@@ -151,6 +144,8 @@ public class ConfigurationPlanManagerService {
       existingPlan.backendTimeout = configurationPlan.backendTimeout;
       existingPlan.includedOperations = configurationPlan.includedOperations;
       existingPlan.excludedOperations = configurationPlan.excludedOperations;
+      // Validate/normalize the selected artifacts (by name) against the service's attached artifacts.
+      existingPlan.includedArtifacts = validateIncludedArtifacts(existingPlan.service.id, configurationPlan.includedArtifacts);
       existingPlan.audit = configurationPlan.audit;
       if (backendSecretId != null) {
          logger.debugf("Setting backend secret with id %s for configuration plan %s", backendSecretId, existingPlan.name);
@@ -200,45 +195,29 @@ public class ConfigurationPlanManagerService {
    }
 
    /**
-    * @param gatewayId The ID of the gateway for which to find configuration plans
-    * @param gatewayLabels A map of labels associated with the gateway
-    * @param fqdns The list of fully-qualified domain names served by the gateway
-    * @param version The version of the gateway issuing the request
-    * @return A list of configuration plans for the given gatewayId and labels
+    * Validates and normalizes the {@code includedArtifacts} selection of a plan. Each entry must match, by
+    * name, an attached artifact of the service. Duplicates are removed while preserving order. A null or
+    * empty selection is returned as an empty list, meaning "all attached artifacts of the service apply".
+    * @param serviceId The id of the service owning the plan.
+    * @param includedArtifacts The requested artifact names (may be null or empty).
+    * @return The validated, de-duplicated list of artifact names (never null).
+    * @throws DependencyNotFoundException if a name does not match any attached artifact of the service.
     */
-   public List<ConfigurationPlan> getExpositionConfigurations(String gatewayId, Map<String, String> gatewayLabels, List<String> fqdns, String version) {
-      logger.debugf("Finding the assigned groups for gatewayId: %s with labels %s", gatewayId, gatewayLabels);
-
-      List<Exposition> expositions = new ArrayList<>();
-      List<GatewayGroup> matchingGroups = new ArrayList<>();
-
-      for (GatewayGroup gatewayGroup : gatewayGroupRepository.findAll().list()) {
-         if (gatewayGroup.labels != null && gatewayGroup.labels.entrySet().containsAll(gatewayLabels.entrySet())) {
-            logger.debugf("Found matching group %s with id %s", gatewayGroup.name, gatewayGroup.id);
-            matchingGroups.add(gatewayGroup);
-            expositions.addAll(expositionRepository.findByGatewayGroupId(gatewayGroup.id));
+   private List<String> validateIncludedArtifacts(String serviceId, @Nullable List<String> includedArtifacts)
+         throws DependencyNotFoundException {
+      if (includedArtifacts == null || includedArtifacts.isEmpty()) {
+         return new ArrayList<>();
+      }
+      Set<String> attachedNames = artifactRepository.findAttachedNamesByServiceId(serviceId);
+      // Keep insertion order and drop duplicates.
+      Set<String> selected = new LinkedHashSet<>(includedArtifacts);
+      for (String name : selected) {
+         if (!attachedNames.contains(name)) {
+            logger.errorf("Artifact '%s' is not an attached artifact of service '%s'", name, serviceId);
+            throw new DependencyNotFoundException("Artifact '" + name
+                  + "' is not an attached artifact of the service and cannot be selected");
          }
       }
-      gatewayManagerService.registerGateway(gatewayId, matchingGroups, fqdns, gatewayLabels, version);
-
-      logger.debugf("Found %d expositions for gatewayId: %s", expositions.size(), gatewayId);
-      return expositions.stream()
-            .map(exposition -> exposition.configurationPlan)
-            .toList();
-   }
-
-   /**
-    * @param expositionId The ID of the exposition for which to find the configuration
-    * @return The configuration plan associated with the given expositionId, or null if not found
-    */
-   public ConfigurationPlan getExpositionConfiguration(String expositionId) {
-      logger.debugf("Finding exposition configuration for expositionId: %s", expositionId);
-      Exposition exposition = expositionRepository.findById(expositionId);
-      if (exposition != null) {
-         return exposition.configurationPlan;
-      } else {
-         logger.warnf("No exposition found for id: %s", expositionId);
-         return null;
-      }
+      return new ArrayList<>(selected);
    }
 }

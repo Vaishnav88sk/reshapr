@@ -18,6 +18,7 @@ package io.reshapr.proxy.security;
 import io.reshapr.proxy.audit.AuditLogger;
 import io.reshapr.proxy.audit.AuthenticationFailureAuditEvent;
 import io.reshapr.proxy.registry.ConfigurationEntry;
+import io.reshapr.proxy.registry.ExpositionEntry;
 import io.reshapr.proxy.registry.GatewayRegistry;
 import io.reshapr.proxy.registry.OAuth2ConfigurationEntry;
 import io.reshapr.proxy.registry.ServiceEntry;
@@ -107,23 +108,29 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
          // This is a protected endpoint, we can apply security checks here.
          logger.debugf("Applying security checks for path: '%s'", path);
 
-         // Remove "/mcp/" prefix and extract the ServiceEntry.
-         ServiceEntry service = null;
+         // Remove "/mcp/" prefix and resolve the target exposition from the path shape.
          String shortPath = path.substring(MCP_PATH_PREFIX.length());
          String[] parts = shortPath.split("/");
 
+         ExpositionEntry exposition = null;
          if (parts.length == 1) {
-            service = gatewayRegistry.getService(parts[0]);
+            // 1 segment: /mcp/{expositionId}
+            exposition = gatewayRegistry.getExpositionById(parts[0]);
+         } else if (parts.length == 2) {
+            // 2 segments: /mcp/{organizationId}/{expositionName}
+            exposition = gatewayRegistry.getExpositionByName(parts[0], parts[1]);
          } else if (parts.length == 3) {
+            // 3 segments (legacy): /mcp/{organizationId}/{service}/{version} -> elected exposition.
             // If serviceName was encoded with '+' instead of '%20', remove them.
             if (parts[1].contains("+")) {
                parts[1] = parts[1].replace('+', ' ');
             }
-            service = gatewayRegistry.getService(parts[0], parts[1], parts[2]);
+            exposition = gatewayRegistry.getElectedExpositionByServiceCoordinates(parts[0], parts[1], parts[2]);
          }
 
-         if (service != null) {
-            ConfigurationEntry configuration = gatewayRegistry.getConfiguration(service);
+         if (exposition != null) {
+            ServiceEntry service = exposition.service();
+            ConfigurationEntry configuration = exposition.configuration();
 
             // Do the security checks if any.
             if (isSecuredService(configuration)) {

@@ -128,7 +128,11 @@ export function apiClient() {
       if (!res.ok) throw new ApiError(await parseErrorBody(res), res.status);
       return res.json() as Promise<unknown>;
     },
-    createExposition: (body: { configurationPlanId: string; gatewayGroupId: string }) =>
+    createExposition: (body: {
+      configurationPlanId: string;
+      gatewayGroupId: string;
+      name?: string;
+    }) =>
       json<unknown>('/api/v1/expositions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

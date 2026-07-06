@@ -24,6 +24,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import org.hibernate.annotations.Type;
 
 import java.util.List;
@@ -35,7 +36,9 @@ import static jakarta.persistence.FetchType.EAGER;
  * @author laurent
  */
 @Entity
-@Table(name = "configuration_plans")
+@Table(name = "configuration_plans", uniqueConstraints = {
+      @UniqueConstraint(columnNames = {"service_id", "name"})
+})
 public class ConfigurationPlan extends TenantAwareEntity {
 
    @Column(nullable = false)
@@ -64,6 +67,18 @@ public class ConfigurationPlan extends TenantAwareEntity {
 //   @CollectionTable(name = "config_plans_exclusions", joinColumns = @JoinColumn(name = "id"))
 //   @Column(name = "excluded_operations")
 //   public List<String> excludedOperations;
+
+   /**
+    * Names of the attached artifacts (Prompts, Resources, CustomTools, OutputFilters) selected for this
+    * configuration plan. Stored as names to stay consistent with {@link #includedOperations}/
+    * {@link #excludedOperations} and with the public API, which references artifacts by name. An empty
+    * (or null) list means all the attached artifacts of the service apply. The service main artifact is
+    * never impacted by this selection. Artifact names are unique within a service (enforced by a unique
+    * index), which makes this name-based selection deterministic.
+    */
+   @Type(JsonType.class)
+   @Column(columnDefinition = "JSONB", name = "included_artifacts")
+   public List<String> includedArtifacts;
 
    @Column(name = "api_key")
    @Convert(converter = CipheredAttributeConverter.class)

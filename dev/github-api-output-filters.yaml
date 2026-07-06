@@ -20,4 +20,4 @@ filters:
         value: Worldwide
       - op: remove
         path: /data/user/followers/nodes
-    convertToToon: true
+    convertToToon: false

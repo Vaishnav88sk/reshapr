@@ -19,11 +19,12 @@ import yoctoSpinner from 'yocto-spinner';
 import { Command } from "commander";
 import { Logger } from "../utils/logger.js";
 import { ConfigUtil } from "../utils/config.js";
-import { formatEndpoint } from "../utils/format.js";
+import { formatExpositionEndpoints, buildExpositionSlug } from "../utils/format.js";
 import { Context } from "../utils/context.js";
 import { CLI_LABEL } from '../constants.js';
 
 const DEFAULT_GATEWAY_GROUP_ID: string = '1'; // Default Gateway Group ID, can be changed later
+const DEFAULT_PLAN_NAME: string = 'default'; // Name of the configuration plan created by `import --be`
 
 export const importCommand = new Command('import')
   .description(`Import an artifact into ${CLI_LABEL}`)
@@ -122,69 +123,138 @@ export const importCommand = new Command('import')
   });
 
 async function exposeService(options: any, service: any) {
-  if (options.backendEndpoint) {
-    const backendEndpoint = options.backendEndpoint;
-
-    // First create a Configuration Plan.
-    const planResponse = await fetch(`${ConfigUtil.config.server}/api/v1/configurationPlans`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${ConfigUtil.config.token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        serviceId: service.id,
-        name: `default-plan for ${service.name}`,
-        description: `Configuration plan for ${service.name} on ${backendEndpoint}`,
-        backendEndpoint: options.backendEndpoint,
-        backendSecretId: options.backendSecret || undefined,
-        apiKey: (options.apiKey ? 'generate-me' : undefined),
-        initialAccessToken: (options.internalOAuth2 ? 'generate-me' : undefined),
-        audit: options.audit || false
-      })
-    });
-    if (!planResponse.ok) {
-      Logger.error('Failed to create a Config Plan for service: ' + planResponse.statusText);
-      process.exit(1);
-    }
-
-    const planData = await planResponse.json();
-    Context.put('configurationPlan', planData);
-
-    if (options.apiKey) {
-      Logger.warn(`The API Key to access future expositions is: ${planData.apiKey}`);
-      Logger.warn('Make sure to store it securely, as it will not be shown again.');
-    }
-
-    // Then expose the config plan on the default Gateway Group.
-    const exposeResponse = await fetch(`${ConfigUtil.config.server}/api/v1/expositions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${ConfigUtil.config.token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        gatewayGroupId: DEFAULT_GATEWAY_GROUP_ID,
-        configurationPlanId: planData.id
-      })
-    });
-    if (!exposeResponse.ok) {
-      Logger.error('Failed to expose configuration: ' + exposeResponse.statusText);
-      if (exposeResponse.status === 429) {
-        Logger.error('Exposition creation quota exceeded. Check your quotas.');
-      }
-      process.exit(1);
-    }
-
-    const exposeData = await exposeResponse.json().catch(err => {
-      Logger.error('Failed to parse exposition response: ' + err.message);
-      process.exit(1);
-    });
-    Logger.success('Exposition done!');
-    Context.put('exposition', exposeData);
-
-    await getActiveExposition(exposeData);  
+  if (!options.backendEndpoint) {
+    return;
   }
+
+  // Keep `import --be` idempotent: reuse the existing 'default' plan/exposition when present so that
+  // re-importing the same spec only updates the service (which auto-propagates to the running gateway)
+  // instead of creating duplicates — which would now fail on plan (service_id, name) and exposition
+  // (organization_id, name) uniqueness constraints.
+  const plan = await findOrCreateDefaultPlan(options, service);
+  const exposition = await findOrCreateExposition(service, plan);
+
+  await getActiveExposition(exposition);
+}
+
+function authHeaders(): Record<string, string> {
+  return { 'Authorization': `Bearer ${ConfigUtil.config.token}` };
+}
+
+/** Return the existing 'default' configuration plan of the service, or undefined if none exists. */
+async function findDefaultPlan(serviceId: string): Promise<any | undefined> {
+  const response = await fetch(`${ConfigUtil.config.server}/api/v1/configurationPlans?serviceId=${serviceId}`, {
+    method: 'GET',
+    headers: authHeaders()
+  });
+  if (!response.ok) {
+    Logger.error('Failed to list configuration plans: ' + response.statusText);
+    process.exit(1);
+  }
+  const plans = await response.json();
+  return Array.isArray(plans) ? plans.find((plan: any) => plan.name === DEFAULT_PLAN_NAME) : undefined;
+}
+
+/** Reuse the existing 'default' plan of the service or create a new one. */
+async function findOrCreateDefaultPlan(options: any, service: any): Promise<any> {
+  const existing = await findDefaultPlan(service.id);
+  if (existing) {
+    Logger.info(`Reusing existing configuration plan '${existing.name}' (ID: ${existing.id}) for service ${service.name}.`);
+    if (options.backendEndpoint && existing.backendEndpoint !== options.backendEndpoint) {
+      Logger.warn(`The existing plan targets '${existing.backendEndpoint}'; the provided --backendEndpoint '${options.backendEndpoint}' is ignored. Use 'config update' to change it.`);
+    }
+    Context.put('configurationPlan', existing);
+    return existing;
+  }
+
+  const planResponse = await fetch(`${ConfigUtil.config.server}/api/v1/configurationPlans`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      serviceId: service.id,
+      name: DEFAULT_PLAN_NAME,
+      description: `Configuration plan for ${service.name} on ${options.backendEndpoint}`,
+      backendEndpoint: options.backendEndpoint,
+      backendSecretId: options.backendSecret || undefined,
+      apiKey: (options.apiKey ? 'generate-me' : undefined),
+      initialAccessToken: (options.internalOAuth2 ? 'generate-me' : undefined),
+      audit: options.audit || false
+    })
+  });
+  if (!planResponse.ok) {
+    Logger.error('Failed to create a Config Plan for service: ' + planResponse.statusText);
+    process.exit(1);
+  }
+
+  const planData = await planResponse.json();
+  Context.put('configurationPlan', planData);
+
+  if (options.apiKey) {
+    Logger.warn(`The API Key to access future expositions is: ${planData.apiKey}`);
+    Logger.warn('Make sure to store it securely, as it will not be shown again.');
+  }
+  return planData;
+}
+
+/** Return the existing exposition of the plan on the default gateway group, or undefined if none exists. */
+async function findExpositionForPlan(serviceId: string, planId: string): Promise<any | undefined> {
+  const response = await fetch(`${ConfigUtil.config.server}/api/v1/expositions?serviceId=${serviceId}`, {
+    method: 'GET',
+    headers: authHeaders()
+  });
+  if (!response.ok) {
+    Logger.error('Failed to list expositions: ' + response.statusText);
+    process.exit(1);
+  }
+  const expositions = await response.json();
+  return Array.isArray(expositions)
+    ? expositions.find((expo: any) => expo.configurationPlan?.id === planId && expo.gatewayGroup?.id === DEFAULT_GATEWAY_GROUP_ID)
+    : undefined;
+}
+
+/** Reuse the existing exposition of the plan or create a new one on the default gateway group. */
+async function findOrCreateExposition(service: any, plan: any): Promise<any> {
+  const existing = await findExpositionForPlan(service.id, plan.id);
+  if (existing) {
+    Logger.info(`Reusing existing exposition '${existing.name || existing.id}'. The re-imported service update propagates to the gateway automatically.`);
+    Context.put('exposition', existing);
+    return existing;
+  }
+
+  // Propose a default exposition name (slug of service-version-plan) so the deterministic
+  // /mcp/{org}/{exposition_name} endpoint is available out of the box (decision #4).
+  const expositionName = buildExpositionSlug(service.name, service.version, plan.name);
+
+  const exposeResponse = await fetch(`${ConfigUtil.config.server}/api/v1/expositions`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      gatewayGroupId: DEFAULT_GATEWAY_GROUP_ID,
+      configurationPlanId: plan.id,
+      name: expositionName
+    })
+  });
+  if (!exposeResponse.ok) {
+    Logger.error('Failed to expose configuration: ' + exposeResponse.statusText);
+    if (exposeResponse.status === 429) {
+      Logger.error('Exposition creation quota exceeded. Check your quotas.');
+    }
+    process.exit(1);
+  }
+
+  const exposeData = await exposeResponse.json().catch(err => {
+    Logger.error('Failed to parse exposition response: ' + err.message);
+    process.exit(1);
+  });
+  Logger.success('Exposition done!');
+  Context.put('exposition', exposeData);
+  return exposeData;
 }
 
 async function getActiveExposition(exposition: any) {
@@ -210,6 +280,7 @@ async function getActiveExposition(exposition: any) {
   Logger.success('Exposition is now active!');
 
   Logger.log(`Exposition ID  : ${data.id}`);
+  Logger.log(`Exposition Name: ${exposition.name || '(unnamed)'}`);
   Logger.log(`Organization   : ${data.organizationId}`);
   Logger.log(`Created on     : ${data.createdOn}`);
   Logger.log(`Service ID     : ${data.service.id}`);
@@ -218,12 +289,12 @@ async function getActiveExposition(exposition: any) {
   Logger.log(`Service Type   : ${data.service.type} -> ${data.configurationPlan.backendEndpoint}`);
 
   let allFqdns = uniqueFQDNs(data.gateways);
-  Context.put('endpoints', uniqueFQDNs(data.gateways).map(
-    fqdn => formatEndpoint(fqdn, exposition.organizationId, exposition.service.name, exposition.service.version)
+  Context.put('endpoints', allFqdns.flatMap(
+    fqdn => formatExpositionEndpoints(fqdn, exposition)
   ));
 
-  Logger.log(`Endpoints      : ${allFqdns.map(
-    (fqdn: string) => formatEndpoint(fqdn, data.organizationId, data.service.name, data.service.version))
+  Logger.log(`Endpoints      : ${allFqdns.flatMap(
+    (fqdn: string) => formatExpositionEndpoints(fqdn, exposition))
     .join(', ')}`);
 }
 

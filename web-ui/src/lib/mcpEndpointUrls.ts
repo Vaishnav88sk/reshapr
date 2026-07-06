@@ -38,6 +38,25 @@ export function buildAbsoluteMcpUrl(
   serviceVersion: string,
 ): string {
   const relPath = `mcp/${organizationId}/${encodeMcpPathSegment(serviceName)}/${encodeMcpPathSegment(serviceVersion)}`
+  return absoluteFromFqdn(fqdn, relPath)
+}
+
+/** Deterministic per-id endpoint: /mcp/{expositionId} (always available). */
+export function buildAbsoluteMcpUrlById(fqdn: string, expositionId: string): string {
+  return absoluteFromFqdn(fqdn, `mcp/${encodeMcpPathSegment(expositionId)}`)
+}
+
+/** Deterministic per-name endpoint: /mcp/{org}/{expositionName} (only when the exposition is named). */
+export function buildAbsoluteMcpUrlByName(
+  fqdn: string,
+  organizationId: string,
+  expositionName: string,
+): string {
+  const relPath = `mcp/${organizationId}/${encodeMcpPathSegment(expositionName)}`
+  return absoluteFromFqdn(fqdn, relPath)
+}
+
+function absoluteFromFqdn(fqdn: string, relPath: string): string {
   const raw = fqdn.trim()
   if (!raw) throw new Error('FQDN vide')
   if (/^https?:\/\//i.test(raw)) {
@@ -48,8 +67,14 @@ export function buildAbsoluteMcpUrl(
 }
 
 export type McpUrlListItem = {
+  /** Legacy 3-segment URL (/mcp/{org}/{service}/{version}) — used by MCP tooling calls. */
   url: string
+  /** Deterministic per-id URL (/mcp/{expositionId}) — always present. */
+  urlById: string
+  /** Deterministic per-name URL (/mcp/{org}/{expositionName}) — only when the exposition is named. */
+  urlByName?: string
   expositionId: string
+  expositionName?: string
   organizationId: string
   serviceId: string
   serviceName: string
@@ -62,6 +87,7 @@ type GatewayRow = { name?: string; fqdns?: unknown[] }
 
 type ActiveExpositionLike = {
   id?: string
+  name?: string
   organizationId?: string
   service?: { id?: string; name?: string; version?: string }
   gateways?: GatewayRow[]
@@ -79,6 +105,7 @@ export function collectMcpUrlsFromActiveExpositions(payload: unknown): McpUrlLis
   const out: McpUrlListItem[] = []
   for (const row of rows) {
     const expositionId = String(row.id || '')
+    const expositionName = typeof row.name === 'string' && row.name.trim() ? row.name.trim() : undefined
     const organizationId = String(row.organizationId || '')
     const svc = row.service
     const serviceId = String(svc?.id || '')
@@ -94,7 +121,12 @@ export function collectMcpUrlsFromActiveExpositions(payload: unknown): McpUrlLis
         try {
           out.push({
             url: buildAbsoluteMcpUrl(fq, organizationId, serviceName, serviceVersion),
+            urlById: buildAbsoluteMcpUrlById(fq, expositionId),
+            urlByName: expositionName
+              ? buildAbsoluteMcpUrlByName(fq, organizationId, expositionName)
+              : undefined,
             expositionId,
+            expositionName,
             organizationId,
             serviceId,
             serviceName,

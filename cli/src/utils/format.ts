@@ -17,6 +17,56 @@ export function formatEndpoint(fqdn: string, organizationId: string, serviceName
   return `${fqdn}/mcp/${organizationId}/${encodeUrl(serviceName)}/${encodeUrl(serviceVersion)}`;
 }
 
+/**
+ * Deterministic MCP endpoint addressing an exposition by its id (always available).
+ */
+export function formatExpositionIdEndpoint(fqdn: string, expositionId: string): string {
+  return `${fqdn}/mcp/${expositionId}`;
+}
+
+/**
+ * Deterministic MCP endpoint addressing an exposition by its organization-unique name. Returns
+ * `undefined` when the exposition has no name (the by-name endpoint is then not exposed).
+ */
+export function formatExpositionEndpoint(fqdn: string, organizationId: string, expositionName?: string | null): string | undefined {
+  if (!expositionName || expositionName.trim() === '') {
+    return undefined;
+  }
+  return `${fqdn}/mcp/${organizationId}/${encodeUrl(expositionName)}`;
+}
+
+/**
+ * Build the list of deterministic MCP endpoints for an exposition on a given fqdn: the by-id endpoint
+ * (always present) plus the by-name endpoint when the exposition is named.
+ */
+export function formatExpositionEndpoints(fqdn: string, exposition: { id: string; organizationId: string; name?: string | null }): string[] {
+  const urls = [formatExpositionIdEndpoint(fqdn, exposition.id)];
+  const byName = formatExpositionEndpoint(fqdn, exposition.organizationId, exposition.name ?? undefined);
+  if (byName) {
+    urls.push(byName);
+  }
+  return urls;
+}
+
+/**
+ * Turn an arbitrary label into a URL/DNS-friendly slug (lower-case, non-alphanumeric collapsed to `-`).
+ */
+export function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * Default exposition name proposed at creation time: a slug of `service-version-plan` (decision #4).
+ */
+export function buildExpositionSlug(serviceName: string, serviceVersion: string, planName: string): string {
+  return slugify(`${serviceName}-${serviceVersion}-${planName}`);
+}
+
 function encodeUrl(url: string): string {
   return url.replace(/\s/g, '+');
 }

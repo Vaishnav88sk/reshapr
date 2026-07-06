@@ -126,7 +126,7 @@ public class GrpcMcpToolConverter extends McpToolConverter {
 
    /** */
    private Descriptors.ServiceDescriptor getServiceDescriptor() {
-      String major = String.valueOf(service.hashCode());
+      String major = artifact.id();
       String minor = CACHE_KEYS_PREFIX + "sd";
       Object value = workCache.get(major, minor);
       if (value instanceof Descriptors.ServiceDescriptor serviceDescriptor) {
@@ -148,7 +148,7 @@ public class GrpcMcpToolConverter extends McpToolConverter {
 
    /** */
    private ObjectNode getInputSchemaNode(OperationEntry operation) {
-      String major = String.valueOf(service.hashCode());
+      String major = artifact.id();
       String minor = CACHE_KEYS_PREFIX + operation.hashCode() + "-schema";
       Object value = workCache.get(major, minor);
       if (value instanceof ObjectNode inputSchemaNode) {

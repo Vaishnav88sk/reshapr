@@ -27,6 +27,7 @@ import io.reshapr.proxy.registry.ServiceEntry;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.net.HttpHeaders;
 import com.google.crypto.tink.subtle.Base64;
 import jakarta.annotation.Nullable;
@@ -39,7 +40,6 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * An implementation of McpResourceBuilder that builds resources from Reshapr Resources artifacts.
@@ -232,70 +232,57 @@ public class ReshaprResourcesMcpResourceBuilder implements McpResourceBuilder {
    }
 
    private @Nullable JsonNode getResourcesNode() {
-      String major = String.valueOf(service.hashCode());
-      if (workCache.get(major, CACHE_KEYS_PREFIX) instanceof JsonNode resourcesNode) {
-         logger.tracef("Got a cached value of Resources JsonNode for service '%s'", service.id());
-         return resourcesNode;
-      }
-
-      // Avoid errors if no attached artifacts.
-      if (attachedArtifacts == null || attachedArtifacts.isEmpty()) {
-         return null;
-      }
-
-      // Check the existence of a Reshapr Resources artifact.
-      Optional<ArtifactEntry> promptsArtifact = attachedArtifacts.stream()
-            .filter(artifactEntry -> ArtifactEntryType.RESHAPR_RESOURCES.equals(artifactEntry.type()))
-            .findFirst();
-      if (promptsArtifact.isEmpty()) {
-         return null;
-      }
-
-      // Compute new value to cache.
-      logger.debugf("Need to build Resources for service '%s'", service.id());
-      try {
-         JsonNode artifactNode = YAML_MAPPER.readTree(promptsArtifact.get().content());
-         JsonNode resourcesNode = artifactNode.get("resources");
-
-         workCache.set(major, CACHE_KEYS_PREFIX, resourcesNode);
-         return resourcesNode;
-      } catch (Exception e) {
-         logger.errorf(e, "Cannot read Reshapr Resources artifact for service '%s'", service.id());
-         return null;
-      }
+      return mergeAcrossArtifacts("resources", CACHE_KEYS_PREFIX);
    }
 
    private @Nullable JsonNode getResourceTemplatesNode() {
-      String major = String.valueOf(service.hashCode());
-      String minor = CACHE_KEYS_PREFIX + "-templates";
-      if (workCache.get(major, minor) instanceof JsonNode templatesNode) {
-         logger.tracef("Got a cached value of ResourceTemplates JsonNode for service '%s'", service.id());
-         return templatesNode;
-      }
+      return mergeAcrossArtifacts("resourceTemplates", CACHE_KEYS_PREFIX + "-templates");
+   }
 
-      // Avoid errors if no attached artifacts.
+   /**
+    * Merge a given root sub-node ({@code resources} or {@code resourceTemplates}) across <b>all</b> attached
+    * Resources artifacts. Each artifact is parsed and cached individually (keyed by its id); the entries are
+    * merged by uri (first declaring artifact wins on collision, deterministic by attachment order). Returns
+    * null when no attached Resources artifact declares any entry.
+    */
+   private @Nullable JsonNode mergeAcrossArtifacts(String jsonKey, String minor) {
       if (attachedArtifacts == null || attachedArtifacts.isEmpty()) {
          return null;
       }
-
-      // Check the existence of a Reshapr Resources artifact.
-      Optional<ArtifactEntry> promptsArtifact = attachedArtifacts.stream()
-            .filter(artifactEntry -> ArtifactEntryType.RESHAPR_RESOURCES.equals(artifactEntry.type()))
-            .findFirst();
-      if (promptsArtifact.isEmpty()) {
-         return null;
+      ObjectNode merged = YAML_MAPPER.createObjectNode();
+      for (ArtifactEntry artifact : attachedArtifacts) {
+         if (!ArtifactEntryType.RESHAPR_RESOURCES.equals(artifact.type())) {
+            continue;
+         }
+         JsonNode subNode = getSubNodeForArtifact(artifact, jsonKey, minor);
+         if (subNode != null && subNode.isObject()) {
+            Iterator<String> uris = subNode.fieldNames();
+            while (uris.hasNext()) {
+               String uri = uris.next();
+               if (!merged.has(uri)) {
+                  merged.set(uri, subNode.get(uri));
+               }
+            }
+         }
       }
+      return merged.isEmpty() ? null : merged;
+   }
 
-      // Compute new value to cache.
-      logger.debugf("Need to build ResourceTemplates for service '%s'", service.id());
+   /** Parse and cache (keyed by artifact id + minor) a root sub-node of a single Resources artifact. */
+   private @Nullable JsonNode getSubNodeForArtifact(ArtifactEntry artifact, String jsonKey, String minor) {
+      if (workCache.get(artifact.id(), minor) instanceof JsonNode cached) {
+         logger.tracef("Got a cached value of '%s' JsonNode for artifact '%s'", jsonKey, artifact.id());
+         return cached;
+      }
       try {
-         JsonNode artifactNode = YAML_MAPPER.readTree(promptsArtifact.get().content());
-         JsonNode templatesNode = artifactNode.get("resourceTemplates");
-
-         workCache.set(major, minor, templatesNode);
-         return templatesNode;
+         JsonNode artifactNode = YAML_MAPPER.readTree(artifact.content());
+         JsonNode subNode = artifactNode.get(jsonKey);
+         if (subNode != null) {
+            workCache.set(artifact.id(), minor, subNode);
+         }
+         return subNode;
       } catch (Exception e) {
-         logger.errorf(e, "Cannot read Reshapr Resources artifact for service '%s'", service.id());
+         logger.errorf(e, "Cannot read Reshapr Resources artifact '%s' for service '%s'", artifact.id(), service.id());
          return null;
       }
    }

@@ -181,7 +181,7 @@ public class ServiceManagerService {
          artifactRepository.delete("where service.id = ?1 and sourceArtifact = ?2", service.id, artifactInfo.name());
       }
 
-      // Discover and persist new artifacts from the Microcks service definition.
+      // Discover and persist new artifacts from the Service definition.
       final Service finalService = service;
       List<Artifact> artifacts = importer.getArtifactDefinitions(discoveredService).stream()
             .peek(artifact -> {
@@ -192,6 +192,8 @@ public class ServiceManagerService {
             .toList();
       artifactRepository.persist(artifacts);
 
+      // Propagate changes on artifacts if necessary before returning.
+      propagateArtifactsChanges(service);
       return service;
    }
 
@@ -275,10 +277,6 @@ public class ServiceManagerService {
 
       // Access to artifact information.
       Artifact artifact = artifactWithServiceRef.artifact();
-
-      // Remove previous artifact of same type attached to service if any.
-      artifactRepository.delete("where service.id = ?1 and type = ?2",
-            service.id, artifact.type);
 
       // Configure and persist new artifact.
       artifact.service = service;

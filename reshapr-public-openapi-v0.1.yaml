@@ -16,8 +16,68 @@ paths:
     post:
       requestBody:
         content:
-          multipart/form-data: {}
-          application/x-www-form-urlencoded: {}
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  description: The specification file to import as an artifact
+                  type: string
+                  format: binary
+                mainArtifact:
+                  description: Whether this artifact is a primary one (default is true)
+                  type: boolean
+                  default: true
+                serviceName:
+                  description: Name to assign to the imported Service (overrides the one from the specification)
+                  type: string
+                serviceVersion:
+                  description: Version to assign to the imported Service (overrides the one from the specification)
+                  type: string
+                includedOperations:
+                  description: List of operation names to include from the specification
+                  type: array
+                  items:
+                    type: string
+                excludedOperations:
+                  description: List of operation names to exclude from the specification
+                  type: array
+                  items:
+                    type: string
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  description: The remote URL of the specification to import as an artifact
+                  type: string
+                mainArtifact:
+                  description: Whether this artifact is a primary one (default is true)
+                  type: boolean
+                  default: true
+                secretName:
+                  description: Name of the Secret to use for authenticating the remote URL fetch
+                  type: string
+                serviceName:
+                  description: Name to assign to the imported Service (overrides the one from the specification)
+                  type: string
+                serviceVersion:
+                  description: Version to assign to the imported Service (overrides the one from the specification)
+                  type: string
+                includedOperations:
+                  description: List of operation names to include from the specification
+                  type: array
+                  items:
+                    type: string
+                excludedOperations:
+                  description: List of operation names to exclude from the specification
+                  type: array
+                  items:
+                    type: string
         required: true
       responses:
         "200":
@@ -209,7 +269,7 @@ paths:
           type: string
         in: query
       - name: gatewayGroupId
-        description: 'Indeitfier of the Gateway Group to get Expositions for '
+        description: 'Identifier of the Gateway Group to get Expositions for '
         schema:
           type: string
         in: query
@@ -222,7 +282,7 @@ paths:
                 items:
                   $ref: '#/components/schemas/Exposition'
           description: Get the expositions - either all or filtered by Service or
-            Gateway Groupd
+            Gateway Group
       security:
       - jwt-bearer: []
       operationId: getExpositions
@@ -422,7 +482,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Gateway'
+                  $ref: '#/components/schemas/GatewayView'
           description: The gateways currently active in the user's organization
       security:
       - jwt-bearer: []
@@ -597,7 +657,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiToken'
-          description: The newmy created ApiToken
+          description: The newmly created ApiToken
       security:
       - jwt-bearer: []
       operationId: createApiToken
@@ -759,11 +819,61 @@ components:
       - ENDPOINT
       type: string
     ServiceView:
-      description: An aggregated view no Service and related elements in Micepe
+      description: An aggregated view no Service and related elements in reShapr
+      required:
+      - id
+      - organizationId
+      - name
+      - version
+      - createdOn
+      - type
       type: object
+      properties:
+        id:
+          description: Service unique identifier
+          type: string
+        organizationId:
+          description: Identifier of the owning organization
+          type: string
+        name:
+          description: Service name
+          type: string
+        version:
+          description: Service version
+          type: string
+        createdOn:
+          format: date-time
+          description: Creation date in control plane
+          type: string
+        type:
+          $ref: '#/components/schemas/ServiceType'
+          description: Service type
+        operations:
+          description: The list of operations exposed by this service
+          type: array
+          items:
+            $ref: '#/components/schemas/Operation'
     ServiceSummary:
-      description: Basic information of a Service in reShapr control plance
+      description: Basic information of a Service in reShapr control plane
+      required:
+      - id
+      - name
+      - version
+      - type
       type: object
+      properties:
+        id:
+          description: Service unique identifier
+          type: string
+        name:
+          description: Service name
+          type: string
+        version:
+          description: Service version
+          type: string
+        type:
+          $ref: '#/components/schemas/ServiceType'
+          description: Service type
     ServiceType:
       description: The available types of Service in reShapr
       enum:
@@ -782,15 +892,62 @@ components:
       type: string
     Exposition:
       description: An Exposition in reShapr control plane
+      required:
+      - id
+      - organizationId
       type: object
+      properties:
+        id:
+          description: Unique identifier of the Exposition
+          type: string
+        organizationId:
+          description: Unique identifier of the organization owning the Exposition
+          type: string
+        name:
+          description: Optional organization-unique name of the Exposition (absent when unnamed)
+          type: string
+        createdOn:
+          format: date-time
+          description: Creation date in control plane
+          type: string
+        gatewayGroup:
+          $ref: '#/components/schemas/GatewayGroup'
+          description: The gateway group the service is exposed on
+        configurationPlan:
+          $ref: '#/components/schemas/ConfigurationPlan'
+          description: The configuration plan used for this exposition
+        service:
+          $ref: '#/components/schemas/Service'
+          description: The service being exposed
     ExpositionReference:
       description: A reference to an Exposition in reShapr control plane
+      required:
+      - id
+      - organizationId
       type: object
-    Gateway:
-      description: A Gateway in Micepe control plane
-      type: object
+      properties:
+        id:
+          description: Unique identifier of the Exposition
+          type: string
+        organizationId:
+          description: Unique identifier of the organization owning the Exposition
+          type: string
+        name:
+          description: Optional organization-unique name of the Exposition. When omitted at creation,
+            the Exposition is created unnamed (a default slug may be proposed by the CLI/Web UI).
+          type: string
+        createdOn:
+          format: date-time
+          description: Creation date in control plane
+          type: string
+        gatewayGroupId:
+          description: Identifier of the gateway group the service is exposed on
+          type: string
+        configurationPlanId:
+          description: Identifier of the configuration plan used for this exposition
+          type: string
     Operation:
-      description: A Service Operation in Micepe control plane
+      description: A Service Operation in reShapr control plane
       required:
       - name
       type: object
@@ -802,7 +959,7 @@ components:
           description: HTTP or protocol specification method if it makes sense
           type: string
         action:
-          description: Denoted operation action (dependig on the protocol)
+          description: Denoted operation action (depending on the protocol)
           type: string
         intputName:
           description: Name of input message type
@@ -875,6 +1032,12 @@ components:
           type: array
           items:
             type: string
+        includedArtifacts:
+          description: List of selected attached artifact names. Empty (or absent) means all the
+            attached artifacts of the service apply. The service main artifact is never impacted.
+          type: array
+          items:
+            type: string
         backendSecretId:
           description: Identifier of Backend Secret to use if any
           type: string
@@ -919,8 +1082,15 @@ components:
         organizationId:
           description: Unique identifier of the organization of the Exposition
           type: string
+        name:
+          description: Optional organization-unique name of the Exposition (absent when unnamed)
+          type: string
+        createdOn:
+          format: date-time
+          description: Creation date in control plane
+          type: string
     ConfigurationPlanView:
-      description: Minimal representation of a COnfiguration Plan
+      description: Minimal representation of a Configuration Plan
       required:
       - id
       - backendEndpoint
@@ -932,7 +1102,7 @@ components:
         backendEndpoint:
           description: ""
           type: string
-    GatewayView:
+    Gateway:
       description: Minimalist representation of a Gateway
       required:
       - id
@@ -1067,7 +1237,7 @@ components:
           description: The labels attached to this gateway group (key=value pairs)
           type: object
           additionalProperties: true
-    Gateway:
+    GatewayView:
       description: A gateway currently active and reporting health to the Reshapr control plane
       required:
       - id

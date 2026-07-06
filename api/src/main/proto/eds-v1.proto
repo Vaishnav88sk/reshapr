@@ -11,6 +11,7 @@ message Exposition {
   string id = 1; // Unique identifier for the exposition
   Service service = 2;
   Configuration configuration = 3;
+  string name = 4; // Optional organization-unique name of the exposition (empty when unnamed)
 }
 
 // Service represents a service that can be exposed
@@ -105,7 +106,10 @@ message ExpositionFetchRequest {
 
 // ArtifactsRequest is used to request artifacts for a specific exposed service
 message ArtifactsRequest {
-  string serviceId = 1; // ID of the Service to fetch artifacts for
+  string serviceId = 1; // ID of the Service to fetch artifacts for (legacy, unfiltered)
+  optional string expositionId = 2; // ID of the exposition to fetch artifacts for; when set, the attached
+                                    // artifacts are filtered by the exposition's ConfigurationPlan selection
+                                    // (empty selection means all), while the main artifact is always included
 }
 
 // ArtifactsResponse is used to return the artifacts for a service

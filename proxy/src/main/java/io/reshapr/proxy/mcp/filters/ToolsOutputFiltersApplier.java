@@ -31,8 +31,8 @@ import jakarta.annotation.Nullable;
 import org.jboss.logging.Logger;
 
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -130,31 +130,50 @@ public class ToolsOutputFiltersApplier {
       return toolFilter != null && toolFilter.isObject() ? toolFilter : null;
    }
 
-   /** Retrieve the `filters` object node from the ToolsOutputFilters kind yaml attachment. */
+   /**
+    * Retrieve the aggregated {@code filters} object node across <b>all</b> attached ToolsOutputFilters
+    * artifacts. Each artifact is parsed and cached individually (keyed by its id); the per-tool filter
+    * definitions are merged by tool name (first declaring artifact wins on collision, deterministic by
+    * attachment order). Returns null when no attached artifact declares any filter.
+    */
    private @Nullable JsonNode getFiltersNode() {
-      String major = String.valueOf(service.hashCode());
-      if (workCache.get(major, CACHE_KEYS_PREFIX) instanceof JsonNode filtersNode) {
-         logger.tracef("Got a cached value of ToolsOutputFilters JsonNode for service '%s'", service.id());
-         return filtersNode;
-      }
       if (attachedArtifacts == null || attachedArtifacts.isEmpty()) {
          return null;
       }
-
-      Optional<ArtifactEntry> outputFiltersArtifact = attachedArtifacts.stream()
-            .filter(artifactEntry -> ArtifactEntryType.RESHAPR_TOOLS_OUTPUT_FILTERS.equals(artifactEntry.type()))
-            .findFirst();
-      if (outputFiltersArtifact.isEmpty()) {
-         return null;
+      ObjectNode merged = YAML_MAPPER.createObjectNode();
+      for (ArtifactEntry artifact : attachedArtifacts) {
+         if (!ArtifactEntryType.RESHAPR_TOOLS_OUTPUT_FILTERS.equals(artifact.type())) {
+            continue;
+         }
+         JsonNode filtersNode = getFiltersNodeForArtifact(artifact);
+         if (filtersNode != null && filtersNode.isObject()) {
+            Iterator<String> tools = filtersNode.fieldNames();
+            while (tools.hasNext()) {
+               String tool = tools.next();
+               if (!merged.has(tool)) {
+                  merged.set(tool, filtersNode.get(tool));
+               }
+            }
+         }
       }
+      return merged.isEmpty() ? null : merged;
+   }
 
+   /** Parse and cache (keyed by artifact id) the {@code filters} sub-node of a single ToolsOutputFilters artifact. */
+   private @Nullable JsonNode getFiltersNodeForArtifact(ArtifactEntry artifact) {
+      if (workCache.get(artifact.id(), CACHE_KEYS_PREFIX) instanceof JsonNode cached) {
+         logger.tracef("Got a cached value of ToolsOutputFilters JsonNode for artifact '%s'", artifact.id());
+         return cached;
+      }
       try {
-         JsonNode artifactNode = YAML_MAPPER.readTree(outputFiltersArtifact.get().content());
+         JsonNode artifactNode = YAML_MAPPER.readTree(artifact.content());
          JsonNode filtersNode = artifactNode.get("filters");
-         workCache.set(major, CACHE_KEYS_PREFIX, filtersNode);
+         if (filtersNode != null) {
+            workCache.set(artifact.id(), CACHE_KEYS_PREFIX, filtersNode);
+         }
          return filtersNode;
       } catch (Exception e) {
-         logger.errorf(e, "Cannot read Reshapr ToolsOutputFilters artifact for service '%s'", service.id());
+         logger.errorf(e, "Cannot read Reshapr ToolsOutputFilters artifact '%s' for service '%s'", artifact.id(), service.id());
          return null;
       }
    }

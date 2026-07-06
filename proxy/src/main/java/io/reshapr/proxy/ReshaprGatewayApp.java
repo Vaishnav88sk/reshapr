@@ -30,6 +30,7 @@ import io.reshapr.proxy.mcp.WorkCache;
 import io.reshapr.proxy.registry.ArtifactEntry;
 import io.reshapr.proxy.registry.ArtifactEntryType;
 import io.reshapr.proxy.registry.ConfigurationEntry;
+import io.reshapr.proxy.registry.ExpositionEntry;
 import io.reshapr.proxy.registry.GatewayRegistry;
 import io.reshapr.proxy.registry.Mappers;
 import io.reshapr.proxy.registry.ResourceEntry;
@@ -45,6 +46,7 @@ import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.StartupEvent;
 import io.quarkus.runtime.util.StringUtil;
 import io.smallrye.mutiny.subscription.Cancellable;
+import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
@@ -52,7 +54,7 @@ import org.jboss.logging.Logger;
 
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Iterator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
@@ -90,7 +92,7 @@ public class ReshaprGatewayApp {
    List<String> fqdns;
 
    @ConfigProperty(name = "quarkus.application.version", defaultValue = "unknown")
-   String version;
+   String applicationVersion;
 
    Cancellable expositionChangesSubscription;
    boolean hasConnectedToControlPlane = false;
@@ -166,7 +168,7 @@ public class ReshaprGatewayApp {
             .setGatewayId(gatewayId)
             .putAllLabels(labels)
             .addAllFqdns(fqdns)
-            .setVersion(version)
+            .setVersion(applicationVersion)
             .build();
    }
 
@@ -185,76 +187,139 @@ public class ReshaprGatewayApp {
    /** Handle the exposition change here, e.g., update the registry or notify other components. */
    void propagateExpositionChangeEvent(ExpositionChangeEvent changeEvent) {
 
+      Exposition exposition = changeEvent.getExposition();
       if (changeEvent.getChangeType() == ChangeType.CREATED) {
          // Fetch service details and register it.
-         logger.infof("Start exposing Service '%s:%s' with ID '%s'",
-               changeEvent.getExposition().getService().getName(),
-               changeEvent.getExposition().getService().getVersion(),
-               changeEvent.getExposition().getService().getId());
-         fetchExposition(changeEvent.getExposition());
+         logger.infof("Start exposing Service '%s:%s' with ID '%s' (exposition '%s')",
+               exposition.getService().getName(),
+               exposition.getService().getVersion(),
+               exposition.getService().getId(),
+               exposition.getId());
+         fetchExposition(exposition);
       } else if (changeEvent.getChangeType() == ChangeType.DELETED) {
-         // Remove the service from the registry.
-         logger.infof("Stop exposing Service '%s:%s' with ID '%s'",
-               changeEvent.getExposition().getService().getName(),
-               changeEvent.getExposition().getService().getVersion(),
-               changeEvent.getExposition().getService().getId());
-         gatewayRegistry.removeService(changeEvent.getExposition().getService().getId());
+         // Remove only this exposition from the registry (other expositions of the same service are kept).
+         // No work cache invalidation is needed: the artifacts' content did not change, so their parsed
+         // entries (keyed by artifact id) remain valid for any other exposition still referencing them, and
+         // orphaned entries are eventually evicted by the LRU cache.
+         logger.infof("Stop exposing Service '%s:%s' with ID '%s' (exposition '%s')",
+               exposition.getService().getName(),
+               exposition.getService().getVersion(),
+               exposition.getService().getId(),
+               exposition.getId());
+         gatewayRegistry.removeExposition(exposition.getId());
       } else if (changeEvent.getChangeType() == ChangeType.UPDATED) {
-         // Update the service in the registry.
-         logger.infof("Update exposition for Service '%s:%s' with ID '%s'",
-               changeEvent.getExposition().getService().getName(),
-               changeEvent.getExposition().getService().getVersion(),
-               changeEvent.getExposition().getService().getId());
-         gatewayRegistry.removeService(changeEvent.getExposition().getService().getId());
-         fetchExposition(changeEvent.getExposition());
+         // Re-fetch and re-register the exposition. fetchExposition compares the freshly fetched artifacts
+         // with the previously registered ones and surgically invalidates the work cache only for the
+         // artifacts whose content actually changed, then addExposition atomically replaces the instance
+         // (refreshing the name index and re-electing).
+         logger.infof("Update exposition for Service '%s:%s' with ID '%s' (exposition '%s')",
+               exposition.getService().getName(),
+               exposition.getService().getVersion(),
+               exposition.getService().getId(),
+               exposition.getId());
+         fetchExposition(exposition);
       }
    }
 
    /** Fetch exposition details and register the service and its artifacts. */
    void fetchExposition(Exposition exposition) {
-      logger.infof("Fetching artifacts for Service '%s:%s'", exposition.getService().getName(), exposition.getService().getVersion());
+      logger.infof("Fetching artifacts for exposition '%s' of Service '%s:%s'", exposition.getId(),
+            exposition.getService().getName(), exposition.getService().getVersion());
 
       ServiceEntry service = registryMappers.toServiceEntry(exposition.getService());
-      logger.infof("Registering Service with ID '%s' for organization %s", service.id(), service.organizationId());
-      gatewayRegistry.addService(service);
-
       ConfigurationEntry configuration = registryMappers.toConfigurationEntry(exposition.getConfiguration());
-      logger.infof("Building a ConfigurationPlan for Service with ID '%s'", service.id());
-      logger.debugf("ConfigurationPlan is %s", configuration);
-      gatewayRegistry.addConfiguration(service, configuration);
+      logger.debugf("ConfigurationPlan for exposition '%s' is %s", exposition.getId(), configuration);
 
+      // Request the artifacts scoped to this exposition: the control plane filters the attached artifacts by
+      // the ConfigurationPlan selection (empty selection = all) and always includes the main artifact.
       ArtifactsRequest artifactsRequest = ArtifactsRequest.newBuilder()
+            .setExpositionId(exposition.getId())
             .setServiceId(exposition.getService().getId())
             .build();
       ArtifactsResponse artifactsResponse = discoveryService.fetchArtifacts(artifactsRequest);
-      logger.debugf("Fetched %d artifacts", artifactsResponse.getArtifactsCount(), artifactsResponse.getServiceId());
+      logger.debugf("Fetched %d artifacts for exposition '%s'", artifactsResponse.getArtifactsCount(), exposition.getId());
 
+      ArtifactEntry mainArtifact = null;
       List<ArtifactEntry> attachedArtifacts = new ArrayList<>();
       for (var artifact : artifactsResponse.getArtifactsList()) {
          ArtifactEntry artifactEntry = registryMappers.toArtifactEntry(artifact);
 
          // We don't need the protobuf schema for the service, so we skip it.
          if (!artifactEntry.type().equals(ArtifactEntryType.PROTOBUF_SCHEMA)) {
-
             if (artifactEntry.mainArtifact() && isRootArtifact(artifactEntry)) {
-               logger.debugf("Registering Artifact with ID '%s' for service %s as main", artifactEntry.id(), service.id());
-               gatewayRegistry.addMainArtifact(service, artifactEntry);
+               logger.debugf("Registering Artifact with ID '%s' for exposition %s as main", artifactEntry.id(), exposition.getId());
+               mainArtifact = artifactEntry;
             } else {
-               logger.debugf("Registering Artifact with ID '%s' for service %s as attached", artifactEntry.id(), service.id());
+               logger.debugf("Registering Artifact with ID '%s' for exposition %s as attached", artifactEntry.id(), exposition.getId());
                attachedArtifacts.add(artifactEntry);
             }
          }
       }
-      // Complete registry with attached (to primary) or secondary artifacts.
+
+      // Build the ready-to-serve aggregate (main/attached already split, attached already filtered by the
+      // control plane) and register it atomically under all exposition indexes.
+      ExpositionEntry expositionEntry = new ExpositionEntry(exposition.getId(),
+            exposition.getName().isBlank() ? null : exposition.getName(),
+            service, configuration, mainArtifact, attachedArtifacts);
+
+      // Surgically invalidate the work cache for artifacts whose content actually changed since the
+      // previously registered version of this exposition (Option 2b). Unchanged or brand-new artifacts keep
+      // their (still valid or not-yet-computed) cache entries, avoiding cross-exposition over-invalidation.
+      ExpositionEntry previous = gatewayRegistry.getExpositionById(exposition.getId());
+      invalidateChangedArtifacts(previous, mainArtifact, attachedArtifacts);
+
+      logger.infof("Registering exposition '%s' for Service with ID '%s' in organization %s",
+            exposition.getId(), service.id(), service.organizationId());
+      gatewayRegistry.addExposition(expositionEntry);
+
+      // Check if we need to process any attached artifact for special handling (UI resources).
       if (!attachedArtifacts.isEmpty()) {
-         gatewayRegistry.addAttachedArtifacts(service, attachedArtifacts);
-         // Check if we need to process any attached artifact for special handling.
          analyseAttachedArtifacts(attachedArtifacts, service);
       }
+   }
 
-      // Don't forget to invalidate the work cache for this service - so that artifacts will be re-parsed.
-      logger.debugf("Invalidate work cache for Service with ID '%s'" + service.id());
-      workCache.invalidateMajor(String.valueOf(service.hashCode()));
+   /**
+    * Surgically invalidate the work cache for artifacts whose content changed between the previously
+    * registered exposition and the freshly fetched one. The work cache is keyed by artifact id, so parsed
+    * artifacts are shared across expositions referencing the same artifact; invalidating only the artifacts
+    * whose content actually changed avoids evicting entries still valid for other expositions and prevents
+    * repeated invalidate/rebuild churn when several exposition change events arrive in series.
+    * @param previous The previously registered exposition (may be null for CREATED / startup).
+    * @param newMain The freshly fetched main artifact (may be null).
+    * @param newAttached The freshly fetched attached artifacts.
+    */
+   void invalidateChangedArtifacts(@Nullable ExpositionEntry previous, @Nullable ArtifactEntry newMain,
+                                           List<ArtifactEntry> newAttached) {
+      if (previous == null) {
+         // Nothing was registered before for this exposition: new artifacts are not cached yet (or are
+         // shared with the identical content of another exposition), so there is nothing to invalidate.
+         return;
+      }
+
+      // Index the previous artifacts content by id.
+      Map<String, String> previousContentById = new HashMap<>();
+      if (previous.mainArtifact() != null) {
+         previousContentById.put(previous.mainArtifact().id(), previous.mainArtifact().content());
+      }
+      for (ArtifactEntry previousArtifact : previous.attachedArtifacts()) {
+         previousContentById.put(previousArtifact.id(), previousArtifact.content());
+      }
+
+      // Collect the freshly fetched artifacts.
+      List<ArtifactEntry> newArtifacts = new ArrayList<>();
+      if (newMain != null) {
+         newArtifacts.add(newMain);
+      }
+      newArtifacts.addAll(newAttached);
+
+      // Invalidate only the artifacts whose content actually changed.
+      for (ArtifactEntry artifact : newArtifacts) {
+         String previousContent = previousContentById.get(artifact.id());
+         if (previousContent != null && !previousContent.equals(artifact.content())) {
+            logger.debugf("Artifact '%s' content changed, invalidating its work cache entries", artifact.id());
+            workCache.invalidateMajor(artifact.id());
+         }
+      }
    }
 
    private boolean isRootArtifact(ArtifactEntry artifact) {
@@ -271,41 +336,47 @@ public class ReshaprGatewayApp {
                   && ReshaprArtifactSchemas.RESOURCES_VERSION_V1ALPHA1.equals(version)) {
                // Further processing of Resources artifact to check uiResources.
                JsonNode resources = artifactNode.path("resources");
-               for (var resource : resources.properties()) {
-                  // Check for UI Tool resources only.
-                  if (resource.getKey().startsWith("ui://")) {
-                     JsonNode toolsNode = resource.getValue().path("tools");
-                     if (toolsNode != null && toolsNode.isArray()) {
-                        Iterator<JsonNode> toolsIterator = toolsNode.iterator();
-                        while (toolsIterator.hasNext()) {
-                           JsonNode toolNode = toolsIterator.next();
-                           ToolEntry toolEntry = null;
-                           ResourceEntry resourceEntry = null;
-
-                           if (toolNode.isTextual()) {
-                              toolEntry = new ToolEntry(service.id(), service.organizationId(), toolNode.asText());
-                              resourceEntry = new ResourceEntry("ui", resource.getKey(), new String[]{"app", "model"});
-                           } else {
-                              Map.Entry<String, JsonNode> toolNodeEntry = toolNode.properties().stream().findFirst().get();
-                              toolEntry = new ToolEntry(service.id(), service.organizationId(), toolNodeEntry.getKey());
-                              resourceEntry = new ResourceEntry("ui", resource.getKey(),
-                                    toolNodeEntry.getValue().path("visibility").isArray() ?
-                                          StreamSupport.stream(toolNodeEntry.getValue().path("visibility").spliterator(), false)
-                                                .map(JsonNode::asText).toArray(String[]::new)
-                                          : new String[]{"app", "model"}
-                              );
-                           }
-                           logger.infof("Registering UI Resource '%s' for Tool '%s' for Service with ID '%s'",
-                                 resourceEntry, toolEntry, service.id());
-                           gatewayRegistry.addResourceForTool(toolEntry, resourceEntry);
-                        }
-                     }
-                  }
-               }
+               analyseResources(service, resources);
             }
          }
       } catch (Exception e) {
          logger.errorf("Failed to parse attached artifact content: %s", e.getMessage());
       }
+   }
+
+   private void analyseResources(ServiceEntry service, JsonNode resources) {
+      for (var resource : resources.properties()) {
+         // Check for UI Tool resources only.
+         if (resource.getKey().startsWith("ui://")) {
+            JsonNode toolsNode = resource.getValue().path("tools");
+            if (toolsNode != null && toolsNode.isArray()) {
+               for (JsonNode toolNode : toolsNode) {
+                  analyseResourceTool(service, resource, toolNode);
+               }
+            }
+         }
+      }
+   }
+
+   private void analyseResourceTool(ServiceEntry service, Map.Entry<String, JsonNode> resource, JsonNode toolNode) {
+      ToolEntry toolEntry = null;
+      ResourceEntry resourceEntry = null;
+
+      if (toolNode.isTextual()) {
+         toolEntry = new ToolEntry(service.id(), service.organizationId(), toolNode.asText());
+         resourceEntry = new ResourceEntry("ui", resource.getKey(), new String[]{"app", "model"});
+      } else {
+         Map.Entry<String, JsonNode> toolNodeEntry = toolNode.properties().stream().findFirst().get();
+         toolEntry = new ToolEntry(service.id(), service.organizationId(), toolNodeEntry.getKey());
+         resourceEntry = new ResourceEntry("ui", resource.getKey(),
+               toolNodeEntry.getValue().path("visibility").isArray() ?
+                     StreamSupport.stream(toolNodeEntry.getValue().path("visibility").spliterator(), false)
+                           .map(JsonNode::asText).toArray(String[]::new)
+                     : new String[]{"app", "model"}
+         );
+      }
+      logger.infof("Registering UI Resource '%s' for Tool '%s' for Service with ID '%s'",
+            resourceEntry, toolEntry, service.id());
+      gatewayRegistry.addResourceForTool(toolEntry, resourceEntry);
    }
 }

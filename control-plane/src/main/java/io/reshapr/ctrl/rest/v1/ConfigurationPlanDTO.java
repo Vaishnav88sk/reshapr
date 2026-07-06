@@ -43,6 +43,7 @@ public class ConfigurationPlanDTO {
    protected Long backendTimeout;
    protected List<String> excludedOperations;
    protected List<String> includedOperations;
+   protected List<String> includedArtifacts;
    protected String backendSecretId;
    protected String apiKey;
    protected OAuth2ConfigurationDTO oauth2Configuration;
@@ -112,6 +113,14 @@ public class ConfigurationPlanDTO {
 
    public void setIncludedOperations(List<String> includedOperations) {
       this.includedOperations = includedOperations;
+   }
+
+   public List<String> getIncludedArtifacts() {
+      return includedArtifacts;
+   }
+
+   public void setIncludedArtifacts(List<String> includedArtifacts) {
+      this.includedArtifacts = includedArtifacts;
    }
 
    public String getBackendSecretId() {

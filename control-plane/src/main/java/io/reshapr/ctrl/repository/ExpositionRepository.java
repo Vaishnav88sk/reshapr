@@ -47,4 +47,14 @@ public class ExpositionRepository implements PanacheRepositoryBase<Exposition, S
       return find("from Exposition e left join fetch e.service " +
             "left join fetch e.configurationPlan where e.id = ?1", expositionId);
    }
+
+   /**
+    * Finds an exposition by its name within the current organization (the tenant discriminator is applied
+    * automatically). Used to enforce the organization-unique exposition name.
+    * @param name The exposition name to look up.
+    * @return The matching exposition, or null if none.
+    */
+   public Exposition findByName(String name) {
+      return find("from Exposition e where e.name = ?1", name).firstResult();
+   }
 }

@@ -64,7 +64,10 @@ public class ExpositionResource {
             expositionDTO.configurationPlanId(), expositionDTO.gatewayGroupId());
 
       try {
-         Exposition exposition = expositionManagerService.exposeConfiguration(expositionDTO.configurationPlanId(), expositionDTO.gatewayGroupId());
+         // The optional exposition name is provided by the caller (CLI/Web UI may propose a default slug);
+         // when null/blank the exposition is created unnamed.
+         Exposition exposition = expositionManagerService.exposeConfiguration(
+               expositionDTO.configurationPlanId(), expositionDTO.gatewayGroupId(), expositionDTO.name());
          return Response.status(Response.Status.CREATED).entity(
                v1Mappers.toResource(exposition)).build();
       } catch (DependencyNotFoundException dnfe) {

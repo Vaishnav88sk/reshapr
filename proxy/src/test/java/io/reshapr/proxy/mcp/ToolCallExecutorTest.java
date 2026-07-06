@@ -21,6 +21,7 @@ import io.reshapr.proxy.context.SessionInfo;
 import io.reshapr.proxy.mcp.state.ElicitationStore;
 import io.reshapr.proxy.proxy.ProxyService;
 import io.reshapr.proxy.registry.ConfigurationEntry;
+import io.reshapr.proxy.registry.ExpositionEntry;
 import io.reshapr.proxy.registry.GatewayRegistry;
 import io.reshapr.proxy.registry.OperationEntry;
 import io.reshapr.proxy.registry.SecretEntry;
@@ -66,6 +67,11 @@ class ToolCallExecutorTest {
       return new OperationEntry(name, null, null, null, null);
    }
 
+   /** Register a service + configuration as a single (unnamed) exposition in the registry. */
+   private static void seedExposition(GatewayRegistry registry, ServiceEntry service, ConfigurationEntry config) {
+      registry.addExposition(new ExpositionEntry(config.id(), null, service, config, null, List.of()));
+   }
+
    // ---------------------------------------------------------------------------------------------
    // isExposedOperation
    // ---------------------------------------------------------------------------------------------
@@ -109,8 +115,7 @@ class ToolCallExecutorTest {
             List.of(), List.of(), null, null, secret);
 
       GatewayRegistry registry = new GatewayRegistry();
-      registry.addService(service);
-      registry.addConfiguration(service, config);
+      seedExposition(registry, service, config);
 
       ToolCallExecutor executor = newExecutor(registry, stubElicitationStore());
 
@@ -133,8 +138,7 @@ class ToolCallExecutorTest {
             List.of(), List.of(), null, null, secret);
 
       GatewayRegistry registry = new GatewayRegistry();
-      registry.addService(service);
-      registry.addConfiguration(service, config);
+      seedExposition(registry, service, config);
 
       ToolCallExecutor executor = newExecutor(registry, stubElicitationStore());
 
@@ -168,8 +172,7 @@ class ToolCallExecutorTest {
             List.of(), List.of(), null, null, null);
 
       GatewayRegistry registry = new GatewayRegistry();
-      registry.addService(service);
-      registry.addConfiguration(service, config);
+      seedExposition(registry, service, config);
 
       ToolCallExecutor executor = newExecutor(registry, stubElicitationStore());
 

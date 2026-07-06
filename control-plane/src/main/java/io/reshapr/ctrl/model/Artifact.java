@@ -22,13 +22,16 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 
 /**
  * An artifact that defines Servcie in the Reshapr control plane.
  * @author laurent
  */
 @Entity
-@Table(name = "artifacts")
+@Table(name = "artifacts", uniqueConstraints = {
+      @UniqueConstraint(columnNames = {"service_id", "name"})
+})
 public class Artifact extends TenantAwareEntity {
 
    @Column(nullable = false)

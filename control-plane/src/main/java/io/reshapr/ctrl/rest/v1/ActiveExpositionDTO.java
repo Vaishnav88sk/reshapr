@@ -24,6 +24,7 @@ import java.util.List;
 public record ActiveExpositionDTO(
       String id,
       String organizationId,
+      String name,
       OffsetDateTime createdOn,
       ServiceSummaryDTO service,
       ConfigurationPlanSummaryDTO configurationPlan,

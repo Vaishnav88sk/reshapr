@@ -44,6 +44,7 @@
 
 	type ExpoRow = {
 		id: string;
+		name: string | null;
 		serviceName: string;
 		service: string;
 		backend: string;
@@ -57,6 +58,7 @@
 	let error = $state<string | null>(null);
 	let planId = $state('1');
 	let ggId = $state('1');
+	let expoName = $state('');
 
 	// ── Quota state ───────────────────────────────────────────
 	let quota = $state<QuotaInfo>(null);
@@ -126,37 +128,35 @@
 	}
 
 	/**
-	 * Build the public MCP endpoint URL for a gateway FQDN, following the
-	 * convention <scheme>://<fqdn>/mcp/<org>/<serviceName>/<serviceVersion>.
+	 * Compute the public base URL (scheme + host) for a gateway FQDN.
 	 * localhost hosts use http://, everything else uses https://.
 	 */
-	function formatEndpointUrl(
-		fqdn: string,
-		organizationId: string,
-		serviceName: string,
-		serviceVersion: string
-	): string {
-		let base: string;
-		if (/^https?:\/\//i.test(fqdn)) {
-			base = fqdn;
-		} else {
-			const host = fqdn.split(/[:/]/, 1)[0].toLowerCase();
-			const scheme = host === 'localhost' || host === '127.0.0.1' ? 'http' : 'https';
-			base = `${scheme}://${fqdn}`;
-		}
-		const enc = (s: string) => s.replace(/\s/g, '+');
-		return `${base}/mcp/${organizationId}/${enc(serviceName)}/${enc(serviceVersion)}`;
+	function endpointBase(fqdn: string): string {
+		if (/^https?:\/\//i.test(fqdn)) return fqdn.replace(/\/+$/, '');
+		const host = fqdn.split(/[:/]/, 1)[0].toLowerCase();
+		const scheme = host === 'localhost' || host === '127.0.0.1' ? 'http' : 'https';
+		return `${scheme}://${fqdn}`;
 	}
 
+	const encSeg = (s: string) => s.replace(/\s/g, '+');
+
+	/**
+	 * Build the deterministic MCP endpoint URLs for a gateway FQDN:
+	 *  - always the per-id endpoint /mcp/{expositionId}
+	 *  - the per-name endpoint /mcp/{org}/{expositionName} only when the exposition is named
+	 */
 	function buildEndpointUrls(o: Record<string, unknown>): string[] {
-		const svc = o.service;
-		if (!svc || typeof svc !== 'object') return [];
-		const s = svc as Record<string, unknown>;
-		const name = typeof s.name === 'string' ? s.name : '';
-		const version = typeof s.version === 'string' ? s.version : '';
+		const id = typeof o.id === 'string' ? o.id : '';
 		const org = typeof o.organizationId === 'string' ? o.organizationId : '';
-		if (!name || !org) return [];
-		return gatewayFqdns(o).map((fqdn) => formatEndpointUrl(fqdn, org, name, version));
+		const name = typeof o.name === 'string' && o.name.trim() ? o.name.trim() : '';
+		if (!id) return [];
+		const urls: string[] = [];
+		for (const fqdn of gatewayFqdns(o)) {
+			const base = endpointBase(fqdn);
+			if (name && org) urls.push(`${base}/mcp/${org}/${encSeg(name)}`);
+			urls.push(`${base}/mcp/${encSeg(id)}`);
+		}
+		return urls;
 	}
 
 	function toExpoRow(raw: unknown): ExpoRow | null {
@@ -165,6 +165,7 @@
 		if (typeof o.id !== 'string') return null;
 		return {
 			id: o.id,
+			name: typeof o.name === 'string' && o.name.trim() ? o.name.trim() : null,
 			serviceName: serviceName(o.service),
 			service: serviceLabel(o.service),
 			backend: backendUrl(o.configurationPlan),
@@ -242,6 +243,7 @@
 	function resetForm() {
 		planId = '1';
 		ggId = '1';
+		expoName = '';
 		formError = '';
 	}
 
@@ -264,9 +266,11 @@
 		formError = '';
 		submitting = true;
 		try {
+			const name = expoName.trim();
 			await apiClient().createExposition({
 				configurationPlanId: planId.trim(),
-				gatewayGroupId: ggId.trim()
+				gatewayGroupId: ggId.trim(),
+				...(name ? { name } : {})
 			});
 			drawerOpen = false;
 			await load();
@@ -339,9 +343,18 @@
 								{avatarInitials(x.serviceName || x.service)}
 							</span>
 							<div class="min-w-0 flex-1">
-								<Card.Title class="text-base leading-snug break-all">
-									{x.service}
-								</Card.Title>
+								{#if x.name}
+									<Card.Title class="text-base leading-snug break-all">
+										{x.name}
+									</Card.Title>
+									<div class="mt-0.5 truncate text-xs font-medium text-foreground/80" title={x.name}>
+										{x.service}
+									</div>
+								{:else}
+									<Card.Title class="text-base leading-snug break-all">
+										{x.service}
+									</Card.Title>
+								{/if}
 								<Card.Description class="mt-1 truncate">
 									<code class="bg-muted rounded px-1 py-0.5 font-mono text-xs">{x.id}</code>
 								</Card.Description>
@@ -449,6 +462,24 @@
 			<p class="text-muted-foreground text-sm">
 				Other server-side DTO fields are not entered here: the control plane sets them on create.
 			</p>
+
+			<div class="space-y-2">
+				<Label for="expo-name"><code class="text-xs">name</code> (optional)</Label>
+				<Input
+					id="expo-name"
+					class="w-full"
+					bind:value={expoName}
+					placeholder="e.g. github-read-only (leave empty for none)"
+					autocomplete="off"
+					spellcheck={false}
+				/>
+				<p class="text-muted-foreground text-xs">
+					When set, the MCP server is also reachable at
+					<code class="text-xs">/mcp/&lbrace;org&rbrace;/&lbrace;name&rbrace;</code>. Must be unique within
+					your organization. The <code class="text-xs">/mcp/&lbrace;expositionId&rbrace;</code> endpoint is
+					always available.
+				</p>
+			</div>
 
 			<div class="space-y-2">
 				<Label for="expo-configurationPlanId"><code class="text-xs">configurationPlanId</code></Label>

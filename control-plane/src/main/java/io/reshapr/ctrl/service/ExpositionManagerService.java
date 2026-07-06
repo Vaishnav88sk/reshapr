@@ -26,14 +26,19 @@ import io.reshapr.ctrl.model.Service;
 import io.reshapr.ctrl.repository.ActiveExpositionRepository;
 import io.reshapr.ctrl.repository.ConfigurationPlanRepository;
 import io.reshapr.ctrl.repository.ExpositionRepository;
+import io.reshapr.ctrl.repository.GatewayGroupRepository;
+import io.reshapr.ctrl.util.SlugUtil;
 
 import io.quarkus.panache.common.Sort;
+import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @ApplicationScoped
@@ -46,6 +51,8 @@ public class ExpositionManagerService {
    private final ConfigurationPlanRepository configurationPlanRepository;
    private final GatewayGroupManagerService gatewayGroupManagerService;
    private final ActiveExpositionRepository activeExpositionRepository;
+   private final GatewayManagerService gatewayManagerService;
+   private final GatewayGroupRepository gatewayGroupRepository;
 
    private final ClusterEventBroadcaster clusterEventBroadcaster;
 
@@ -55,17 +62,23 @@ public class ExpositionManagerService {
     * @param configurationPlanRepository
     * @param gatewayGroupManagerService
     * @param activeExpositionRepository
+    * @param gatewayManagerService
+    * @param gatewayGroupRepository
     * @param clusterEventBroadcaster
     */
    public ExpositionManagerService(ExpositionRepository expositionRepository,
                                    ConfigurationPlanRepository configurationPlanRepository,
                                    GatewayGroupManagerService gatewayGroupManagerService,
                                    ActiveExpositionRepository activeExpositionRepository,
+                                   GatewayManagerService gatewayManagerService,
+                                   GatewayGroupRepository gatewayGroupRepository,
                                    ClusterEventBroadcaster clusterEventBroadcaster) {
       this.expositionRepository = expositionRepository;
       this.configurationPlanRepository = configurationPlanRepository;
       this.gatewayGroupManagerService = gatewayGroupManagerService;
       this.activeExpositionRepository = activeExpositionRepository;
+      this.gatewayManagerService = gatewayManagerService;
+      this.gatewayGroupRepository = gatewayGroupRepository;
       this.clusterEventBroadcaster = clusterEventBroadcaster;
    }
 
@@ -73,11 +86,17 @@ public class ExpositionManagerService {
     * Creates a new exposition for the given configuration plan and gateway group.
     * @param configurationPlanId the ID of the configuration plan
     * @param gatewayGroupId the ID of the gateway group
+    * @param name an optional, organization-unique name for the exposition (may be null; slugification of a
+    *             default value is proposed by the CLI/Web UI, never auto-generated server-side). Uniqueness
+    *             is guaranteed by the database partial unique index; a user-friendly conflict handling is
+    *             wired together with the DTO in a later step.
     * @return the created exposition
+    * @throws DependencyNotFoundException if the configuration plan or gateway group is not found
     */
    @Transactional
    @QuotaRestricted(metric = QuotaMetric.EXPOSITION_COUNT)
-   public Exposition exposeConfiguration(String configurationPlanId, String gatewayGroupId) throws DependencyNotFoundException {
+   public Exposition exposeConfiguration(String configurationPlanId, String gatewayGroupId, @Nullable String name)
+         throws DependencyNotFoundException {
       logger.infof("Creating a new exposition for config plan '%s' on gateway group '%s'",
             configurationPlanId, gatewayGroupId);
 
@@ -91,7 +110,7 @@ public class ExpositionManagerService {
       Optional<GatewayGroup> gatewayGroup = gatewayGroupManagerService.getAvailableGatewayGroups().stream()
             .filter(availableGroup -> availableGroup.id.equals(gatewayGroupId))
             .findFirst();
-      if (!gatewayGroup.isPresent()) {
+      if (gatewayGroup.isEmpty()) {
          logger.errorf("Gateway group with id %s not found", gatewayGroupId);
          throw new DependencyNotFoundException("Gateway group with id " + gatewayGroupId + " not found");
       }
@@ -101,6 +120,7 @@ public class ExpositionManagerService {
       exposition.configurationPlan = configurationPlan;
       exposition.gatewayGroup = gatewayGroup.get();
       exposition.service = configurationPlan.service;
+      exposition.name = (name != null && !name.isBlank()) ? name.trim() : null;
       exposition.createdOn = OffsetDateTime.now();
       expositionRepository.persistAndFlush(exposition);
 
@@ -109,6 +129,29 @@ public class ExpositionManagerService {
 
       logger.debugf("Created exposition with id %s for gateway group %s", exposition.id, gatewayGroupId);
       return exposition;
+   }
+
+   /**
+    * Proposes a default, organization-unique exposition name slugified from the triple
+    * service-name + service-version + configuration-plan-name. Used by the CLI/Web UI (and the REST layer)
+    * to pre-fill an editable default when the user does not provide an explicit name. A numeric suffix is
+    * appended to avoid collisions with already used names.
+    * @param service the service backing the exposition
+    * @param configurationPlan the configuration plan backing the exposition
+    * @return a slug that is currently unique within the organization
+    */
+   public String suggestExpositionName(Service service, ConfigurationPlan configurationPlan) {
+      String base = SlugUtil.slugify(service.name, service.version, configurationPlan.name);
+      if (base.isEmpty()) {
+         base = "exposition";
+      }
+      String candidate = base;
+      int suffix = 1;
+      while (expositionRepository.findByName(candidate) != null) {
+         suffix++;
+         candidate = base + "-" + suffix;
+      }
+      return candidate;
    }
 
    /**
@@ -136,6 +179,35 @@ public class ExpositionManagerService {
    public Exposition getExposition(String expositionId) {
       logger.infof("Retrieving exposition with id '%s'", expositionId);
       return expositionRepository.loadById(expositionId).firstResult();
+   }
+
+   /**
+    * Resolves the expositions served by a gateway, based on the gateway group label matching, and
+    * registers/refreshes the calling gateway as a side effect (heartbeat, fqdns, matching groups). This is
+    * invoked at discovery time by the gRPC {@code ExpositionDiscoveryServiceHandler}.
+    * @param gatewayId the ID (name) of the gateway issuing the request
+    * @param gatewayLabels the labels advertised by the gateway
+    * @param fqdns the fully-qualified domain names served by the gateway
+    * @param version the version of the gateway issuing the request
+    * @return the list of expositions the gateway must serve
+    */
+   public List<Exposition> getGatewayExpositions(String gatewayId, Map<String, String> gatewayLabels, List<String> fqdns, String version) {
+      logger.debugf("Finding the assigned groups for gatewayId: %s with labels %s", gatewayId, gatewayLabels);
+
+      List<Exposition> expositions = new ArrayList<>();
+      List<GatewayGroup> matchingGroups = new ArrayList<>();
+
+      for (GatewayGroup gatewayGroup : gatewayGroupRepository.findAll().list()) {
+         if (gatewayGroup.labels != null && gatewayGroup.labels.entrySet().containsAll(gatewayLabels.entrySet())) {
+            logger.debugf("Found matching group %s with id %s", gatewayGroup.name, gatewayGroup.id);
+            matchingGroups.add(gatewayGroup);
+            expositions.addAll(expositionRepository.findByGatewayGroupId(gatewayGroup.id));
+         }
+      }
+      gatewayManagerService.registerGateway(gatewayId, matchingGroups, fqdns, gatewayLabels, version);
+
+      logger.debugf("Found %d expositions for gatewayId: %s", expositions.size(), gatewayId);
+      return expositions;
    }
 
    /**

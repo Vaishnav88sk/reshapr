@@ -47,6 +47,8 @@ import org.jboss.logging.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
@@ -73,16 +75,16 @@ public class ExpositionDiscoveryServiceHandler extends ExpositionDiscoveryServic
     */
    private final Map<String, List<OrganizationExpositionsObserver>> expositionChangeObservers = new ConcurrentHashMap<>();
 
-   private final ConfigurationPlanManagerService configurationPlanManagerService;
+   private final ExpositionManagerService expositionManagerService;
    private final ArtifactRepository artifactRepository;
 
    /**
-    * @param configurationPlanManagerService
+    * @param expositionManagerService
     * @param artifactRepository
     */
-   public ExpositionDiscoveryServiceHandler(ConfigurationPlanManagerService configurationPlanManagerService,
+   public ExpositionDiscoveryServiceHandler(ExpositionManagerService expositionManagerService,
                                             ArtifactRepository artifactRepository) {
-      this.configurationPlanManagerService = configurationPlanManagerService;
+      this.expositionManagerService = expositionManagerService;
       this.artifactRepository = artifactRepository;
 
    }
@@ -97,10 +99,10 @@ public class ExpositionDiscoveryServiceHandler extends ExpositionDiscoveryServic
 
       ExpositionDiscoveryResponse.Builder builder = ExpositionDiscoveryResponse.newBuilder();
 
-      List<ConfigurationPlan> configurations = configurationPlanManagerService.getExpositionConfigurations(request.getGatewayId(),
+      List<Exposition> expositions = expositionManagerService.getGatewayExpositions(request.getGatewayId(),
             request.getLabelsMap(), request.getFqdnsList(), request.hasVersion() ? request.getVersion() : null);
-      for (ConfigurationPlan configuration : configurations) {
-         builder.addExpositions(grpcExpositionFromModel(configuration));
+      for (Exposition exposition : expositions) {
+         builder.addExpositions(grpcExpositionFromModel(exposition));
       }
 
       responseObserver.onNext(builder.build());
@@ -177,9 +179,9 @@ public class ExpositionDiscoveryServiceHandler extends ExpositionDiscoveryServic
       logger.infof("Received ExpositionFetchRequest for gatewayId: %s", request.getExpositionId());
       logger.tracef("Executing on thread: %s", Thread.currentThread().getName());
 
-      ConfigurationPlan configuration = configurationPlanManagerService.getExpositionConfiguration(request.getExpositionId());
-      if (configuration != null) {
-         io.reshapr.discovery.exposition.v1.Exposition grpcExposition = grpcExpositionFromModel(configuration);
+      Exposition exposition = expositionManagerService.getExposition(request.getExpositionId());
+      if (exposition != null) {
+         io.reshapr.discovery.exposition.v1.Exposition grpcExposition = grpcExpositionFromModel(exposition);
          responseObserver.onNext(grpcExposition);
       } else {
          logger.warnf("No exposition found for ID: %s", request.getExpositionId());
@@ -193,6 +195,14 @@ public class ExpositionDiscoveryServiceHandler extends ExpositionDiscoveryServic
    @RunOnVirtualThread
    @ActivateRequestContext
    public void fetchArtifacts(ArtifactsRequest request, StreamObserver<ArtifactsResponse> responseObserver) {
+      // When an expositionId is provided, resolve the exposition to filter the attached artifacts by the
+      // ConfigurationPlan selection (empty selection = all); the main artifact is always included. Otherwise
+      // fall back to the legacy per-service behavior that returns every artifact unfiltered.
+      if (request.hasExpositionId() && !request.getExpositionId().isBlank()) {
+         fetchArtifactsForExposition(request.getExpositionId(), responseObserver);
+         return;
+      }
+
       logger.infof("Received ArtifactsRequest for serviceId: %s", request.getServiceId());
       logger.tracef("Executing on thread: %s", Thread.currentThread().getName());
 
@@ -206,6 +216,54 @@ public class ExpositionDiscoveryServiceHandler extends ExpositionDiscoveryServic
 
       responseObserver.onNext(builder.build());
       responseObserver.onCompleted();
+   }
+
+   /**
+    * Fetches the artifacts to serve for a given exposition. The main artifact (and the derived protobuf
+    * schema) are always included; the attached artifacts are filtered by the exposition's ConfigurationPlan
+    * {@code includedArtifacts} selection (an empty or null selection means all attached artifacts apply).
+    * @param expositionId The id of the exposition to resolve.
+    * @param responseObserver The gRPC response observer.
+    */
+   private void fetchArtifactsForExposition(String expositionId, StreamObserver<ArtifactsResponse> responseObserver) {
+      logger.infof("Received ArtifactsRequest for expositionId: %s", expositionId);
+      logger.tracef("Executing on thread: %s", Thread.currentThread().getName());
+
+      Exposition exposition = expositionManagerService.getExposition(expositionId);
+      if (exposition == null) {
+         logger.warnf("No exposition found for id: %s", expositionId);
+         responseObserver.onError(new IllegalArgumentException("No exposition found for ID: " + expositionId));
+         return;
+      }
+
+      String serviceId = exposition.service.id;
+      List<String> includedArtifacts = exposition.configurationPlan.includedArtifacts;
+      // A null or empty selection means "all attached artifacts apply".
+      Set<String> selectedNames = (includedArtifacts == null) ? Set.of() : new HashSet<>(includedArtifacts);
+      boolean selectAll = selectedNames.isEmpty();
+
+      ArtifactsResponse.Builder builder = ArtifactsResponse.newBuilder().setServiceId(serviceId);
+
+      List<Artifact> artifacts = artifactRepository.findByServiceId(serviceId).list();
+      for (Artifact artifact : artifacts) {
+         if (isAlwaysServed(artifact) || selectAll || selectedNames.contains(artifact.name)) {
+            builder.addArtifacts(grpcArtifactFromModel(artifact));
+         }
+      }
+
+      responseObserver.onNext(builder.build());
+      responseObserver.onCompleted();
+   }
+
+   /**
+    * Tells whether an artifact must always be served regardless of the plan selection. This covers the
+    * service main artifact and the derived protobuf schema, which define the service capabilities and are
+    * never filtered (mirrors {@code ArtifactRepository#findAttachedByServiceId}).
+    * @param artifact The artifact to test.
+    * @return true if the artifact is always served, false if it is an attached, selectable artifact.
+    */
+   private boolean isAlwaysServed(Artifact artifact) {
+      return artifact.mainArtifact || artifact.type == ArtifactType.PROTOBUF_SCHEMA;
    }
 
    /**
@@ -230,7 +288,7 @@ public class ExpositionDiscoveryServiceHandler extends ExpositionDiscoveryServic
       ExpositionChangeEvent event = ExpositionChangeEvent.newBuilder()
             .setExpositionId(exposition.id)
             .setChangeType(ChangeType.CREATED)
-            .setExposition(grpcExpositionFromModel(exposition.configurationPlan))
+            .setExposition(grpcExpositionFromModel(exposition))
             .build();
       notifyObservers(event, gatewayGroup);
    }
@@ -247,7 +305,7 @@ public class ExpositionDiscoveryServiceHandler extends ExpositionDiscoveryServic
       ExpositionChangeEvent event = ExpositionChangeEvent.newBuilder()
             .setExpositionId(exposition.id)
             .setChangeType(ChangeType.UPDATED)
-            .setExposition(grpcExpositionFromModel(exposition.configurationPlan))
+            .setExposition(grpcExpositionFromModel(exposition))
             .build();
       notifyObservers(event, gatewayGroup);
    }
@@ -264,7 +322,7 @@ public class ExpositionDiscoveryServiceHandler extends ExpositionDiscoveryServic
       ExpositionChangeEvent event = ExpositionChangeEvent.newBuilder()
             .setExpositionId(exposition.id)
             .setChangeType(ChangeType.DELETED)
-            .setExposition(grpcExpositionFromModel(exposition.configurationPlan))
+            .setExposition(grpcExpositionFromModel(exposition))
             .build();
       notifyObservers(event, gatewayGroup);
    }
@@ -295,12 +353,16 @@ public class ExpositionDiscoveryServiceHandler extends ExpositionDiscoveryServic
                                                   StreamObserver<ExpositionChangeEvent> observer) {
    }
 
-   private io.reshapr.discovery.exposition.v1.Exposition grpcExpositionFromModel(ConfigurationPlan configuration) {
-      return io.reshapr.discovery.exposition.v1.Exposition.newBuilder()
-            .setId(configuration.id)
-            .setService(grpcServiceFromModel(configuration.service))
-            .setConfiguration(grpcConfigurationFromModel(configuration))
-            .build();
+   private io.reshapr.discovery.exposition.v1.Exposition grpcExpositionFromModel(Exposition exposition) {
+      io.reshapr.discovery.exposition.v1.Exposition.Builder builder = io.reshapr.discovery.exposition.v1.Exposition.newBuilder()
+            .setId(exposition.id)
+            .setService(grpcServiceFromModel(exposition.service))
+            .setConfiguration(grpcConfigurationFromModel(exposition.configurationPlan));
+      // Transport the optional organization-unique exposition name (empty string when unnamed).
+      if (exposition.name != null) {
+         builder.setName(exposition.name);
+      }
+      return builder.build();
    }
 
    private io.reshapr.discovery.exposition.v1.Service grpcServiceFromModel(Service service) {

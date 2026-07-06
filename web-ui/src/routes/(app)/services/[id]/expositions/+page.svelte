@@ -28,6 +28,7 @@
 
 	type ExpoRow = {
 		id: string;
+		name: string | null;
 		scope: string;
 		backend: string;
 		mcpUrls: number;
@@ -53,6 +54,7 @@
 		);
 		return {
 			id: o.id,
+			name: typeof o.name === 'string' && o.name.trim() ? o.name.trim() : null,
 			scope,
 			backend: backendUrl(o.configurationPlan),
 			mcpUrls: scope === 'active' ? urls.length : 0
@@ -120,6 +122,7 @@
 		<Table.Header>
 			<Table.Row>
 				<Table.Head>ID</Table.Head>
+				<Table.Head>Name</Table.Head>
 				<Table.Head>Scope</Table.Head>
 				<Table.Head>Backend</Table.Head>
 				<Table.Head>MCP URLs</Table.Head>
@@ -128,17 +131,24 @@
 		<Table.Body>
 			{#if loading}
 				<Table.Row>
-					<Table.Cell colspan={4} class="text-muted-foreground">Loading…</Table.Cell>
+					<Table.Cell colspan={5} class="text-muted-foreground">Loading…</Table.Cell>
 				</Table.Row>
 			{:else if rows.length === 0}
 				<Table.Row>
-					<Table.Cell colspan={4} class="text-muted-foreground">No expositions for this service.</Table.Cell>
+					<Table.Cell colspan={5} class="text-muted-foreground">No expositions for this service.</Table.Cell>
 				</Table.Row>
 			{:else}
 				{#each rows as e (e.id + e.scope)}
 					<Table.Row>
 						<Table.Cell>
 							<a href="/expositions/{e.id}" class="text-primary hover:underline">{e.id}</a>
+						</Table.Cell>
+						<Table.Cell class="text-muted-foreground">
+							{#if e.name}
+								<span class="font-mono text-xs">{e.name}</span>
+							{:else}
+								—
+							{/if}
 						</Table.Cell>
 						<Table.Cell>{e.scope}</Table.Cell>
 						<Table.Cell class="max-w-xs truncate" title={e.backend}>{e.backend}</Table.Cell>

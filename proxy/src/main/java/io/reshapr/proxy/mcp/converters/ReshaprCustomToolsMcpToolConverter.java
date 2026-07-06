@@ -33,6 +33,7 @@ import io.reshapr.proxy.registry.ServiceEntry;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.smallrye.mutiny.Uni;
 import jakarta.annotation.Nullable;
 import org.jboss.logging.Logger;
@@ -40,9 +41,9 @@ import org.jboss.logging.Logger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -285,37 +286,50 @@ public class ReshaprCustomToolsMcpToolConverter extends McpToolConverter {
       return null;
    }
 
-   /** Retrieve the `customTools` node of a CustomTools kind yaml attachment. */
+   /**
+    * Retrieve the aggregated {@code customTools} node across <b>all</b> attached CustomTools artifacts. Each
+    * artifact is parsed and cached individually (keyed by its id); the tool definitions are merged by tool
+    * name (first declaring artifact wins on collision, deterministic by attachment order). Returns null when
+    * no attached artifact declares any custom tool.
+    */
    private @Nullable JsonNode getCustomToolsNode() {
-      String major = String.valueOf(service.hashCode());
-      if (workCache.get(major, CACHE_KEYS_PREFIX) instanceof JsonNode customToolsNode) {
-         logger.tracef("Got a cached value of CustomTools JsonNode for service '%s'", service.id());
-         return customToolsNode;
-      }
-
-      // Avoid errors if no attached artifacts.
       if (attachedArtifacts == null || attachedArtifacts.isEmpty()) {
          return null;
       }
-
-      // Check the existence of a Reshapr CustomTools artifact.
-      Optional<ArtifactEntry> customToolsArtifact = attachedArtifacts.stream()
-            .filter(artifactEntry -> ArtifactEntryType.RESHAPR_CUSTOM_TOOLS.equals(artifactEntry.type()))
-            .findFirst();
-      if (customToolsArtifact.isEmpty()) {
-         return null;
+      ObjectNode merged = YAML_MAPPER.createObjectNode();
+      for (ArtifactEntry artifact : attachedArtifacts) {
+         if (!ArtifactEntryType.RESHAPR_CUSTOM_TOOLS.equals(artifact.type())) {
+            continue;
+         }
+         JsonNode customToolsNode = getCustomToolsNodeForArtifact(artifact);
+         if (customToolsNode != null && customToolsNode.isObject()) {
+            Iterator<String> names = customToolsNode.fieldNames();
+            while (names.hasNext()) {
+               String name = names.next();
+               if (!merged.has(name)) {
+                  merged.set(name, customToolsNode.get(name));
+               }
+            }
+         }
       }
+      return merged.isEmpty() ? null : merged;
+   }
 
-      // Compute new value to cache.
-      logger.debugf("Need to build CustomTools for service '%s'", service.id());
+   /** Parse and cache (keyed by artifact id) the {@code customTools} sub-node of a single CustomTools artifact. */
+   private @Nullable JsonNode getCustomToolsNodeForArtifact(ArtifactEntry artifact) {
+      if (workCache.get(artifact.id(), CACHE_KEYS_PREFIX) instanceof JsonNode cached) {
+         logger.tracef("Got a cached value of CustomTools JsonNode for artifact '%s'", artifact.id());
+         return cached;
+      }
       try {
-         JsonNode artifactNode = YAML_MAPPER.readTree(customToolsArtifact.get().content());
-         JsonNode promptsNode = artifactNode.get("customTools");
-
-         workCache.set(major, CACHE_KEYS_PREFIX, promptsNode);
-         return promptsNode;
+         JsonNode artifactNode = YAML_MAPPER.readTree(artifact.content());
+         JsonNode customToolsNode = artifactNode.get("customTools");
+         if (customToolsNode != null) {
+            workCache.set(artifact.id(), CACHE_KEYS_PREFIX, customToolsNode);
+         }
+         return customToolsNode;
       } catch (Exception e) {
-         logger.errorf(e, "Cannot read Reshapr CustomTools artifact for service '%s'", service.id());
+         logger.errorf(e, "Cannot read Reshapr CustomTools artifact '%s' for service '%s'", artifact.id(), service.id());
          return null;
       }
    }
@@ -327,21 +341,11 @@ public class ReshaprCustomToolsMcpToolConverter extends McpToolConverter {
 
    /** Within a CustomTools attachment, retrieve the `arguments` node within a tool. */
    protected Map<String, Object> getCustomToolTargetArguments(OperationEntry operation, JsonNode customToolNode) {
-      String major = String.valueOf(service.hashCode());
-      String minor = CACHE_KEYS_PREFIX + operation.name();
-      Object value = workCache.get(major, minor);
-      if (value instanceof Map<?, ?> toolTargetArguments) {
-         logger.tracef("Got a cached value of CustomTool target arguments for service '%s' and operation '%s'", service.id(), operation.name());
-         return (Map<String, Object>) toolTargetArguments;
-      }
-
-      // Compute new value to cache.
-      logger.debugf("Need to build the CustomTool target arguments for service '%s' and operation '%s'", service.id(), operation.name());
-
-      Map<String, Object> arguments = YAML_MAPPER.convertValue(customToolNode.get("arguments"),
+      // The custom tool node comes from an already parsed-and-cached artifact node, so we simply convert its
+      // (small) `arguments` template on the fly. No per-operation cache is needed anymore.
+      logger.debugf("Building the CustomTool target arguments for service '%s' and operation '%s'", service.id(), operation.name());
+      return YAML_MAPPER.convertValue(customToolNode.get("arguments"),
             new TypeReference<HashMap<String, Object>>() {});
-      workCache.set(major, minor, arguments);
-      return arguments;
    }
 
    /** Build a complete map from incoming custom tools request where keys are nested param names (separated by `.`)  with their values. */

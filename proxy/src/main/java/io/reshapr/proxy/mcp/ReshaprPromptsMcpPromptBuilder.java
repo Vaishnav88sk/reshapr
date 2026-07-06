@@ -23,6 +23,7 @@ import io.reshapr.proxy.registry.ServiceEntry;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.annotation.Nullable;
 import org.jboss.logging.Logger;
 
@@ -31,7 +32,6 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * An implementation of McpPromptBuilder that builds prompts from Reshapr Prompts artifacts.
@@ -51,7 +51,7 @@ class ReshaprPromptsMcpPromptBuilder implements McpPromptBuilder {
    private final List<ArtifactEntry> attachedArtifacts;
    private final WorkCache workCache;
    private final ObjectMapper mapper;
-   
+
    public ReshaprPromptsMcpPromptBuilder(ServiceEntry service, List<ArtifactEntry> attachedArtifacts,
                                          WorkCache workCache, ObjectMapper mapper) {
       this.service = service;
@@ -120,37 +120,50 @@ class ReshaprPromptsMcpPromptBuilder implements McpPromptBuilder {
       return new McpSchema.PromptMessage(McpSchema.Role.USER, new McpSchema.TextContent(result));
    }
 
-   /** Get the root JsonNode containing prompts definitions, using cache when possible. */
+   /**
+    * Get the aggregated root JsonNode of prompt definitions across <b>all</b> attached Prompts artifacts.
+    * Each artifact is parsed and cached individually (keyed by its id); the resulting {@code prompts} nodes
+    * are merged by prompt name (first declaring artifact wins on collision, deterministic by attachment
+    * order). Returns null when no attached Prompts artifact declares any prompt.
+    */
    private @Nullable JsonNode getPromptsNode() {
-      String major = String.valueOf(service.hashCode());
-      if (workCache.get(major, CACHE_KEYS_PREFIX) instanceof JsonNode promptsNode) {
-         logger.tracef("Got a cached value of Prompts JsonNode for service '%s'", service.id());
-         return promptsNode;
-      }
-
-      // Avoid errors if no attached artifacts.
       if (attachedArtifacts == null || attachedArtifacts.isEmpty()) {
          return null;
       }
-
-      // Check the existence of a Reshapr Prompts artifact.
-      Optional<ArtifactEntry> promptsArtifact = attachedArtifacts.stream()
-            .filter(artifactEntry -> ArtifactEntryType.RESHAPR_PROMPTS.equals(artifactEntry.type()))
-            .findFirst();
-      if (promptsArtifact.isEmpty()) {
-         return null;
+      ObjectNode merged = YAML_MAPPER.createObjectNode();
+      for (ArtifactEntry artifact : attachedArtifacts) {
+         if (!ArtifactEntryType.RESHAPR_PROMPTS.equals(artifact.type())) {
+            continue;
+         }
+         JsonNode promptsNode = getPromptsNodeForArtifact(artifact);
+         if (promptsNode != null && promptsNode.isObject()) {
+            Iterator<String> names = promptsNode.fieldNames();
+            while (names.hasNext()) {
+               String name = names.next();
+               if (!merged.has(name)) {
+                  merged.set(name, promptsNode.get(name));
+               }
+            }
+         }
       }
+      return merged.isEmpty() ? null : merged;
+   }
 
-      // Compute new value to cache.
-      logger.debugf("Need to build Prompts for service '%s'", service.id());
+   /** Parse and cache (keyed by artifact id) the {@code prompts} sub-node of a single Prompts artifact. */
+   private @Nullable JsonNode getPromptsNodeForArtifact(ArtifactEntry artifact) {
+      if (workCache.get(artifact.id(), CACHE_KEYS_PREFIX) instanceof JsonNode cached) {
+         logger.tracef("Got a cached value of Prompts JsonNode for artifact '%s'", artifact.id());
+         return cached;
+      }
       try {
-         JsonNode artifactNode = YAML_MAPPER.readTree(promptsArtifact.get().content());
+         JsonNode artifactNode = YAML_MAPPER.readTree(artifact.content());
          JsonNode promptsNode = artifactNode.get("prompts");
-
-         workCache.set(major, CACHE_KEYS_PREFIX, promptsNode);
+         if (promptsNode != null) {
+            workCache.set(artifact.id(), CACHE_KEYS_PREFIX, promptsNode);
+         }
          return promptsNode;
       } catch (Exception e) {
-         logger.errorf(e, "Cannot read Reshapr Prompts artifact for service '%s'", service.id());
+         logger.errorf(e, "Cannot read Reshapr Prompts artifact '%s' for service '%s'", artifact.id(), service.id());
          return null;
       }
    }

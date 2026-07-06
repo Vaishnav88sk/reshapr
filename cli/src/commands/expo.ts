@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 import { program } from "commander";
+import inquirer from 'inquirer';
 import { Logger } from "../utils/logger.js";
 import { ConfigUtil } from "../utils/config.js";
 import { ageFrom } from "../utils/age.js";
-import { formatEndpoint } from "../utils/format.js";
+import { formatExpositionEndpoints, buildExpositionSlug } from "../utils/format.js";
 import { Context } from "../utils/context.js";
 import { CLI_LABEL } from '../constants.js';
 
@@ -150,8 +151,23 @@ expoCommand.command('create')
   .description('Create a new exposition')
   .requiredOption('-c, --configuration <id>', 'Configuration Plan ID to use')
   .requiredOption('-g, --gateway-group <id>', 'Gateway Group ID to use')
+  .option('-n, --name <name>', 'Organization-unique name of the exposition (enables the /mcp/{org}/{name} endpoint)')
   .option('-o, --output <format>', 'Output format (json, yaml)')
   .action(async (options) => {
+    // Resolve the exposition name: use the provided one, otherwise (interactive TTY only) propose a default
+    // slug built from service-version-plan that the user can edit or clear before sending.
+    let expositionName: string | undefined = options.name?.trim() || undefined;
+    if (!expositionName && process.stdout.isTTY) {
+      const suggested = await buildDefaultExpositionName(options.configuration);
+      const answer = await inquirer.prompt({
+        type: 'input',
+        name: 'name',
+        message: 'Exposition name - leave blank to create it unnamed (not recommended):',
+        default: suggested
+      });
+      expositionName = answer.name?.trim() || undefined;
+    }
+
     const response = await fetch(`${ConfigUtil.config.server}/api/v1/expositions`, {
       method: 'POST',
       headers: {
@@ -160,7 +176,8 @@ expoCommand.command('create')
       },
       body: JSON.stringify({
         configurationPlanId: options.configuration,
-        gatewayGroupId: options.gatewayGroup
+        gatewayGroupId: options.gatewayGroup,
+        name: expositionName
       })
     });
 
@@ -204,6 +221,7 @@ expoCommand.command('delete <id>')
 async function displayExpositionDetails(exposition: any) {
   Logger.info('Exposition details');
   Logger.log(`ID          : ${exposition.id}`);
+  Logger.log(`Name        : ${exposition.name || '(unnamed)'}`);
   Logger.log(`Created on  : ${exposition.createdOn}`);
   Logger.log(`Organization: ${exposition.organizationId}`);
   Logger.bold('Service:');
@@ -212,11 +230,12 @@ async function displayExpositionDetails(exposition: any) {
   Logger.log(`  Version: ${exposition.service.version}`);
   Logger.log(`  Type   : ${exposition.service.type}`);
   Logger.bold('Configuration Plan');
-  Logger.log(`  ID             : ${exposition.configurationPlan.id}`);
-  Logger.log(`  Name           : ${exposition.configurationPlan.name}`);
-  Logger.log(`  BackendEndpoint: ${exposition.configurationPlan.backendEndpoint}`);
-  Logger.log(`  Included Ops.  : ${JSON.stringify(exposition.configurationPlan.includedOperations || [])}`);
-  Logger.log(`  Excluded Ops.  : ${JSON.stringify(exposition.configurationPlan.excludedOperations || [])}`);
+  Logger.log(`  ID                : ${exposition.configurationPlan.id}`);
+  Logger.log(`  Name              : ${exposition.configurationPlan.name}`);
+  Logger.log(`  BackendEndpoint   : ${exposition.configurationPlan.backendEndpoint}`);
+  Logger.log(`  Included Ops.     : ${JSON.stringify(exposition.configurationPlan.includedOperations || [])}`);
+  Logger.log(`  Excluded Ops.     : ${JSON.stringify(exposition.configurationPlan.excludedOperations || [])}`);
+  Logger.log(`  Included Artifacts: ${formatIncludedArtifacts(exposition.configurationPlan.includedArtifacts)}`);
   Logger.bold('Gateway Group');
   Logger.log(`  ID    : ${exposition.gatewayGroup.id}`);
   Logger.log(`  Name  : ${exposition.gatewayGroup.name}`);
@@ -239,16 +258,67 @@ async function displayExpositionDetails(exposition: any) {
   Context.put('gateways', activeExpositions.gateways);
 
   let allFqdns = uniqueFQDNs(activeExpositions.gateways);
-  Context.put('endpoints', allFqdns.map(
-    fqdn => formatEndpoint(fqdn, exposition.organizationId, exposition.service.name, exposition.service.version)
+  Context.put('endpoints', allFqdns.flatMap(
+    fqdn => formatExpositionEndpoints(fqdn, exposition)
   ));
-  
+
   Logger.bold('Gateway Endpoints');
   activeExpositions.gateways.forEach((gateway: { id: string; name: string; fqdns: string[]; }) => {
     Logger.log(`  - ID       : ${gateway.id}`);
     Logger.log(`    Name     : ${gateway.name}`);
-    Logger.log(`    Endpoints: ${gateway.fqdns.map(
-      (fqdn: string) => formatEndpoint(fqdn, exposition.organizationId, exposition.service.name, exposition.service.version))
+    Logger.log(`    Endpoints: ${gateway.fqdns.flatMap(
+      (fqdn: string) => formatExpositionEndpoints(fqdn, exposition))
     .join(', ')}`);
   });
+}
+
+/** Format the includedArtifacts selection for display (empty/absent means all attached artifacts apply). */
+function formatIncludedArtifacts(includedArtifacts: string[] | undefined | null): string {
+  if (!includedArtifacts || includedArtifacts.length === 0) {
+    return 'all attached artifacts';
+  }
+  return JSON.stringify(includedArtifacts);
+}
+
+/**
+ * Build the default exposition name proposed at creation time by slugifying `service-version-plan`.
+ * The configuration plan MUST resolve (it is required to create the exposition): any failure is logged
+ * and aborts the command. The service resolution is only used to enrich the suggested slug, so a failure
+ * there is a non-fatal warning and yields no suggestion.
+ */
+async function buildDefaultExpositionName(configurationPlanId: string): Promise<string | undefined> {
+  const headers = { 'Authorization': `Bearer ${ConfigUtil.config.token}` };
+
+  let planResponse: Response;
+  try {
+    planResponse = await fetch(`${ConfigUtil.config.server}/api/v1/configurationPlans/${configurationPlanId}`, { headers });
+  } catch (err) {
+    Logger.error(`Failed to reach the control plane to resolve configuration plan '${configurationPlanId}': ${(err as Error).message}`);
+    process.exit(1);
+  }
+
+  if (planResponse.status === 404) {
+    Logger.error(`Configuration plan '${configurationPlanId}' not found. Provide a valid --configuration id.`);
+    process.exit(1);
+  }
+  if (!planResponse.ok) {
+    Logger.error(`Fetching configuration plan '${configurationPlanId}' failed: ${planResponse.status} ${planResponse.statusText}`);
+    process.exit(1);
+  }
+
+  const plan = await planResponse.json();
+
+  // Service resolution is best-effort: it only enriches the suggested slug.
+  try {
+    const serviceResponse = await fetch(`${ConfigUtil.config.server}/api/v1/services/${plan.serviceId}`, { headers });
+    if (!serviceResponse.ok) {
+      Logger.warn(`Could not resolve service '${plan.serviceId}' to suggest a default name (${serviceResponse.status} ${serviceResponse.statusText}).`);
+      return undefined;
+    }
+    const service = await serviceResponse.json();
+    return buildExpositionSlug(service.name, service.version, plan.name);
+  } catch (err) {
+    Logger.warn(`Could not resolve service '${plan.serviceId}' to suggest a default name: ${(err as Error).message}`);
+    return undefined;
+  }
 }

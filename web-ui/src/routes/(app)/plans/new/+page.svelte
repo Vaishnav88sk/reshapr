@@ -34,6 +34,7 @@
 	let genKey = $state(false);
 	let includedOperationsText = $state('');
 	let excludedOperationsText = $state('');
+	let includedArtifactsText = $state('');
 
 	async function onSubmit(ev: SubmitEvent) {
 		ev.preventDefault();
@@ -53,6 +54,7 @@
 		try {
 			const includedOperations = parseOperationsList(includedOperationsText);
 			const excludedOperations = parseOperationsList(excludedOperationsText);
+			const includedArtifacts = parseOperationsList(includedArtifactsText);
 
 			const body: Record<string, unknown> = {
 				name,
@@ -63,6 +65,7 @@
 			};
 			if (includedOperations.length) body.includedOperations = includedOperations;
 			if (excludedOperations.length) body.excludedOperations = excludedOperations;
+			if (includedArtifacts.length) body.includedArtifacts = includedArtifacts;
 			if (genKey) body.apiKey = 'generate-me';
 
 			const out = (await apiClient().createConfigurationPlan(body)) as {
@@ -162,6 +165,21 @@
 					class="font-mono text-xs"
 					placeholder="Only used when included operations is empty"
 				/>
+			</div>
+
+			<div class="space-y-2">
+				<Label for="includedArtifacts">Included artifacts (<code class="text-xs">--ia</code>, optional)</Label>
+				<Textarea
+					id="includedArtifacts"
+					bind:value={includedArtifactsText}
+					rows={3}
+					class="font-mono text-xs"
+					placeholder={'github-prompts\ngithub-custom-tools'}
+				/>
+				<p class="text-muted-foreground text-xs">
+					Names of the attached artifacts (Prompts, Resources, CustomTools, OutputFilters) to include, one
+					per line. Leave empty to include all attached artifacts of the service.
+				</p>
 			</div>
 
 			<div class="flex items-center gap-2">

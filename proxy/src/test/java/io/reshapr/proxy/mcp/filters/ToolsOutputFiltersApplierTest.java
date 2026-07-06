@@ -268,4 +268,55 @@ class ToolsOutputFiltersApplierTest {
       WorkCache cache = new WorkCache(100);
       return new ToolsOutputFiltersApplier(service, List.of(artifact), cache);
    }
+
+   /**
+    * Step 7ter: filters are aggregated across ALL attached ToolsOutputFilters artifacts of the same type,
+    * not just the first one. A tool declared in the second artifact must have its filter applied.
+    */
+   @Test
+   void filtersAreAggregatedAcrossMultipleArtifacts() {
+      String firstArtifact = """
+            apiVersion: reshapr.io/v1alpha1
+            kind: ToolsOutputFilters
+            service:
+              name: Test API
+              version: '1.0.0'
+            filters:
+              getUser:
+                jsonRetain:
+                  - /name
+            """;
+      String secondArtifact = """
+            apiVersion: reshapr.io/v1alpha1
+            kind: ToolsOutputFilters
+            service:
+              name: Test API
+              version: '1.0.0'
+            filters:
+              getAccount:
+                jsonRetain:
+                  - /iban
+            """;
+      ServiceEntry service = new ServiceEntry("svc-1", "org-1", "Test API", "1.0.0", "REST", null);
+      ArtifactEntry a1 = new ArtifactEntry("art-1", "filters-1.yaml", null,
+            ArtifactEntryType.RESHAPR_TOOLS_OUTPUT_FILTERS, false, firstArtifact);
+      ArtifactEntry a2 = new ArtifactEntry("art-2", "filters-2.yaml", null,
+            ArtifactEntryType.RESHAPR_TOOLS_OUTPUT_FILTERS, false, secondArtifact);
+      WorkCache cache = new WorkCache(100);
+      ToolsOutputFiltersApplier applier = new ToolsOutputFiltersApplier(service, List.of(a1, a2), cache);
+
+      assertTrue(applier.hasFilters());
+
+      // Filter from the FIRST artifact applies.
+      String user = "{\"name\":\"John\",\"password\":\"secret\"}";
+      String filteredUser = applier.applyFilter("getUser", user);
+      assertTrue(filteredUser.contains("John"));
+      assertFalse(filteredUser.contains("password"));
+
+      // Filter from the SECOND artifact also applies (previously ignored by findFirst()).
+      String account = "{\"iban\":\"FR76\",\"balance\":1000}";
+      String filteredAccount = applier.applyFilter("getAccount", account);
+      assertTrue(filteredAccount.contains("FR76"));
+      assertFalse(filteredAccount.contains("balance"));
+   }
 }
