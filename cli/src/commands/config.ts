@@ -135,7 +135,7 @@ configCommand.command('create <name>')
   .option('--filter', 'Filter operations to include or exclude in the configuration plan')
   .option('--io, --includedOperations [<operation1>, <operation2>]', 'Include these operations when importing service artifact (JSON array). Takes precedence over excludedOperations.')
   .option('--eo, --excludedOperations [<operation1>, <operation2>]', 'Exclude these operations when importing service artifact (JSON array). Only considered if no includedOperations.')
-  .option('--ia, --artifacts [<artifact1>, <artifact2>]', 'Include only these attached artifact names in the plan (JSON array). Empty/absent means all the attached artifacts of the service apply.')
+  .option('--ia, --includedArtifacts [<artifact1>, <artifact2>]', 'Include only these attached artifact names in the plan (JSON array). Empty/absent means all the attached artifacts of the service apply.')
   .option('--apiKey', 'Generate an API key for this configuration plan to secure the MCP endpoint')
   .option('--audit', 'Enable audit logging for this configuration plan')
   .option('-o, --output <format>', 'Output format (json, yaml)')
@@ -162,7 +162,7 @@ configCommand.command('create <name>')
         backendTimeout: options.backendTimeout || undefined,
         includedOperations: options.includedOps || undefined,
         excludedOperations: options.excludedOps || undefined,
-        includedArtifacts: options.artifacts ? getArrayOfStrings(options.artifacts, 'artifacts') : undefined,
+        includedArtifacts: options.includedArtifacts ? getArrayOfStrings(options.includedArtifacts, 'includedArtifacts') : undefined,
         apiKey: (options.apiKey ? 'generate-me' : undefined),
         initialAccessToken: (options.internalOAuth2 ? 'generate-me' : undefined),
         audit: options.audit || false

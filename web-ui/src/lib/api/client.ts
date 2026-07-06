@@ -57,6 +57,12 @@ export function apiClient() {
 
     getArtifact: (id: string) => json<unknown>(`/api/v1/artifacts/${id}`),
 
+    getArtifactDeletionImpact: (id: string) =>
+      json<unknown>(`/api/v1/artifacts/${id}/deletion-impact`),
+
+    deleteArtifact: (id: string) =>
+      json<unknown>(`/api/v1/artifacts/${id}`, { method: 'DELETE' }),
+
     importArtifactFile: async (file: File, extra?: Record<string, string>) => {
       const fd = new FormData();
       fd.append('file', file);

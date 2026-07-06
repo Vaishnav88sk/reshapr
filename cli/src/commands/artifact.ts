@@ -15,6 +15,7 @@
  */
 import { program } from "commander";
 import { highlight } from "cli-highlight";
+import inquirer from "inquirer";
 
 import { Logger } from "../utils/logger.js";
 import { ConfigUtil } from "../utils/config.js";
@@ -114,6 +115,82 @@ artifactCommand.command('get <id>')
       Logger.log(highlight(artifact.content, { language }));
     }
   });
+
+/** Delete artifact by ID */
+artifactCommand.command('delete <id>')
+  .description('Delete an artifact by ID (cleans up referencing configuration plans)')
+  .option('-f, --force', 'Skip confirmation prompt')
+  .action(async (id, options) => {
+    // Preview the impact unless confirmation is bypassed.
+    if (!options.force) {
+      const previewResponse = await fetch(`${ConfigUtil.config.server}/api/v1/artifacts/${id}/deletion-impact`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${ConfigUtil.config.token}`
+        }
+      });
+
+      if (!previewResponse.ok) {
+        if (previewResponse.status === 404) {
+          Logger.error(`Artifact ${id} not found.`);
+        } else {
+          Logger.error('Computing deletion impact failed: ' + previewResponse.statusText);
+        }
+        process.exit(1);
+      }
+
+      const preview = await previewResponse.json();
+      printDeletionImpact(preview);
+
+      const confirm = await inquirer.prompt({
+        type: 'confirm',
+        name: 'confirm',
+        message: `Delete artifact '${preview.artifactName}'? This cannot be undone.`,
+        default: false
+      });
+      if (!confirm.confirm) {
+        Logger.info('Deletion cancelled.');
+        return;
+      }
+    }
+
+    const response = await fetch(`${ConfigUtil.config.server}/api/v1/artifacts/${id}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${ConfigUtil.config.token}`
+      }
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        Logger.error(`Artifact ${id} not found.`);
+      } else {
+        Logger.error('Deleting artifact failed: ' + response.statusText);
+      }
+      process.exit(1);
+    }
+
+    const impact = await response.json().catch(() => null);
+    Logger.success(`Artifact ${id} deleted successfully.`);
+    if (impact) {
+      printDeletionImpact(impact);
+    }
+  });
+
+function printDeletionImpact(impact: any) {
+  const plans = Array.isArray(impact?.impactedPlans) ? impact.impactedPlans : [];
+  if (plans.length === 0) {
+    Logger.info('No configuration plan references this artifact.');
+    return;
+  }
+  Logger.info(`${plans.length} configuration plan(s) reference this artifact and will be updated:`);
+  plans.forEach((plan: any) => {
+    const suffix = plan.fallsBackToAll
+      ? ' (selection becomes empty → falls back to all attached artifacts)'
+      : '';
+    Logger.log(`  - ${plan.name} (${plan.id})${suffix}`);
+  });
+}
 
 function getLanguageFromSourceArtifact(sourceArtifact: string | undefined): string | undefined {
   if (!sourceArtifact) return 'yaml';

@@ -32,6 +32,7 @@
 	import { SERVICE_CONTEXT_KEY, type ServiceContextValue } from '$lib/serviceContext.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
+	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
@@ -44,6 +45,8 @@
 	import MoreVerticalIcon from '@lucide/svelte/icons/ellipsis-vertical';
 	import EyeIcon from '@lucide/svelte/icons/eye';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
+	import { HugeiconsIcon } from '@hugeicons/svelte';
+	import { Delete02Icon } from '@hugeicons/core-free-icons';
 
 	const ctx = getContext<ServiceContextValue>(SERVICE_CONTEXT_KEY);
 
@@ -51,8 +54,23 @@
 	let error = $state<string | null>(null);
 	let loading = $state(true);
 
+	type ImpactedPlan = { id: string; name: string; fallsBackToAll: boolean };
+	type DeletionImpact = {
+		artifactId: string;
+		artifactName: string;
+		mainArtifact: boolean;
+		impactedPlans: ImpactedPlan[];
+	};
+
+	let deleteTarget = $state<ArtifactRef | null>(null);
+	let deleteImpact = $state<DeletionImpact | null>(null);
+	let deleteLoading = $state(false);
+	let deleteBusy = $state(false);
+	let deleteError = $state<string | null>(null);
+
 	let typeFilter = $state<ArtifactTypeFilter>('all');
 	let createKind = $state<ReshaprArtifactKind>('Prompts');
+
 
 	const filterLabel = $derived(
 		TYPE_FILTER_OPTIONS.find((opt) => opt.value === typeFilter)?.label ?? 'All types'
@@ -101,6 +119,44 @@
 	$effect(() => {
 		if (ctx.id && !ctx.loading) void load();
 	});
+
+	async function openDelete(artifact: ArtifactRef) {
+		deleteTarget = artifact;
+		deleteImpact = null;
+		deleteError = null;
+		deleteLoading = true;
+		try {
+			deleteImpact = (await apiClient().getArtifactDeletionImpact(artifact.id)) as DeletionImpact;
+		} catch (e) {
+			deleteError = e instanceof ApiError ? e.message : String(e);
+		} finally {
+			deleteLoading = false;
+		}
+	}
+
+	function cancelDelete() {
+		if (deleteBusy) return;
+		deleteTarget = null;
+		deleteImpact = null;
+		deleteError = null;
+	}
+
+	async function confirmDelete() {
+		if (!deleteTarget) return;
+		deleteBusy = true;
+		deleteError = null;
+		try {
+			await apiClient().deleteArtifact(deleteTarget.id);
+			deleteTarget = null;
+			deleteImpact = null;
+			await load();
+		} catch (e) {
+			deleteError = e instanceof ApiError ? e.message : String(e);
+		} finally {
+			deleteBusy = false;
+		}
+	}
+
 </script>
 
 <div class="mb-4 flex items-center justify-between gap-4">
@@ -249,6 +305,13 @@
 											{/snippet}
 										</DropdownMenuItem>
 									{/if}
+									<DropdownMenuItem
+										class="text-destructive focus:text-destructive"
+										onSelect={() => void openDelete(artifact)}
+									>
+										<HugeiconsIcon icon={Delete02Icon} size={16} />
+										Delete
+									</DropdownMenuItem>
 								</DropdownMenuContent>
 							</DropdownMenu>
 						</Table.Cell>
@@ -258,3 +321,71 @@
 		</Table.Body>
 	</Table.Root>
 </div>
+
+<Dialog.Root
+	open={deleteTarget != null}
+	onOpenChange={(open) => {
+		if (!open) cancelDelete();
+	}}
+>
+	<Dialog.Content class="sm:max-w-lg">
+		<Dialog.Header>
+			<Dialog.Title class="flex items-center gap-2">
+				<HugeiconsIcon icon={Delete02Icon} size={20} class="text-destructive" />
+				Delete artifact
+			</Dialog.Title>
+			<Dialog.Description>
+				{#if deleteTarget}
+					You are about to delete <span class="font-medium">{deleteTarget.name}</span>. This action
+					cannot be undone.
+				{/if}
+			</Dialog.Description>
+		</Dialog.Header>
+
+		<div class="space-y-4">
+			{#if deleteError}
+				<ApiErrorAlert message={deleteError} />
+			{/if}
+
+			{#if deleteLoading}
+				<p class="text-muted-foreground text-sm">Computing impact…</p>
+			{:else if deleteImpact}
+				{#if deleteImpact.mainArtifact}
+					<p class="text-destructive text-sm">Warning: this is the service main artifact.</p>
+				{/if}
+				{#if deleteImpact.impactedPlans.length === 0}
+					<p class="text-muted-foreground text-sm">
+						No configuration plan references this artifact.
+					</p>
+				{:else}
+					<div class="space-y-2">
+						<p class="text-sm font-medium">
+							{deleteImpact.impactedPlans.length} configuration plan(s) reference this artifact and
+							will be updated:
+						</p>
+						<ul class="marker:text-muted-foreground list-disc space-y-1 pl-6 text-sm">
+							{#each deleteImpact.impactedPlans as plan (plan.id)}
+								<li>
+									<span class="font-medium">{plan.name}</span>
+									{#if plan.fallsBackToAll}
+										<span class="text-muted-foreground block text-xs">
+											Selection becomes empty → falls back to all attached artifacts.
+										</span>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
+			{/if}
+		</div>
+
+		<Dialog.Footer>
+			<Button variant="outline" onclick={cancelDelete} disabled={deleteBusy}>Cancel</Button>
+			<Button variant="destructive" onclick={() => void confirmDelete()} disabled={deleteBusy}>
+				{deleteBusy ? 'Deleting…' : 'Delete'}
+			</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>
+

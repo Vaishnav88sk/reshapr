@@ -18,7 +18,9 @@ package io.reshapr.ctrl.rest.v1;
 import io.reshapr.ctrl.model.Artifact;
 import io.reshapr.ctrl.model.Service;
 import io.reshapr.ctrl.repository.ArtifactRepository;
+import io.reshapr.ctrl.service.ArtifactManagerService;
 import io.reshapr.ctrl.service.AttachmentArtifactInfo;
+import io.reshapr.ctrl.service.DependencyNotFoundException;
 import io.reshapr.ctrl.service.ServiceInfo;
 import io.reshapr.ctrl.service.SpecificationArtifactInfo;
 import io.reshapr.ctrl.service.ServiceManagerService;
@@ -26,6 +28,7 @@ import io.reshapr.ctrl.service.ServiceManagerService;
 import io.quarkus.security.Authenticated;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.FormParam;
 import jakarta.ws.rs.GET;
@@ -53,12 +56,14 @@ public class ArtifactResource {
    private final Logger logger = Logger.getLogger(getClass());
 
    private final ServiceManagerService serviceManagerService;
+   private final ArtifactManagerService artifactManagerService;
    private final ArtifactRepository artifactRepository;
    private final Mappers v1Mappers;
 
-   public ArtifactResource(ServiceManagerService serviceManagerService, ArtifactRepository artifactRepository,
-         Mappers v1Mappers) {
+   public ArtifactResource(ServiceManagerService serviceManagerService, ArtifactManagerService artifactManagerService,
+         ArtifactRepository artifactRepository, Mappers v1Mappers) {
       this.serviceManagerService = serviceManagerService;
+      this.artifactManagerService = artifactManagerService;
       this.artifactRepository = artifactRepository;
       this.v1Mappers = v1Mappers;
    }
@@ -74,6 +79,32 @@ public class ArtifactResource {
          return Response.status(Response.Status.NOT_FOUND).build();
       }
       return Response.ok(v1Mappers.toResource(artifact)).build();
+   }
+
+   @GET
+   @Authenticated
+   @Path("/{id}/deletion-impact")
+   @Produces(MediaType.APPLICATION_JSON)
+   public Response getArtifactDeletionImpact(@PathParam("id") String id) {
+      logger.debugf("Computing deletion impact for artifact with id %s", id);
+      try {
+         return Response.ok(v1Mappers.toResource(artifactManagerService.getArtifactDeletionImpact(id))).build();
+      } catch (DependencyNotFoundException e) {
+         return Response.status(Response.Status.NOT_FOUND).build();
+      }
+   }
+
+   @DELETE
+   @Authenticated
+   @Path("/{id}")
+   @Produces(MediaType.APPLICATION_JSON)
+   public Response deleteArtifact(@PathParam("id") String id) {
+      logger.debugf("Deleting artifact with id %s", id);
+      try {
+         return Response.ok(v1Mappers.toResource(artifactManagerService.deleteArtifact(id))).build();
+      } catch (DependencyNotFoundException e) {
+         return Response.status(Response.Status.NOT_FOUND).build();
+      }
    }
 
    @GET

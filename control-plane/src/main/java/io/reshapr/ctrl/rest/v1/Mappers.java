@@ -26,10 +26,11 @@ import io.reshapr.ctrl.model.Organization;
 import io.reshapr.ctrl.model.Quota;
 import io.reshapr.ctrl.model.Secret;
 import io.reshapr.ctrl.model.Secret.OAuth2ClientConfiguration;
-
 import io.reshapr.ctrl.model.SecretType;
 import io.reshapr.ctrl.model.Service;
 import io.reshapr.ctrl.model.ServiceType;
+import io.reshapr.ctrl.service.ArtifactDeletionImpact;
+
 import org.mapstruct.AfterMapping;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
@@ -50,6 +51,10 @@ import java.util.List;
 public interface Mappers {
 
    ArtifactDTO toResource(Artifact artifact);
+
+   ArtifactDeletionImpactDTO toResource(ArtifactDeletionImpact impact);
+
+   ArtifactDeletionImpactDTO.ImpactedPlanDTO toResource(ArtifactDeletionImpact.ImpactedPlan plan);
 
    GatewayGroupDTO toResource(GatewayGroup gatewayGroup);
 

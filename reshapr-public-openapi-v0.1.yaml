@@ -120,6 +120,43 @@ paths:
       security:
         - jwt-bearer: [ ]
       operationId: getArtifact
+    delete:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtifactDeletionImpact'
+          description: >-
+            Artifact deleted. The response describes the impact of the deletion on the ConfigurationPlans
+            of the service that referenced the artifact by name in their includedArtifacts selection.
+        "404":
+          description: Artifact with this id is unknown
+      security:
+        - jwt-bearer: [ ]
+      operationId: deleteArtifact
+    parameters:
+      - name: id
+        description: Unique identifier of the Artifact to manage
+        schema:
+          type: string
+        in: path
+        required: true
+  /v1/artifacts/{id}/deletion-impact:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtifactDeletionImpact'
+          description: >-
+            Non-mutating preview of the impact of deleting the artifact, to back a confirmation prompt.
+        "404":
+          description: Artifact with this id is unknown
+      security:
+        - jwt-bearer: [ ]
+      operationId: getArtifactDeletionImpact
     parameters:
       - name: id
         description: Unique identifier of the Artifact to manage
@@ -751,6 +788,50 @@ components:
         sourceArtifact:
           description: Name or URL of original artifact file
           type: string
+    ArtifactDeletionImpact:
+      description: >-
+        Impact of deleting an artifact on the ConfigurationPlans of its service. Returned as a preview by
+        GET /v1/artifacts/{id}/deletion-impact and as the applied result by DELETE /v1/artifacts/{id}.
+      required:
+        - artifactId
+        - artifactName
+        - mainArtifact
+        - impactedPlans
+      type: object
+      properties:
+        artifactId:
+          description: Identifier of the artifact
+          type: string
+        artifactName:
+          description: Name of the artifact
+          type: string
+        mainArtifact:
+          description: Whether the artifact is the service main artifact
+          type: boolean
+        impactedPlans:
+          description: ConfigurationPlans referencing the artifact by name in their includedArtifacts
+          type: array
+          items:
+            $ref: '#/components/schemas/ImpactedConfigurationPlan'
+    ImpactedConfigurationPlan:
+      description: A ConfigurationPlan impacted by an artifact deletion
+      required:
+        - id
+        - name
+        - fallsBackToAll
+      type: object
+      properties:
+        id:
+          description: Identifier of the ConfigurationPlan
+          type: string
+        name:
+          description: Name of the ConfigurationPlan
+          type: string
+        fallsBackToAll:
+          description: >-
+            Whether removing the artifact empties the plan selection, making it fall back to all attached
+            artifacts of the service
+          type: boolean
     ArtifactType:
       description: The supported type of Artifact
       enum:
