@@ -182,5 +182,45 @@ class ToolCallExecutorTest {
       assertEquals(McpSchema.ErrorCodes.INVALID_PARAMS, failure.code());
       assertEquals("Unknown tool: doesNotExist", failure.message());
    }
+
+   // ---------------------------------------------------------------------------------------------
+   // preflightToolsElicitation - same-service resolves against the current exposition
+   // ---------------------------------------------------------------------------------------------
+
+   @Test
+   void testPreflightUsesCurrentExpositionConfigNotElected() throws Exception {
+      ServiceEntry service = new ServiceEntry("1", "reshapr", "GitHub GraphQL", "20250917", "GRAPHQL",
+            List.of(op("user")));
+
+      // Current (non-elected) exposition c1: its backend secret requires elicitation.
+      SecretEntry secret = new SecretEntry("s", null, null, null, null, null, true, null);
+      ConfigurationEntry currentConfig = new ConfigurationEntry("c1", "premium", "http://backend", null,
+            List.of(), List.of(), null, null, secret);
+      // Elected exposition c2 (higher TSID, so it is the elected one): no backend secret at all.
+      ConfigurationEntry electedConfig = new ConfigurationEntry("c2", "default", "http://backend", null,
+            List.of(), List.of(), null, null, null);
+
+      GatewayRegistry registry = new GatewayRegistry();
+      ExpositionEntry current = new ExpositionEntry("c1", null, service, currentConfig, null, List.of());
+      registry.addExposition(current);
+      registry.addExposition(new ExpositionEntry("c2", null, service, electedConfig, null, List.of()));
+
+      ToolCallExecutor executor = newExecutor(registry, stubElicitationStore());
+
+      // A session exists but the secret value is not resolved yet.
+      SessionInfo session = new SessionInfo("sess-1", service.id(), "2025-06-18");
+      MethodHandlingInfo info = new MethodHandlingInfo("127.0.0.1", session, "user1");
+
+      ToolCallExecutor.ToolCallOutcome outcome = ScopedValue
+            .where(MethodHandlingContext.METHOD_HANDLING_INFO, info)
+            .call(() -> executor.preflightToolsElicitation(current, List.of(new DeclaredTool(null, "user"))));
+
+      // Elicitation is required because the CURRENT exposition (c1) carries the secret, even though the
+      // ELECTED exposition (c2) has none. This proves the preflight uses the current exposition's
+      // configuration rather than the elected one.
+      ToolCallExecutor.ElicitationRequired elicitation = assertInstanceOf(
+            ToolCallExecutor.ElicitationRequired.class, outcome);
+      assertEquals(1, elicitation.elicitations().size());
+   }
 }
 

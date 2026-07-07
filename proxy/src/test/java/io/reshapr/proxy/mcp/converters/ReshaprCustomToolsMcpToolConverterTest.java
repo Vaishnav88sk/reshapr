@@ -21,6 +21,8 @@ import io.reshapr.proxy.mcp.WorkCache;
 import io.reshapr.proxy.proxy.ProxyService;
 import io.reshapr.proxy.registry.ArtifactEntry;
 import io.reshapr.proxy.registry.ArtifactEntryType;
+import io.reshapr.proxy.registry.ConfigurationEntry;
+import io.reshapr.proxy.registry.ExpositionEntry;
 import io.reshapr.proxy.registry.OperationEntry;
 import io.reshapr.proxy.registry.ServiceEntry;
 import io.reshapr.proxy.secret.SecretReferenceResolver;
@@ -67,6 +69,11 @@ class ReshaprCustomToolsMcpToolConverterTest {
       ArtifactEntry attachedArtifactEntry = new ArtifactEntry("2", "github-api-custom-tools.yaml",
             "CUSTOM_TOOLS", ArtifactEntryType.RESHAPR_CUSTOM_TOOLS, false, customTools);
 
+      ConfigurationEntry configuration = new ConfigurationEntry("1", "github-default",
+            null, null, null, null, null, null, null);
+      ExpositionEntry exposition = new ExpositionEntry("1", "github-default", serviceEntry,  configuration,
+            artifactEntry, List.of(attachedArtifactEntry));
+
       // Create ObjectMapper with correct options.
       ParserOptions.setDefaultParserOptions(
             ParserOptions.getDefaultParserOptions().transform(
@@ -75,10 +82,10 @@ class ReshaprCustomToolsMcpToolConverterTest {
 
       // Build the wrapper converter.
       WorkCache workCache = new WorkCache(1000);
-      GraphQLMcpToolConverter converter = new GraphQLMcpToolConverter(serviceEntry, artifactEntry,
-            workCache, objectMapper, new ProxyService(new SecretReferenceResolver(java.util.List.of())));
+      GraphQLMcpToolConverter converter = new GraphQLMcpToolConverter(exposition, workCache, objectMapper,
+            new ProxyService(new SecretReferenceResolver(java.util.List.of())));
 
-      ReshaprCustomToolsMcpToolConverter customConverter = new ReshaprCustomToolsMcpToolConverter(serviceEntry, List.of(attachedArtifactEntry),
+      ReshaprCustomToolsMcpToolConverter customConverter = new ReshaprCustomToolsMcpToolConverter(exposition,
             workCache, converter);
 
       // Now call methods and assert we get expected results.

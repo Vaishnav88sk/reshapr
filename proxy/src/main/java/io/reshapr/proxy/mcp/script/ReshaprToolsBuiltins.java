@@ -20,6 +20,7 @@ import io.reshapr.proxy.context.MethodHandlingInfo;
 import io.reshapr.proxy.mcp.DeclaredTool;
 import io.reshapr.proxy.mcp.McpSchema;
 import io.reshapr.proxy.mcp.ToolCallExecutor;
+import io.reshapr.proxy.registry.ExpositionEntry;
 import io.reshapr.proxy.registry.GatewayRegistry;
 import io.reshapr.proxy.registry.ServiceEntry;
 
@@ -73,7 +74,7 @@ public final class ReshaprToolsBuiltins {
    /** Executor spawning a fresh virtual thread per asynchronous tool call. */
    private static final Executor VT_EXECUTOR = command -> Thread.ofVirtual().name("rs-tool-async").start(command);
 
-   private final ServiceEntry currentService;
+   private final ExpositionEntry currentExposition;
    private final GatewayRegistry gatewayRegistry;
    private final ToolCallExecutor toolCallExecutor;
    private final Map<String, List<String>> headers;
@@ -85,17 +86,17 @@ public final class ReshaprToolsBuiltins {
 
    /**
     * Build a ReshaprToolsBuiltins bound to a script execution context.
-    * @param currentService The service the running script belongs to.
+    * @param currentExposition The exposition the running script belongs to.
     * @param gatewayRegistry The registry used to resolve cross-service calls.
     * @param toolCallExecutor The executor performing the actual tool calls.
     * @param headers The protocol-level headers to propagate to tool calls.
     * @param allowedTools The allow-list declared in the script {@code tools} section.
     * @param maxToolCalls The maximum number of tool calls allowed within this script execution.
     */
-   public ReshaprToolsBuiltins(ServiceEntry currentService, GatewayRegistry gatewayRegistry,
+   public ReshaprToolsBuiltins(ExpositionEntry currentExposition, GatewayRegistry gatewayRegistry,
                                ToolCallExecutor toolCallExecutor, Map<String, List<String>> headers,
                                List<DeclaredTool> allowedTools, int maxToolCalls) {
-      this.currentService = currentService;
+      this.currentExposition = currentExposition;
       this.gatewayRegistry = gatewayRegistry;
       this.toolCallExecutor = toolCallExecutor;
       this.headers = headers;
@@ -104,10 +105,10 @@ public final class ReshaprToolsBuiltins {
    }
 
    /** Convenience constructor using {@link #DEFAULT_MAX_TOOL_CALLS}. */
-   public ReshaprToolsBuiltins(ServiceEntry currentService, GatewayRegistry gatewayRegistry,
+   public ReshaprToolsBuiltins(ExpositionEntry currentExposition, GatewayRegistry gatewayRegistry,
                                ToolCallExecutor toolCallExecutor, Map<String, List<String>> headers,
                                List<DeclaredTool> allowedTools) {
-      this(currentService, gatewayRegistry, toolCallExecutor, headers, allowedTools, DEFAULT_MAX_TOOL_CALLS);
+      this(currentExposition, gatewayRegistry, toolCallExecutor, headers, allowedTools, DEFAULT_MAX_TOOL_CALLS);
    }
 
    /**
@@ -207,14 +208,19 @@ public final class ReshaprToolsBuiltins {
                "Tool " + target + " is not declared in the script 'tools' allow-list");
       }
 
-      // Resolve the target service (same service or cross-service within the same organization).
-      ServiceEntry targetService = resolveService(serviceCoordinate);
-      if (targetService == null) {
-         return errorJson(McpSchema.ErrorCodes.INVALID_PARAMS,
-               "Unknown or unauthorized service '" + serviceCoordinate + "'");
+      // Resolve and execute: same-service stays on the current exposition (deterministic config/backend/
+      // artifacts, even for a non-elected plan); cross-service resolves the target service's elected exposition.
+      ToolCallExecutor.ToolCallOutcome outcome;
+      if (isSameService(serviceCoordinate)) {
+         outcome = toolCallExecutor.execute(currentExposition, tool, args, headers);
+      } else {
+         ServiceEntry targetService = resolveService(serviceCoordinate);
+         if (targetService == null) {
+            return errorJson(McpSchema.ErrorCodes.INVALID_PARAMS,
+                  "Unknown or unauthorized service '" + serviceCoordinate + "'");
+         }
+         outcome = toolCallExecutor.execute(targetService, tool, args, headers);
       }
-
-      ToolCallExecutor.ToolCallOutcome outcome = toolCallExecutor.execute(targetService, tool, args, headers);
       return switch (outcome) {
          case ToolCallExecutor.Success success -> successJson(success.content(), success.isFault());
          case ToolCallExecutor.Failure failure -> errorJson(failure.code(), failure.message());
@@ -223,18 +229,15 @@ public final class ReshaprToolsBuiltins {
       };
    }
 
-   /** Resolve the target service for the given coordinate, restricted to the same organization. */
+   /** Resolve the target service for a cross-service coordinate, restricted to the same organization. */
    @Nullable
    private ServiceEntry resolveService(String serviceCoordinate) {
-      if (isSameService(serviceCoordinate)) {
-         return currentService;
-      }
       String[] parts = serviceCoordinate.split(":", 2);
       if (parts.length != 2) {
          return null;
       }
       // Cross-service resolution is scoped to the current organization.
-      return gatewayRegistry.getService(currentService.organizationId(), parts[0], parts[1]);
+      return gatewayRegistry.getService(currentExposition.service().organizationId(), parts[0], parts[1]);
    }
 
    private static boolean isSameService(@Nullable String serviceCoordinate) {
@@ -315,7 +318,3 @@ public final class ReshaprToolsBuiltins {
       }
    }
 }
-
-
-
-

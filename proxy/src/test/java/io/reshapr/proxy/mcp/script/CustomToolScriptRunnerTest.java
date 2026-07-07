@@ -21,6 +21,8 @@ import io.reshapr.proxy.mcp.ToolCallExecutor;
 import io.reshapr.proxy.mcp.WorkCache;
 import io.reshapr.proxy.mcp.state.ElicitationStore;
 import io.reshapr.proxy.proxy.ProxyService;
+import io.reshapr.proxy.registry.ConfigurationEntry;
+import io.reshapr.proxy.registry.ExpositionEntry;
 import io.reshapr.proxy.registry.GatewayRegistry;
 import io.reshapr.proxy.registry.ServiceEntry;
 import io.reshapr.proxy.secret.SecretReferenceResolver;
@@ -60,7 +62,7 @@ class CustomToolScriptRunnerTest {
       return new ToolCallExecutor(registry, stubElicitationStore(), new WorkCache(1000),
             new ProxyService(new SecretReferenceResolver(java.util.List.of())), null) {
          @Override
-         public ToolCallOutcome execute(ServiceEntry service, String toolName, Map<String, Object> arguments,
+         public ToolCallOutcome execute(ExpositionEntry exposition, String toolName, Map<String, Object> arguments,
                                         Map<String, List<String>> headers) {
             try {
                Map<String, Object> body = new LinkedHashMap<>();
@@ -78,6 +80,16 @@ class CustomToolScriptRunnerTest {
       return new ServiceEntry("1", "reshapr", "GitHub GraphQL", "20250917", "GRAPHQL", List.of());
    }
 
+   private static ConfigurationEntry configuration() {
+      return new ConfigurationEntry("1", "github-default",
+            null, null, null, null, null, null, null);
+   }
+
+   private static ExpositionEntry exposition() {
+      return new ExpositionEntry("1", "github-default", service(),  configuration(),
+            null, List.of());
+   }
+
    private static Map<String, Object> parse(String json) throws Exception {
       return MAPPER.readValue(json, new TypeReference<Map<String, Object>>() {});
    }
@@ -85,10 +97,10 @@ class CustomToolScriptRunnerTest {
    @Test
    void testSynchronousCallTool() throws Exception {
       GatewayRegistry registry = new GatewayRegistry();
-      ServiceEntry service = service();
+      ExpositionEntry exposition = exposition();
       ToolCallExecutor executor = echoExecutor(registry);
 
-      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(service, registry, executor, Map.of(),
+      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(exposition, registry, executor, Map.of(),
             List.of(new DeclaredTool(null, "user")));
 
       String script = """
@@ -108,10 +120,10 @@ class CustomToolScriptRunnerTest {
    @Test
    void testAsynchronousCallToolAndAwaitPromises() throws Exception {
       GatewayRegistry registry = new GatewayRegistry();
-      ServiceEntry service = service();
+      ExpositionEntry exposition = exposition();
       ToolCallExecutor executor = echoExecutor(registry);
 
-      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(service, registry, executor, Map.of(),
+      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(exposition, registry, executor, Map.of(),
             List.of(new DeclaredTool(null, "user")));
 
       String script = """
@@ -133,11 +145,11 @@ class CustomToolScriptRunnerTest {
    @Test
    void testCallToolNotInAllowListIsRejected() throws Exception {
       GatewayRegistry registry = new GatewayRegistry();
-      ServiceEntry service = service();
+      ExpositionEntry exposition = exposition();
       ToolCallExecutor executor = echoExecutor(registry);
 
       // 'user' is NOT declared in the allow-list.
-      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(service, registry, executor, Map.of(),
+      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(exposition, registry, executor, Map.of(),
             List.of(new DeclaredTool(null, "repository")));
 
       String script = """
@@ -172,11 +184,11 @@ class CustomToolScriptRunnerTest {
    @Test
    void testUserOverviewSlimsTheGraphQLPayload() throws Exception {
       GatewayRegistry registry = new GatewayRegistry();
-      ServiceEntry service = service();
+      ExpositionEntry exposition = exposition();
       ToolCallExecutor executor = gitHubUserExecutor(registry);
 
       JsonNode customTool = loadCustomTool("user_overview");
-      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(service, registry, executor, Map.of(),
+      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(exposition, registry, executor, Map.of(),
             declaredToolsOf(customTool));
 
       CustomToolScriptRunner runner = new CustomToolScriptRunner(MAPPER);
@@ -201,11 +213,11 @@ class CustomToolScriptRunnerTest {
    @Test
    void testCompareTwoUsersInParallel() throws Exception {
       GatewayRegistry registry = new GatewayRegistry();
-      ServiceEntry service = service();
+      ExpositionEntry exposition = exposition();
       ToolCallExecutor executor = gitHubUserExecutor(registry);
 
       JsonNode customTool = loadCustomTool("compare_two_users");
-      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(service, registry, executor, Map.of(),
+      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(exposition, registry, executor, Map.of(),
             declaredToolsOf(customTool));
 
       CustomToolScriptRunner runner = new CustomToolScriptRunner(MAPPER);
@@ -250,7 +262,7 @@ class CustomToolScriptRunnerTest {
    private static ToolCallExecutor gitHubUserExecutor(GatewayRegistry registry) {
       return new ToolCallExecutor(registry, stubElicitationStore(), new WorkCache(1000), new ProxyService(new io.reshapr.proxy.secret.SecretReferenceResolver(java.util.List.of())), null) {
          @Override
-         public ToolCallOutcome execute(ServiceEntry service, String toolName, Map<String, Object> arguments,
+         public ToolCallOutcome execute(ExpositionEntry exposition, String toolName, Map<String, Object> arguments,
                                         Map<String, List<String>> headers) {
             if (!"user".equals(toolName)) {
                return new Failure(-32602, "Unknown tool: " + toolName, null);
@@ -313,7 +325,7 @@ class CustomToolScriptRunnerTest {
    private static ToolCallExecutor depthProbeExecutor(GatewayRegistry registry) {
       return new ToolCallExecutor(registry, stubElicitationStore(), new WorkCache(1000), new ProxyService(new io.reshapr.proxy.secret.SecretReferenceResolver(java.util.List.of())), null) {
          @Override
-         public ToolCallOutcome execute(ServiceEntry service, String toolName, Map<String, Object> arguments,
+         public ToolCallOutcome execute(ExpositionEntry exposition, String toolName, Map<String, Object> arguments,
                                         Map<String, List<String>> headers) {
             try {
                return new Success(MAPPER.writeValueAsString(Map.of("depth", ScriptExecutionContext.currentDepth())), false);
@@ -327,10 +339,10 @@ class CustomToolScriptRunnerTest {
    @Test
    void testScriptDepthIsPropagatedToSynchronousCalls() {
       GatewayRegistry registry = new GatewayRegistry();
-      ServiceEntry service = service();
+      ExpositionEntry exposition = exposition();
       ToolCallExecutor executor = depthProbeExecutor(registry);
 
-      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(service, registry, executor, Map.of(),
+      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(exposition, registry, executor, Map.of(),
             List.of(new DeclaredTool(null, "probe")));
 
       String script = "const r = rs.callTool('probe', {}); return { depth: r.content.depth };";
@@ -342,10 +354,10 @@ class CustomToolScriptRunnerTest {
    @Test
    void testScriptDepthIsPropagatedToAsynchronousCalls() {
       GatewayRegistry registry = new GatewayRegistry();
-      ServiceEntry service = service();
+      ExpositionEntry exposition = exposition();
       ToolCallExecutor executor = depthProbeExecutor(registry);
 
-      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(service, registry, executor, Map.of(),
+      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(exposition, registry, executor, Map.of(),
             List.of(new DeclaredTool(null, "probe")));
 
       String script = """
@@ -361,13 +373,13 @@ class CustomToolScriptRunnerTest {
    @Test
    void testScriptExecutionTimeout() {
       GatewayRegistry registry = new GatewayRegistry();
-      ServiceEntry service = service();
+      ExpositionEntry exposition = exposition();
 
       // An executor whose call blocks longer than the configured timeout.
       ToolCallExecutor slow = new ToolCallExecutor(registry, stubElicitationStore(), new WorkCache(1000),
             new ProxyService(new io.reshapr.proxy.secret.SecretReferenceResolver(java.util.List.of())), null) {
          @Override
-         public ToolCallOutcome execute(ServiceEntry s, String toolName, Map<String, Object> arguments,
+         public ToolCallOutcome execute(ExpositionEntry exp, String toolName, Map<String, Object> arguments,
                                         Map<String, List<String>> headers) {
             try {
                Thread.sleep(500);
@@ -379,7 +391,7 @@ class CustomToolScriptRunnerTest {
          }
       };
 
-      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(service, registry, slow, Map.of(),
+      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(exposition, registry, slow, Map.of(),
             List.of(new DeclaredTool(null, "slow")));
 
       CustomToolScriptRunner runner = new CustomToolScriptRunner(MAPPER, 150);
@@ -404,8 +416,8 @@ class CustomToolScriptRunnerTest {
    @Test
    void testScriptThrowIsSurfacedAsErrorContent() {
       GatewayRegistry registry = new GatewayRegistry();
-      ServiceEntry service = service();
-      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(service, registry,
+      ExpositionEntry exposition = exposition();
+      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(exposition, registry,
             gitHubUserExecutor(registry), Map.of(), List.of());
 
       CustomToolScriptRunner runner = new CustomToolScriptRunner(MAPPER);
@@ -419,8 +431,8 @@ class CustomToolScriptRunnerTest {
    @Test
    void testRsFailProducesStructuredError() throws Exception {
       GatewayRegistry registry = new GatewayRegistry();
-      ServiceEntry service = service();
-      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(service, registry,
+      ExpositionEntry exposition = exposition();
+      ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(exposition, registry,
             gitHubUserExecutor(registry), Map.of(), List.of());
 
       CustomToolScriptRunner runner = new CustomToolScriptRunner(MAPPER);

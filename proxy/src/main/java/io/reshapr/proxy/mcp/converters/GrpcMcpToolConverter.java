@@ -21,6 +21,7 @@ import io.reshapr.proxy.proxy.BackendResponse;
 import io.reshapr.proxy.proxy.GrpcProxyService;
 import io.reshapr.proxy.registry.ArtifactEntry;
 import io.reshapr.proxy.registry.ConfigurationEntry;
+import io.reshapr.proxy.registry.ExpositionEntry;
 import io.reshapr.proxy.registry.OperationEntry;
 import io.reshapr.proxy.registry.ServiceEntry;
 import io.reshapr.proxy.util.GrpcUtil;
@@ -72,10 +73,10 @@ public class GrpcMcpToolConverter extends McpToolConverter {
 
    private final ObjectMapper mapper;
 
-   public GrpcMcpToolConverter(ServiceEntry service, ArtifactEntry artifact, WorkCache workCache,
+   public GrpcMcpToolConverter(ExpositionEntry exposition, WorkCache workCache,
                                ObjectMapper mapper, GrpcProxyService proxyService) {
-      this.service = service;
-      this.artifact = artifact;
+      this.service = exposition.service();
+      this.artifact = exposition.mainArtifact();
       this.workCache = workCache;
       this.mapper = mapper;
       this.proxyService = proxyService;

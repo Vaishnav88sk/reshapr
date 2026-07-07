@@ -176,7 +176,7 @@ public class ToolCallExecutor {
       // tool), run the elicitation pre-flight on those declared tools before invoking the operation.
       List<DeclaredTool> declaredTools = converter.getDeclaredTools(callOperation);
       if (declaredTools != null) {
-         ToolCallOutcome preflight = preflightToolsElicitation(service, declaredTools);
+         ToolCallOutcome preflight = preflightToolsElicitation(exposition, declaredTools);
          if (preflight != null) {
             return preflight;
          }
@@ -266,28 +266,28 @@ public class ToolCallExecutor {
    }
 
    /**
-    * Pre-flight the elicitation requirements of all tools declared before running them.
-    * @param currentService The service the script belongs to.
+    * Pre-flight the elicitation requirements of all tools declared before running them. Same-service
+    * declared tools are resolved against the <b>current</b> exposition (its own configuration/backend
+    * secret), so a script served by a non-elected plan pre-checks the right secret; cross-service tools
+    * resolve to the target service's elected exposition.
+    * @param currentExposition The exposition the script belongs to.
     * @param declaredTools The tools the script declares it may call.
     * @return {@code null} if the script can run, an {@link ElicitationRequired} aggregating all
     *         unresolved secrets, or a {@link Failure} if a session is required but missing.
     */
    @Nullable
-   ToolCallOutcome preflightToolsElicitation(ServiceEntry currentService, List<DeclaredTool> declaredTools) {
+   ToolCallOutcome preflightToolsElicitation(ExpositionEntry currentExposition, List<DeclaredTool> declaredTools) {
       SessionInfo sessionInfo = MethodHandlingContext.getSessionInfo();
       List<McpSchema.URLElicitation> elicitations = new ArrayList<>();
       Set<String> seenSecrets = new HashSet<>();
 
       for (DeclaredTool declaredTool : declaredTools) {
-         ServiceEntry targetService = resolveTargetService(currentService, declaredTool);
-         if (targetService == null) {
+         ExpositionEntry targetExposition = resolveTargetExposition(currentExposition, declaredTool);
+         if (targetExposition == null) {
             // Unknown/unauthorized service: it will be rejected at call time, skip here.
             continue;
          }
-         ConfigurationEntry configuration = gatewayRegistry.getConfiguration(targetService);
-         if (configuration == null) {
-            continue;
-         }
+         ConfigurationEntry configuration = targetExposition.configuration();
          SecretEntry secret = configuration.backendSecret();
          if (secret == null || !secret.useElicitation()) {
             continue;
@@ -300,26 +300,35 @@ public class ToolCallExecutor {
             continue;
          }
          // Deduplicate by target service + secret name to avoid double elicitation.
-         if (!seenSecrets.add(targetService.id() + "/" + secret.name())) {
+         if (!seenSecrets.add(targetExposition.service().id() + "/" + secret.name())) {
             continue;
          }
-         elicitations.add(buildElicitation(targetService, configuration, secret, sessionInfo));
+         elicitations.add(buildElicitation(targetExposition.service(), configuration, secret, sessionInfo));
       }
 
       return elicitations.isEmpty() ? null : new ElicitationRequired(elicitations);
    }
 
-   /** Resolve the target service for a declared tool, restricted to the current organization. */
+   /**
+    * Resolve the target exposition for a declared tool, restricted to the current organization. Same-service
+    * resolves to the current exposition (deterministic); cross-service resolves to the target service's
+    * elected exposition (last configuration plan).
+    */
    @Nullable
-   private ServiceEntry resolveTargetService(ServiceEntry currentService, DeclaredTool declaredTool) {
+   private ExpositionEntry resolveTargetExposition(ExpositionEntry currentExposition, DeclaredTool declaredTool) {
       if (declaredTool.isSameService()) {
-         return currentService;
+         return currentExposition;
       }
       String[] parts = declaredTool.serviceCoordinate().split(":", 2);
       if (parts.length != 2) {
          return null;
       }
-      return gatewayRegistry.getService(currentService.organizationId(), parts[0], parts[1]);
+      ServiceEntry targetService = gatewayRegistry.getService(
+            currentExposition.service().organizationId(), parts[0], parts[1]);
+      if (targetService == null) {
+         return null;
+      }
+      return gatewayRegistry.getElectedExpositionByServiceId(targetService.id());
    }
 
    /**
@@ -332,24 +341,18 @@ public class ToolCallExecutor {
     */
    public McpToolConverter buildMcpToolConverter(ExpositionEntry exposition) {
       ServiceEntry service = exposition.service();
-      ArtifactEntry mainArtifact = exposition.mainArtifact();
-      List<ArtifactEntry> attachedArtifacts = exposition.attachedArtifacts();
 
       McpToolConverter converter;
       switch (service.type()) {
-         case "GRAPHQL" -> converter = new GraphQLMcpToolConverter(service, mainArtifact,
-               workCache, mapper, proxyService);
-         case "GRPC" -> converter = new GrpcMcpToolConverter(service, mainArtifact,
-               workCache, mapper, grpcProxyService);
-         default -> converter = new OpenAPIMcpToolConverter(service, mainArtifact,
-               attachedArtifacts, workCache, mapper, proxyService);
+         case "GRAPHQL" -> converter = new GraphQLMcpToolConverter(exposition, workCache, mapper, proxyService);
+         case "GRPC" -> converter = new GrpcMcpToolConverter(exposition, workCache, mapper, grpcProxyService);
+         default -> converter = new OpenAPIMcpToolConverter(exposition, workCache, mapper, proxyService);
       }
 
       // If we have Custom Tools artifacts attached, wrap converter.
-      if (attachedArtifacts.stream()
+      if (exposition.attachedArtifacts().stream()
             .anyMatch(artifactEntry -> ArtifactEntryType.RESHAPR_CUSTOM_TOOLS.equals(artifactEntry.type()))) {
-         converter = new ReshaprCustomToolsMcpToolConverter(service, attachedArtifacts,
-               workCache, converter, this, gatewayRegistry);
+         converter = new ReshaprCustomToolsMcpToolConverter(exposition, workCache, converter, this, gatewayRegistry);
       }
       return converter;
    }

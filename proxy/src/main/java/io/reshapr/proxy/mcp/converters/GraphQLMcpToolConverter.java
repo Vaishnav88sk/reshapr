@@ -21,6 +21,7 @@ import io.reshapr.proxy.proxy.BackendResponse;
 import io.reshapr.proxy.proxy.ProxyService;
 import io.reshapr.proxy.registry.ArtifactEntry;
 import io.reshapr.proxy.registry.ConfigurationEntry;
+import io.reshapr.proxy.registry.ExpositionEntry;
 import io.reshapr.proxy.registry.OperationEntry;
 import io.reshapr.proxy.registry.ServiceEntry;
 
@@ -77,10 +78,10 @@ public class GraphQLMcpToolConverter extends McpToolConverter {
 
    private final ObjectMapper mapper;
 
-   public GraphQLMcpToolConverter(ServiceEntry service, ArtifactEntry artifact, WorkCache workCache,
+   public GraphQLMcpToolConverter(ExpositionEntry exposition, WorkCache workCache,
                                   ObjectMapper mapper, ProxyService proxyService) {
-      this.service = service;
-      this.artifact = artifact;
+      this.service = exposition.service();
+      this.artifact = exposition.mainArtifact();
       this.workCache = workCache;
       this.mapper = mapper;
       this.proxyService = proxyService;

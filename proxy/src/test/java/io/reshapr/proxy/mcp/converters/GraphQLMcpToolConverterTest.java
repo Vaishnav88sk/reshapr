@@ -20,6 +20,8 @@ import io.reshapr.proxy.mcp.WorkCache;
 import io.reshapr.proxy.proxy.ProxyService;
 import io.reshapr.proxy.registry.ArtifactEntry;
 import io.reshapr.proxy.registry.ArtifactEntryType;
+import io.reshapr.proxy.registry.ConfigurationEntry;
+import io.reshapr.proxy.registry.ExpositionEntry;
 import io.reshapr.proxy.registry.OperationEntry;
 import io.reshapr.proxy.registry.ServiceEntry;
 import io.reshapr.proxy.secret.SecretReferenceResolver;
@@ -57,14 +59,19 @@ class GraphQLMcpToolConverterTest {
       ServiceEntry serviceEntry = new ServiceEntry("1", "reshapr", "GitHub GraphQL",
             "20250917", "GRAPHQL", operations);
 
+      ConfigurationEntry configurationEntry = new ConfigurationEntry("1", "GitHub-GraphQL-default",
+            null, null, null, null, null, null, null);
+      ExpositionEntry exposition = new ExpositionEntry("1", "GitHub-GraphQL-default", serviceEntry,  configurationEntry,
+            artifactEntry, List.of());
+
       // Create ObjectMapper with correct options.
       ParserOptions.setDefaultParserOptions(
             ParserOptions.getDefaultParserOptions().transform(
                   opts -> opts.maxCharacters(100000000).maxTokens(100000)));
       ObjectMapper objectMapper = new ObjectMapper();
 
-      GraphQLMcpToolConverter converter = new GraphQLMcpToolConverter(serviceEntry, artifactEntry,
-            new WorkCache(1000), objectMapper, new ProxyService(new SecretReferenceResolver(java.util.List.of())));
+      GraphQLMcpToolConverter converter = new GraphQLMcpToolConverter(exposition, new WorkCache(1000),
+            objectMapper, new ProxyService(new SecretReferenceResolver(java.util.List.of())));
 
       for (OperationEntry operation : operations) {
          McpSchema.JsonSchema schema = converter.getInputSchema(operation);

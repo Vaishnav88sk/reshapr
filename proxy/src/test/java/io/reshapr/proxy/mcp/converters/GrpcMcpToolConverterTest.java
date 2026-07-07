@@ -20,6 +20,8 @@ import io.reshapr.proxy.mcp.WorkCache;
 import io.reshapr.proxy.proxy.GrpcProxyService;
 import io.reshapr.proxy.registry.ArtifactEntry;
 import io.reshapr.proxy.registry.ArtifactEntryType;
+import io.reshapr.proxy.registry.ConfigurationEntry;
+import io.reshapr.proxy.registry.ExpositionEntry;
 import io.reshapr.proxy.registry.OperationEntry;
 import io.reshapr.proxy.registry.ServiceEntry;
 import io.reshapr.proxy.secret.SecretReferenceResolver;
@@ -50,10 +52,15 @@ class GrpcMcpToolConverterTest {
             new OperationEntry("DeleteDocument", null, null, null, null)));
       ArtifactEntry artifactEntry = new ArtifactEntry("1", "google.firestore.v1.Firestore-v1.pbb",
             "GRPC", ArtifactEntryType.PROTOBUF_DESCRIPTOR, true, FIRESTORE_PBB_BASE64);
-      ObjectMapper objectMapper = new ObjectMapper();
 
-      GrpcMcpToolConverter converter = new GrpcMcpToolConverter(serviceEntry, artifactEntry,
-            new WorkCache(100), objectMapper, new GrpcProxyService(new SecretReferenceResolver(java.util.List.of())));
+      ConfigurationEntry configurationEntry = new ConfigurationEntry("1", "google.firestore.v1.Firestore-default",
+               null, null, null, null, null, null, null);
+      ExpositionEntry exposition = new ExpositionEntry("1", "google.firestore.v1.Firestore-default", serviceEntry,  configurationEntry,
+               artifactEntry, List.of());
+
+      ObjectMapper objectMapper = new ObjectMapper();
+      GrpcMcpToolConverter converter = new GrpcMcpToolConverter(exposition, new WorkCache(100),
+            objectMapper, new GrpcProxyService(new SecretReferenceResolver(java.util.List.of())));
 
       McpSchema.JsonSchema schema = converter.getInputSchema(new OperationEntry("CreateDocument", null, null, null, null));
 
