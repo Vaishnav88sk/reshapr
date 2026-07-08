@@ -28,7 +28,7 @@
 	import { parseArtifactRefList, type ArtifactRef, type ArtifactType } from '$lib/artifacts/index.js';
 	import { parseServiceRecord } from '$lib/serviceHub.js';
 	import { parseOperationsList, formatOperationsList } from '$lib/operationsList.js';
-	import { cn, slugify } from '$lib/utils.js';
+	import { cn } from '$lib/utils.js';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		Search01Icon,
@@ -267,8 +267,8 @@
 				applyPlan(plan);
 				consumeCreatedKey(planId);
 			} else if (!name.trim()) {
-				// Suggest a sensible default name derived from the service identity.
-				name = slugify(serviceName, serviceVersion, 'plan');
+				// Suggest a simple default name; the operator can rename it freely.
+				name = 'my-plan';
 			}
 		} catch (e) {
 			error = e instanceof ApiError ? e.message : String(e);

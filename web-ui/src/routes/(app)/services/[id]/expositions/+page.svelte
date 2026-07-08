@@ -18,20 +18,44 @@
 	import { getContext } from 'svelte';
 	import { apiClient, ApiError } from '$lib/api/client.js';
 	import ApiErrorAlert from '$lib/components/ApiErrorAlert.svelte';
-	import { collectMcpUrlsFromActiveExpositions } from '$lib/mcpEndpointUrls.js';
 	import { expositionBelongsToService } from '$lib/serviceHub.js';
 	import { SERVICE_CONTEXT_KEY, type ServiceContextValue } from '$lib/serviceContext.js';
 	import { Button } from '$lib/components/ui/button/index.js';
+	import { Badge } from '$lib/components/ui/badge/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
+	import {
+		DropdownMenu,
+		DropdownMenuContent,
+		DropdownMenuItem,
+		DropdownMenuTrigger
+	} from '$lib/components/ui/dropdown-menu/index.js';
+	import { cn } from '$lib/utils.js';
+	import { HugeiconsIcon } from '@hugeicons/svelte';
+	import { MoreVerticalIcon, Delete02Icon, TagsIcon } from '@hugeicons/core-free-icons';
 
 	const ctx = getContext<ServiceContextValue>(SERVICE_CONTEXT_KEY);
 
 	type ExpoRow = {
 		id: string;
 		name: string | null;
-		scope: string;
+		active: boolean;
+		planId: string | null;
+		planName: string | null;
+		gatewayGroupId: string | null;
+		gatewayGroupName: string | null;
 		backend: string;
-		mcpUrls: number;
+	};
+
+	// Color-coded pill per exposition status.
+	const STATUS_META: Record<'active' | 'inactive', { label: string; classes: string }> = {
+		active: {
+			label: 'Active',
+			classes: 'bg-primary/10 text-primary ring-primary/20'
+		},
+		inactive: {
+			label: 'Inactive',
+			classes: 'bg-muted text-muted-foreground ring-border'
+		}
 	};
 
 	let rows = $state<ExpoRow[]>([]);
@@ -39,25 +63,36 @@
 	let loading = $state(true);
 	let mode = $state<'active' | 'all'>('active');
 
+	function asRecord(raw: unknown): Record<string, unknown> | null {
+		return raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+	}
+
 	function backendUrl(configurationPlan: unknown): string {
-		if (!configurationPlan || typeof configurationPlan !== 'object') return '—';
-		const c = configurationPlan as Record<string, unknown>;
+		const c = asRecord(configurationPlan);
+		if (!c) return '—';
 		return typeof c.backendEndpoint === 'string' ? c.backendEndpoint : '—';
 	}
 
-	function toRow(raw: unknown, scope: string): ExpoRow | null {
-		if (!raw || typeof raw !== 'object') return null;
-		const o = raw as Record<string, unknown>;
-		if (typeof o.id !== 'string') return null;
-		const urls = collectMcpUrlsFromActiveExpositions(
-			scope === 'active' ? [raw] : raw,
-		);
+	function expositionId(raw: unknown): string | null {
+		const o = asRecord(raw);
+		return o && typeof o.id === 'string' ? o.id : null;
+	}
+
+	function toRow(raw: unknown, active: boolean): ExpoRow | null {
+		const o = asRecord(raw);
+		if (!o || typeof o.id !== 'string') return null;
+		const plan = asRecord(o.configurationPlan);
+		const group = asRecord(o.gatewayGroup);
 		return {
 			id: o.id,
 			name: typeof o.name === 'string' && o.name.trim() ? o.name.trim() : null,
-			scope,
-			backend: backendUrl(o.configurationPlan),
-			mcpUrls: scope === 'active' ? urls.length : 0
+			active,
+			planId: plan && typeof plan.id === 'string' ? plan.id : null,
+			planName: plan && typeof plan.name === 'string' && plan.name.trim() ? plan.name.trim() : null,
+			gatewayGroupId: group && typeof group.id === 'string' ? group.id : null,
+			gatewayGroupName:
+				group && typeof group.name === 'string' && group.name.trim() ? group.name.trim() : null,
+			backend: backendUrl(o.configurationPlan)
 		};
 	}
 
@@ -67,23 +102,41 @@
 		error = null;
 		try {
 			const c = apiClient();
-			if (mode === 'active') {
-				const active = await c.listExpositionsActive();
-				const list = (Array.isArray(active) ? active : []).filter((e) =>
-					expositionBelongsToService(e, ctx.id),
-				);
-				rows = list
-					.map((e) => toRow(e, 'active'))
-					.filter((r): r is ExpoRow => r != null);
-			} else {
-				const all = await c.listExpositionsAll();
-				const list = (Array.isArray(all) ? all : []).filter((e) =>
-					expositionBelongsToService(e, ctx.id),
-				);
-				rows = list
-					.map((e) => toRow(e, 'all'))
-					.filter((r): r is ExpoRow => r != null);
+			// Load both lists so we can display the Active/Inactive status per row,
+			// even when browsing all expositions.
+			const [allRaw, activeRaw] = await Promise.all([
+				c.listExpositionsAll(),
+				c.listExpositionsActive()
+			]);
+
+			const activeForService = (Array.isArray(activeRaw) ? activeRaw : []).filter((e) =>
+				expositionBelongsToService(e, ctx.id),
+			);
+			const activeIds = new Set(
+				activeForService.map((e) => expositionId(e)).filter((id): id is string => id != null),
+			);
+			const allForService = (Array.isArray(allRaw) ? allRaw : []).filter((e) =>
+				expositionBelongsToService(e, ctx.id),
+			);
+
+			// The active exposition payload doesn't carry configurationPlan.name /
+			// gatewayGroup.name, so index the full ("all") list by id and use it as the
+			// source of truth for those details, cross-referencing by exposition id.
+			const detailsById = new Map<string, unknown>();
+			for (const e of allForService) {
+				const id = expositionId(e);
+				if (id) detailsById.set(id, e);
 			}
+
+			const source = mode === 'active' ? activeForService : allForService;
+			rows = source
+				.map((e) => {
+					const id = expositionId(e);
+					if (!id) return null;
+					const detail = detailsById.get(id) ?? e;
+					return toRow(detail, activeIds.has(id));
+				})
+				.filter((r): r is ExpoRow => r != null);
 		} catch (e) {
 			error = e instanceof ApiError ? e.message : String(e);
 			rows = [];
@@ -96,19 +149,41 @@
 		mode;
 		if (ctx.id && !ctx.loading) void load();
 	});
+
+	async function onDelete(row: ExpoRow) {
+		if (!confirm(`Delete exposition "${row.name ?? row.id}"?`)) return;
+		try {
+			await apiClient().deleteExposition(row.id);
+			await load();
+		} catch (e) {
+			error = e instanceof ApiError ? e.message : String(e);
+		}
+	}
 </script>
 
 <div class="mb-4 flex flex-wrap items-center justify-between gap-4">
 	<h3 class="text-lg font-semibold">Expositions</h3>
 	<div class="flex flex-wrap items-center gap-2">
-		<label class="flex items-center gap-2 text-sm">
-			<input type="radio" bind:group={mode} value="active" />
-			Active
-		</label>
-		<label class="flex items-center gap-2 text-sm">
-			<input type="radio" bind:group={mode} value="all" />
-			All
-		</label>
+		<div class="bg-muted inline-flex items-center rounded-lg p-0.5">
+			<Button
+				variant={mode === 'active' ? 'default' : 'ghost'}
+				size="sm"
+				class="h-7"
+				aria-pressed={mode === 'active'}
+				onclick={() => (mode = 'active')}
+			>
+				Active
+			</Button>
+			<Button
+				variant={mode === 'all' ? 'default' : 'ghost'}
+				size="sm"
+				class="h-7"
+				aria-pressed={mode === 'all'}
+				onclick={() => (mode = 'all')}
+			>
+				All
+			</Button>
+		</div>
 		<Button variant="outline" size="sm" disabled={loading} onclick={() => void load()}>Refresh</Button>
 	</div>
 </div>
@@ -121,38 +196,103 @@
 	<Table.Root>
 		<Table.Header>
 			<Table.Row>
-				<Table.Head>ID</Table.Head>
 				<Table.Head>Name</Table.Head>
-				<Table.Head>Scope</Table.Head>
+				<Table.Head>Configuration plan</Table.Head>
 				<Table.Head>Backend</Table.Head>
-				<Table.Head>MCP URLs</Table.Head>
+				<Table.Head>Status</Table.Head>
+				<Table.Head>Gateway group</Table.Head>
+				<Table.Head class="w-16 text-right">Actions</Table.Head>
 			</Table.Row>
 		</Table.Header>
 		<Table.Body>
 			{#if loading}
 				<Table.Row>
-					<Table.Cell colspan={5} class="text-muted-foreground">Loading…</Table.Cell>
+					<Table.Cell colspan={6} class="text-muted-foreground">Loading…</Table.Cell>
 				</Table.Row>
 			{:else if rows.length === 0}
 				<Table.Row>
-					<Table.Cell colspan={5} class="text-muted-foreground">No expositions for this service.</Table.Cell>
+					<Table.Cell colspan={6} class="text-muted-foreground">No expositions for this service.</Table.Cell>
 				</Table.Row>
 			{:else}
-				{#each rows as e (e.id + e.scope)}
+				{#each rows as e (e.id)}
+					{@const status = STATUS_META[e.active ? 'active' : 'inactive']}
 					<Table.Row>
-						<Table.Cell>
-							<a href="/expositions/{e.id}" class="text-primary hover:underline">{e.id}</a>
+						<Table.Cell class="font-medium">
+							<div class="flex flex-col gap-1">
+								<span>
+									{#if e.name}
+										<a href="/expositions/{e.id}" class="text-primary hover:underline">{e.name}</a>
+									{:else}
+										<a
+											href="/expositions/{e.id}"
+											class="text-muted-foreground italic hover:underline">unnamed</a
+										>
+									{/if}
+								</span>
+								<code
+									class="text-muted-foreground bg-muted w-fit rounded px-1 py-0.5 font-mono text-xs break-all"
+									>{e.id}</code
+								>
+							</div>
 						</Table.Cell>
-						<Table.Cell class="text-muted-foreground">
-							{#if e.name}
-								<span class="font-mono text-xs">{e.name}</span>
+						<Table.Cell>
+							{#if e.planName || e.planId}
+								<div class="flex flex-col gap-1">
+									<span>{e.planName ?? '—'}</span>
+									{#if e.planId}
+										<code
+											class="text-muted-foreground bg-muted w-fit rounded px-1 py-0.5 font-mono text-xs break-all"
+											>{e.planId}</code
+										>
+									{/if}
+								</div>
 							{:else}
-								—
+								<span class="text-muted-foreground">—</span>
 							{/if}
 						</Table.Cell>
-						<Table.Cell>{e.scope}</Table.Cell>
-						<Table.Cell class="max-w-xs truncate" title={e.backend}>{e.backend}</Table.Cell>
-						<Table.Cell>{e.mcpUrls || '—'}</Table.Cell>
+						<Table.Cell class="max-w-xs truncate" title={e.backend}>
+							<code class="truncate rounded px-1.5 py-0.5 font-mono text-xs">{e.backend}</code>
+						</Table.Cell>
+						<Table.Cell>
+							<span
+								class={cn(
+									'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset',
+									status.classes
+								)}
+							>
+								{status.label}
+							</span>
+						</Table.Cell>
+						<Table.Cell>
+							{#if e.gatewayGroupName || e.gatewayGroupId}
+								<Badge variant="secondary" class="gap-1 text-xs">
+									<HugeiconsIcon icon={TagsIcon} size={12} />
+									{e.gatewayGroupName ?? e.gatewayGroupId}
+								</Badge>
+							{:else}
+								<span class="text-muted-foreground">—</span>
+							{/if}
+						</Table.Cell>
+						<Table.Cell class="text-right">
+							<DropdownMenu>
+								<DropdownMenuTrigger>
+									{#snippet child({ props })}
+										<Button variant="ghost" size="icon" {...props}>
+											<HugeiconsIcon icon={MoreVerticalIcon} size={16} />
+										</Button>
+									{/snippet}
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end">
+									<DropdownMenuItem
+										class="text-destructive focus:text-destructive"
+										onSelect={() => void onDelete(e)}
+									>
+										<HugeiconsIcon icon={Delete02Icon} size={16} />
+										Delete
+									</DropdownMenuItem>
+								</DropdownMenuContent>
+							</DropdownMenu>
+						</Table.Cell>
 					</Table.Row>
 				{/each}
 			{/if}
