@@ -20,23 +20,15 @@
 	import { quotaEntry } from '$lib/dashboardStatsCompute.js';
 	import { avatarColor, avatarInitials } from '$lib/avatarColor.js';
 	import ApiErrorAlert from '$lib/components/ApiErrorAlert.svelte';
+	import CreateExpositionDrawer from '$lib/components/exposition/CreateExpositionDrawer.svelte';
 	import OrganizationBadge from '$lib/components/OrganizationBadge.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import QuotaGauge, { type QuotaInfo } from '$lib/components/QuotaGauge.svelte';
 	import { auth } from '$lib/stores/auth.svelte.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
-	import { Input } from '$lib/components/ui/input/index.js';
+	import { Switch } from '$lib/components/ui/switch/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
-	import {
-		Sheet,
-		SheetContent,
-		SheetHeader,
-		SheetTitle,
-		SheetDescription,
-		SheetFooter,
-		SheetClose
-	} from '$lib/components/ui/sheet/index.js';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { CloudServerIcon, Copy01Icon, Link01Icon, McpServerIcon, Tick02Icon } from '@hugeicons/core-free-icons';
 
@@ -56,9 +48,6 @@
 	let mode = $state<'active' | 'all'>('active');
 	let rows = $state<ExpoRow[]>([]);
 	let error = $state<string | null>(null);
-	let planId = $state('1');
-	let ggId = $state('1');
-	let expoName = $state('');
 
 	// ── Quota state ───────────────────────────────────────────
 	let quota = $state<QuotaInfo>(null);
@@ -221,80 +210,35 @@
 	}
 
 	// ── Create drawer state ───────────────────────────────────
+	// Actual creation flow lives in the shared CreateExpositionDrawer component.
 	let drawerOpen = $state(false);
-	let submitting = $state(false);
-	let formError = $state('');
-
-	// Work around a bits-ui body-scroll-lock issue (see secrets/gateway-groups
-	// pages): force-unfreeze the body after the dialog close restore window
-	// whenever the drawer is closed.
-	$effect(() => {
-		if (drawerOpen) return;
-		const unfreeze = () => {
-			if (document.body.style.pointerEvents === 'none') {
-				document.body.style.removeProperty('pointer-events');
-				document.body.style.removeProperty('overflow');
-			}
-		};
-		const timers = [50, 200].map((d) => setTimeout(unfreeze, d));
-		return () => timers.forEach(clearTimeout);
-	});
-
-	function resetForm() {
-		planId = '1';
-		ggId = '1';
-		expoName = '';
-		formError = '';
-	}
 
 	// Force a clean open transition so the drawer reliably reopens even if a
 	// previous user-initiated close left `drawerOpen` out of sync.
-	async function openDrawer() {
+	async function openCreate() {
+		if (!canCreate) return;
 		drawerOpen = false;
 		await tick();
 		drawerOpen = true;
-	}
-
-	function openCreate() {
-		if (!canCreate) return;
-		resetForm();
-		void openDrawer();
-	}
-
-	async function onCreate(ev: SubmitEvent) {
-		ev.preventDefault();
-		formError = '';
-		submitting = true;
-		try {
-			const name = expoName.trim();
-			await apiClient().createExposition({
-				configurationPlanId: planId.trim(),
-				gatewayGroupId: ggId.trim(),
-				...(name ? { name } : {})
-			});
-			drawerOpen = false;
-			await load();
-		} catch (e) {
-			formError = e instanceof ApiError ? e.message : String(e);
-		} finally {
-			submitting = false;
-		}
 	}
 </script>
 
 <PageHeader title="MCP Servers" subtitle="Expositions of your services as MCP servers.">
 	{#snippet actions()}
 		<div class="flex flex-wrap items-center gap-4">
-			<label class="flex items-center gap-2 text-sm">
-				<input type="radio" name="m" checked={mode === 'active'} onchange={() => (mode = 'active')} />
-				Active
-			</label>
-			<label class="flex items-center gap-2 text-sm">
-				<input type="radio" name="m" checked={mode === 'all'} onchange={() => (mode = 'all')} />
-				All
-			</label>
+			<div class="flex items-center gap-2">
+				<Label for="expo-mode-switch" class="text-muted-foreground text-sm">
+					{mode === 'active' ? 'Active' : 'All'}
+				</Label>
+				<Switch
+					id="expo-mode-switch"
+					checked={mode === 'all'}
+					onCheckedChange={(v) => (mode = v ? 'all' : 'active')}
+					aria-label="Show all MCP servers"
+				/>
+			</div>
 			<Button variant="outline" onclick={() => void load()}>Refresh</Button>
-			<Button onclick={openCreate} disabled={!canCreate} title={canCreate ? undefined : 'Quota reached'}>
+			<Button onclick={() => void openCreate()} disabled={!canCreate} title={canCreate ? undefined : 'Quota reached'}>
 				New MCP Server
 			</Button>
 		</div>
@@ -321,7 +265,7 @@
 		class="text-muted-foreground flex flex-col items-center justify-center rounded-xl border border-dashed py-16 text-center"
 	>
 		<p class="text-sm">No MCP servers yet.</p>
-		<Button class="mt-3" size="sm" onclick={openCreate} disabled={!canCreate}>
+		<Button class="mt-3" size="sm" onclick={() => void openCreate()} disabled={!canCreate}>
 			Create your first MCP server
 		</Button>
 	</div>
@@ -436,98 +380,7 @@
 {/if}
 
 <!-- ═══════════════════════════════════════════════════════════ -->
-<!-- Create MCP Server Drawer                                    -->
+<!-- Create MCP Server Drawer (shared guided wizard)             -->
 <!-- ═══════════════════════════════════════════════════════════ -->
-<Sheet bind:open={drawerOpen}>
-	<SheetContent side="right" class="flex flex-col sm:max-w-lg">
-		<SheetHeader>
-			<SheetTitle>Create MCP server</SheetTitle>
-			<SheetDescription>
-				The client sends <code class="text-xs">POST /api/v1/expositions</code> with a JSON body that only
-				includes two required properties.
-			</SheetDescription>
-		</SheetHeader>
-
-		<form onsubmit={onCreate} class="flex-1 space-y-4 overflow-y-auto px-4">
-			<ul class="text-muted-foreground list-inside list-disc text-sm">
-				<li>
-					<code class="text-xs">configurationPlanId</code> — id of the configuration plan (see
-					<a href="/plans" class="text-primary hover:underline">Plans</a>).
-				</li>
-				<li>
-					<code class="text-xs">gatewayGroupId</code> — id of the gateway group (see
-					<a href="/gateway-groups" class="text-primary hover:underline">Gateway groups</a>).
-				</li>
-			</ul>
-			<p class="text-muted-foreground text-sm">
-				Other server-side DTO fields are not entered here: the control plane sets them on create.
-			</p>
-
-			<div class="space-y-2">
-				<Label for="expo-name"><code class="text-xs">name</code> (optional)</Label>
-				<Input
-					id="expo-name"
-					class="w-full"
-					bind:value={expoName}
-					placeholder="e.g. github-read-only (leave empty for none)"
-					autocomplete="off"
-					spellcheck={false}
-				/>
-				<p class="text-muted-foreground text-xs">
-					When set, the MCP server is also reachable at
-					<code class="text-xs">/mcp/&lbrace;org&rbrace;/&lbrace;name&rbrace;</code>. Must be unique within
-					your organization. The <code class="text-xs">/mcp/&lbrace;expositionId&rbrace;</code> endpoint is
-					always available.
-				</p>
-			</div>
-
-			<div class="space-y-2">
-				<Label for="expo-configurationPlanId"><code class="text-xs">configurationPlanId</code></Label>
-				<Input
-					id="expo-configurationPlanId"
-					class="w-full"
-					bind:value={planId}
-					placeholder="Plan UUID or id"
-					autocomplete="off"
-					spellcheck={false}
-				/>
-			</div>
-			<div class="space-y-2">
-				<Label for="expo-gatewayGroupId"><code class="text-xs">gatewayGroupId</code></Label>
-				<Input
-					id="expo-gatewayGroupId"
-					class="w-full"
-					bind:value={ggId}
-					placeholder="Gateway group UUID or id"
-					autocomplete="off"
-					spellcheck={false}
-				/>
-			</div>
-
-			{#if formError}
-				<div class="bg-destructive/10 text-destructive rounded-md px-4 py-3 text-sm">
-					{formError}
-				</div>
-			{/if}
-
-			<SheetFooter class="pt-4">
-				<SheetClose>
-					{#snippet child({ props })}
-						<Button variant="outline" type="button" {...props}>Cancel</Button>
-					{/snippet}
-				</SheetClose>
-				<Button type="submit" disabled={submitting}>
-					{#if submitting}
-						<div
-							class="border-primary-foreground h-4 w-4 animate-spin rounded-full border-2 border-t-transparent"
-						></div>
-						Creating…
-					{:else}
-						Create MCP server
-					{/if}
-				</Button>
-			</SheetFooter>
-		</form>
-	</SheetContent>
-</Sheet>
+<CreateExpositionDrawer bind:open={drawerOpen} onCreated={() => void load()} />
 

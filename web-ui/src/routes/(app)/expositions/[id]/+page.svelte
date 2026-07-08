@@ -18,11 +18,16 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { apiClient, ApiError } from '$lib/api/client.js';
-	import { parseArtifactRefList, type ArtifactRef, type ArtifactType } from '$lib/artifacts/index.js';
+	import { parseArtifactRefList, type ArtifactRef } from '$lib/artifacts/index.js';
 	import { avatarColor, avatarInitials } from '$lib/avatarColor.js';
 	import ApiErrorAlert from '$lib/components/ApiErrorAlert.svelte';
 	import OrganizationBadge from '$lib/components/OrganizationBadge.svelte';
 	import ServiceTypeBadge from '$lib/components/ServiceTypeBadge.svelte';
+	import PlanOperationsView from '$lib/components/plan/PlanOperationsView.svelte';
+	import PlanCapabilitiesView from '$lib/components/plan/PlanCapabilitiesView.svelte';
+	import PlanBackendView from '$lib/components/plan/PlanBackendView.svelte';
+	import PlanClientAuthView from '$lib/components/plan/PlanClientAuthView.svelte';
+	import PlanAuditView from '$lib/components/plan/PlanAuditView.svelte';
 	import { auth } from '$lib/stores/auth.svelte.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -32,27 +37,14 @@
 	import {
 		ApiGatewayIcon,
 		ArrowRight01Icon,
-		BubbleChatIcon,
-		CheckmarkBadge01Icon,
 		CloudServerIcon,
 		Configuration01Icon,
 		Copy01Icon,
 		Delete02Icon,
-		File01Icon,
-		FilterIcon,
-		GlobalIcon,
-		Key01Icon,
 		Link01Icon,
 		McpServerIcon,
-		Route01Icon,
-		SecurityCheckIcon,
-		ShieldEnergyIcon,
-		SquareLock01Icon,
 		TagsIcon,
-		Tick02Icon,
-		Timer01Icon,
-		UserShield01Icon,
-		Wrench01Icon
+		Tick02Icon
 	} from '@hugeicons/core-free-icons';
 
 	const id = $derived(page.params.id);
@@ -94,102 +86,6 @@
 		serviceName ? `${serviceName}${serviceVersion ? ` : ${serviceVersion}` : ''}` : null
 	);
 
-
-	// ── Operations ────────────────────────────────────────────
-	const HTTP_VERBS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
-	const METHOD_STYLES: Record<string, string> = {
-		GET: 'bg-emerald-500/10 text-emerald-600 ring-emerald-500/20 dark:text-emerald-400',
-		POST: 'bg-blue-500/10 text-blue-600 ring-blue-500/20 dark:text-blue-400',
-		PUT: 'bg-amber-500/10 text-amber-600 ring-amber-500/20 dark:text-amber-400',
-		PATCH: 'bg-violet-500/10 text-violet-600 ring-violet-500/20 dark:text-violet-400',
-		DELETE: 'bg-rose-500/10 text-rose-600 ring-rose-500/20 dark:text-rose-400'
-	};
-	function methodStyle(label: string | null): string {
-		const key = (label ?? '').toUpperCase();
-		return METHOD_STYLES[key] ?? 'bg-muted text-muted-foreground ring-border';
-	}
-	function splitOp(op: string): { method: string | null; rest: string } {
-		const m = op.trim().match(/^(\S+)\s+(.+)$/);
-		if (m && HTTP_VERBS.has(m[1].toUpperCase())) return { method: m[1].toUpperCase(), rest: m[2] };
-		return { method: null, rest: op.trim() };
-	}
-
-	const opsMode = $derived.by<'include' | 'exclude' | 'all'>(() => {
-		const inc = arr(plan?.includedOperations);
-		const exc = arr(plan?.excludedOperations);
-		if (inc.length) return 'include';
-		if (exc.length) return 'exclude';
-		return 'all';
-	});
-	const operations = $derived.by<string[]>(() =>
-		(opsMode === 'exclude' ? arr(plan?.excludedOperations) : arr(plan?.includedOperations)).map(
-			String
-		)
-	);
-
-	// ── Capabilities (from custom artifacts included by the plan) ──
-	type CapabilityGroup = {
-		type: ArtifactType;
-		label: string;
-		items: { name: string; artifactName: string }[];
-	};
-	const CUSTOM_TYPES: { type: ArtifactType; label: string }[] = [
-		{ type: 'RESHAPR_CUSTOM_TOOLS', label: 'Tools' },
-		{ type: 'RESHAPR_PROMPTS', label: 'Prompts' },
-		{ type: 'RESHAPR_RESOURCES', label: 'Resources' },
-		{ type: 'RESHAPR_TOOLS_OUTPUT_FILTERS', label: 'Output filters' }
-	];
-	const CAPABILITY_ICONS: Record<string, typeof Wrench01Icon> = {
-		RESHAPR_CUSTOM_TOOLS: Wrench01Icon,
-		RESHAPR_PROMPTS: BubbleChatIcon,
-		RESHAPR_RESOURCES: File01Icon,
-		RESHAPR_TOOLS_OUTPUT_FILTERS: FilterIcon
-	};
-	const CAPABILITY_STYLES: Record<string, string> = {
-		RESHAPR_CUSTOM_TOOLS: 'bg-blue-500/10 text-blue-600 ring-blue-500/20 dark:text-blue-400',
-		RESHAPR_PROMPTS: 'bg-violet-500/10 text-violet-600 ring-violet-500/20 dark:text-violet-400',
-		RESHAPR_RESOURCES: 'bg-emerald-500/10 text-emerald-600 ring-emerald-500/20 dark:text-emerald-400',
-		RESHAPR_TOOLS_OUTPUT_FILTERS: 'bg-amber-500/10 text-amber-600 ring-amber-500/20 dark:text-amber-400'
-	};
-
-	const capabilityGroups = $derived.by<CapabilityGroup[]>(() => {
-		const included = arr(plan?.includedArtifacts).map(String);
-		const eligible = artifacts.filter(
-			(a) => !a.mainArtifact && (included.length === 0 || included.includes(a.name))
-		);
-		return CUSTOM_TYPES.map(({ type, label }) => {
-			const items = eligible
-				.filter((a) => a.type === type)
-				.flatMap((a) => a.capabilities.map((name) => ({ name, artifactName: a.name })));
-			return { type, label, items };
-		}).filter((g) => g.items.length > 0);
-	});
-	const totalCapabilities = $derived(capabilityGroups.reduce((n, g) => n + g.items.length, 0));
-
-	// ── Backend ───────────────────────────────────────────────
-	const backendEndpoint = $derived(str(plan?.backendEndpoint));
-	const backendTimeout = $derived.by<string | null>(() => {
-		const t = plan?.backendTimeout;
-		if (t == null || t === '') return null;
-		const n = Number(t);
-		return Number.isNaN(n) ? String(t) : `${n} ms`;
-	});
-	const auditEnabled = $derived(plan?.audit === true);
-
-	// ── MCP endpoint access (authentication of the MCP server) ──
-	const mcpAuth = $derived.by(() => {
-		const oauth = rec(plan?.oauth2Configuration);
-		if (oauth) {
-			return {
-				kind: 'oauth' as const,
-				servers: arr(oauth.authorizationServers).map(String),
-				scopes: arr(oauth.scopes).map(String),
-				jwksUri: str(oauth.jwksUri)
-			};
-		}
-		if (str(plan?.apiKey)) return { kind: 'apikey' as const };
-		return { kind: 'none' as const };
-	});
 
 	// ── Gateways / endpoint URLs (only available when active) ──
 	const gateways = $derived.by<{ id: string; name: string | null; fqdns: string[] }[]>(() =>
@@ -428,87 +324,11 @@
 			</Card.Header>
 			<Card.Content class="space-y-4 text-sm">
 				<!-- Operations -->
-				<div>
-					<div class="mb-2 flex items-center gap-2">
-						<HugeiconsIcon icon={Route01Icon} size={15} class="text-muted-foreground" />
-						<span class="font-medium">Operations</span>
-						{#if opsMode === 'exclude'}
-							<Badge variant="outline" class="text-[10px] uppercase">excluded</Badge>
-						{:else if opsMode === 'include'}
-							<span class="text-muted-foreground text-xs">{operations.length}</span>
-						{/if}
-					</div>
-					{#if opsMode === 'all'}
-						<p class="text-muted-foreground text-xs">
-							No filter — all operations of the service are exposed.
-						</p>
-					{:else}
-						{#if opsMode === 'exclude'}
-							<p class="text-muted-foreground mb-2 text-xs">
-								All operations except the following are exposed:
-							</p>
-						{/if}
-						<div class="flex flex-wrap gap-1.5">
-							{#each operations as op (op)}
-								{@const parts = splitOp(op)}
-								<span
-									class="bg-muted/50 inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 font-mono text-xs"
-									title={op}
-								>
-									{#if parts.method}
-										<span
-											class={cn(
-												'rounded px-1 text-[10px] font-bold ring-1 ring-inset',
-												methodStyle(parts.method)
-											)}>{parts.method}</span
-										>
-									{/if}
-									<span class="max-w-[16rem] truncate">{parts.rest}</span>
-								</span>
-							{/each}
-						</div>
-					{/if}
-				</div>
+				<PlanOperationsView {plan} />
 
 				<!-- Capabilities -->
 				<div class="border-t pt-4">
-					<div class="mb-2 flex items-center gap-2">
-						<HugeiconsIcon icon={Wrench01Icon} size={15} class="text-muted-foreground" />
-						<span class="font-medium">Capabilities</span>
-						<span class="text-muted-foreground text-xs">{totalCapabilities}</span>
-					</div>
-					{#if capabilityGroups.length === 0}
-						<p class="text-muted-foreground text-xs">
-							No custom tools, prompts, resources or output filters attached.
-						</p>
-					{:else}
-						<div class="space-y-3">
-							{#each capabilityGroups as group (group.type)}
-								{@const Icon = CAPABILITY_ICONS[group.type]}
-								<div>
-									<div class="text-muted-foreground mb-1.5 flex items-center gap-1.5 text-xs">
-										{#if Icon}<HugeiconsIcon icon={Icon} size={13} />{/if}
-										<span>{group.label}</span>
-										<span class="opacity-70">{group.items.length}</span>
-									</div>
-									<div class="flex flex-wrap gap-1.5">
-										{#each group.items as item (group.type + '::' + item.artifactName + '::' + item.name)}
-											<span
-												class={cn(
-													'inline-flex items-center rounded-md px-2 py-0.5 font-mono text-xs ring-1 ring-inset',
-													CAPABILITY_STYLES[group.type] ??
-														'bg-muted text-muted-foreground ring-border'
-												)}
-												title={`Defined by artifact ${item.artifactName}`}
-											>
-												{item.name}
-											</span>
-										{/each}
-									</div>
-								</div>
-							{/each}
-						</div>
-					{/if}
+					<PlanCapabilitiesView {plan} {artifacts} />
 				</div>
 
 				{#if str(plan?.id)}
@@ -528,49 +348,8 @@
 				</div>
 				<Card.Description>Where and how reShapr calls the underlying API.</Card.Description>
 			</Card.Header>
-			<Card.Content class="space-y-4 text-sm">
-				<div>
-					<div class="text-muted-foreground mb-1 text-xs">Endpoint</div>
-					<code
-						class="bg-muted block w-full overflow-x-auto rounded-md px-2 py-1.5 font-mono text-xs"
-						title={backendEndpoint ?? ''}
-					>
-						{backendEndpoint ?? '—'}
-					</code>
-				</div>
-
-				<!-- Backend authentication -->
-				<div>
-					<div class="text-muted-foreground mb-1 flex items-center gap-1.5 text-xs">
-						<HugeiconsIcon icon={SquareLock01Icon} size={13} />
-						<span>Authentication</span>
-					</div>
-					{#if backendSecret}
-						<div class="flex flex-wrap items-center gap-2">
-							<Badge variant="secondary" class="gap-1">
-								<HugeiconsIcon icon={Key01Icon} size={12} />
-								{backendSecret.name}
-							</Badge>
-							{#if backendSecret.type}
-								<span class="text-muted-foreground text-[10px] uppercase">{backendSecret.type}</span>
-							{/if}
-						</div>
-						<p class="text-muted-foreground mt-1 text-xs">
-							Credentials injected from a stored secret reference.
-						</p>
-					{:else}
-						<span class="text-muted-foreground text-xs">
-							No authentication — the backend is called anonymously.
-						</span>
-					{/if}
-				</div>
-
-				<div class="border-t pt-4">
-					<div class="text-muted-foreground mb-1 flex items-center gap-1.5 text-xs">
-						<HugeiconsIcon icon={Timer01Icon} size={13} /> Timeout
-					</div>
-					<div class="text-muted-foreground">{backendTimeout ?? 'default'}</div>
-				</div>
+			<Card.Content>
+				<PlanBackendView {plan} {backendSecret} />
 			</Card.Content>
 		</Card.Root>
 		</div>
@@ -670,67 +449,12 @@
 
 				<!-- MCP authentication -->
 				<div class="border-t pt-4">
-					<div class="text-muted-foreground mb-1.5 flex items-center gap-1.5 text-xs">
-						<HugeiconsIcon icon={UserShield01Icon} size={13} /> Client authentication
-					</div>
-					{#if mcpAuth.kind === 'oauth'}
-						<div class="flex items-center gap-2">
-							<Badge class="bg-primary/10 text-primary gap-1 border-transparent">
-								<HugeiconsIcon icon={ShieldEnergyIcon} size={12} /> OAuth 2.0
-							</Badge>
-						</div>
-						{#if mcpAuth.servers.length}
-							<dl class="mt-2 space-y-1 text-xs">
-								<div>
-									<dt class="text-muted-foreground">Authorization servers</dt>
-									<dd class="mt-0.5 flex flex-wrap gap-1">
-										{#each mcpAuth.servers as s (s)}
-											<code class="bg-muted rounded px-1 py-0.5 font-mono break-all">{s}</code>
-										{/each}
-									</dd>
-								</div>
-							</dl>
-						{/if}
-						{#if mcpAuth.scopes.length}
-							<div class="mt-2 text-xs">
-								<span class="text-muted-foreground">Scopes: </span>
-								{#each mcpAuth.scopes as sc (sc)}
-									<code class="bg-muted mr-1 rounded px-1 py-0.5 font-mono">{sc}</code>
-								{/each}
-							</div>
-						{/if}
-					{:else if mcpAuth.kind === 'apikey'}
-						<Badge variant="secondary" class="gap-1">
-							<HugeiconsIcon icon={Key01Icon} size={12} /> API key
-						</Badge>
-						<p class="text-muted-foreground mt-1 text-xs">
-							Clients must present the plan API key to reach this server.
-						</p>
-					{:else}
-						<Badge variant="outline" class="gap-1">
-							<HugeiconsIcon icon={GlobalIcon} size={12} /> Public
-						</Badge>
-						<p class="text-muted-foreground mt-1 text-xs">
-							No client authentication required.
-						</p>
-					{/if}
+					<PlanClientAuthView {plan} />
 				</div>
 
 				<!-- Audit -->
 				<div class="border-t pt-4">
-					<div class="text-muted-foreground mb-1.5 flex items-center gap-1.5 text-xs">
-						<HugeiconsIcon icon={SecurityCheckIcon} size={13} /> Audit
-					</div>
-					{#if auditEnabled}
-						<span class="text-primary inline-flex items-center gap-1 text-sm">
-							<HugeiconsIcon icon={CheckmarkBadge01Icon} size={14} /> Enabled
-						</span>
-						<p class="text-muted-foreground mt-1 text-xs">
-							Requests handled by this MCP server are recorded in the audit log.
-						</p>
-					{:else}
-						<span class="text-muted-foreground text-sm">Disabled</span>
-					{/if}
+					<PlanAuditView {plan} />
 				</div>
 			</Card.Content>
 		</Card.Root>

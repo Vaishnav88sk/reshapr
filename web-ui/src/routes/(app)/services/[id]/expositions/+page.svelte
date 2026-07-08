@@ -15,13 +15,16 @@
   -->
 
 <script lang="ts">
-	import { getContext } from 'svelte';
+	import { getContext, tick } from 'svelte';
 	import { apiClient, ApiError } from '$lib/api/client.js';
 	import ApiErrorAlert from '$lib/components/ApiErrorAlert.svelte';
+	import CreateExpositionDrawer from '$lib/components/exposition/CreateExpositionDrawer.svelte';
 	import { expositionBelongsToService } from '$lib/serviceHub.js';
 	import { SERVICE_CONTEXT_KEY, type ServiceContextValue } from '$lib/serviceContext.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
+	import { Switch } from '$lib/components/ui/switch/index.js';
+	import { Label } from '$lib/components/ui/label/index.js';
 	import * as Table from '$lib/components/ui/table/index.js';
 	import {
 		DropdownMenu,
@@ -34,6 +37,25 @@
 	import { MoreVerticalIcon, Delete02Icon, TagsIcon } from '@hugeicons/core-free-icons';
 
 	const ctx = getContext<ServiceContextValue>(SERVICE_CONTEXT_KEY);
+
+	// Human-readable label for the (locked) service passed to the create wizard.
+	const serviceLabel = $derived(
+		ctx.service
+			? ctx.service.version && ctx.service.version !== '—'
+				? `${ctx.service.name}:${ctx.service.version}`
+				: ctx.service.name
+			: null
+	);
+
+	// ── Create drawer state ───────────────────────────────────
+	let drawerOpen = $state(false);
+
+	// Force a clean open transition so the drawer reliably reopens.
+	async function openCreate() {
+		drawerOpen = false;
+		await tick();
+		drawerOpen = true;
+	}
 
 	type ExpoRow = {
 		id: string;
@@ -164,27 +186,19 @@
 <div class="mb-4 flex flex-wrap items-center justify-between gap-4">
 	<h3 class="text-lg font-semibold">Expositions</h3>
 	<div class="flex flex-wrap items-center gap-2">
-		<div class="bg-muted inline-flex items-center rounded-lg p-0.5">
-			<Button
-				variant={mode === 'active' ? 'default' : 'ghost'}
-				size="sm"
-				class="h-7"
-				aria-pressed={mode === 'active'}
-				onclick={() => (mode = 'active')}
-			>
-				Active
-			</Button>
-			<Button
-				variant={mode === 'all' ? 'default' : 'ghost'}
-				size="sm"
-				class="h-7"
-				aria-pressed={mode === 'all'}
-				onclick={() => (mode = 'all')}
-			>
-				All
-			</Button>
+		<div class="flex items-center gap-2">
+			<Label for="expo-mode-switch" class="text-muted-foreground text-sm">
+				{mode === 'active' ? 'Active' : 'All'}
+			</Label>
+			<Switch
+				id="expo-mode-switch"
+				checked={mode === 'all'}
+				onCheckedChange={(v) => (mode = v ? 'all' : 'active')}
+				aria-label="Show all expositions"
+			/>
 		</div>
 		<Button variant="outline" size="sm" disabled={loading} onclick={() => void load()}>Refresh</Button>
+		<Button size="sm" disabled={!ctx.id} onclick={() => void openCreate()}>New MCP server</Button>
 	</div>
 </div>
 
@@ -299,3 +313,12 @@
 		</Table.Body>
 	</Table.Root>
 </div>
+
+<!-- Shared guided wizard, with the service pre-selected & locked. -->
+<CreateExpositionDrawer
+	bind:open={drawerOpen}
+	serviceId={ctx.id}
+	{serviceLabel}
+	onCreated={() => void load()}
+/>
+
