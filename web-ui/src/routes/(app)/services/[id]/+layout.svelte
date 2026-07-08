@@ -37,9 +37,7 @@
 		{ href: (id) => `/services/${id}`, label: 'Overview', exact: true },
 		{ href: (id) => `/services/${id}/artifacts`, label: 'Artifacts' },
 		{ href: (id) => `/services/${id}/plans`, label: 'Configuration plans' },
-		{ href: (id) => `/services/${id}/expositions`, label: 'Expositions' },
-		{ href: (id) => `/services/${id}/mcp-custom-tools`, label: 'MCP custom tools' },
-		{ href: (id) => `/services/${id}/mcp-prompts`, label: 'MCP prompts' }
+		{ href: (id) => `/services/${id}/expositions`, label: 'Expositions' }
 	];
 
 	let raw = $state<unknown>(null);

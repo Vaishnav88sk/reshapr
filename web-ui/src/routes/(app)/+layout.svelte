@@ -54,8 +54,6 @@
 
   const experimentalNav = [
     { href: '/artifacts', label: 'Artifacts' },
-    { href: '/mcp-custom-tools', label: 'MCP custom tools' },
-    { href: '/mcp-prompts', label: 'MCP prompts' },
     { href: '/quotas', label: 'Quotas' },
   ] as const;
 

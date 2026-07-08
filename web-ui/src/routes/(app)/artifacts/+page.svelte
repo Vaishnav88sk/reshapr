@@ -326,9 +326,8 @@
 			<li><strong>Custom tools</strong> — YAML <code class="text-xs">kind: CustomTools</code>.</li>
 			<li><strong>MCP prompts</strong> — YAML <code class="text-xs">kind: Prompts</code>.</li>
 			<li>
-				<strong>Verify</strong> —
-				<a href="/mcp-custom-tools" class="text-primary hover:underline">MCP custom tools</a>,
-				<a href="/mcp-prompts" class="text-primary hover:underline">MCP prompts</a>.
+				<strong>Verify</strong> — confirm tools and prompts on the
+				<a href="/expositions" class="text-primary hover:underline">Expositions</a>.
 			</li>
 		</ol>
 		<p class="text-muted-foreground">
@@ -570,7 +569,7 @@
 				<p class="text-muted-foreground text-xs">
 					Minimal shape: <code class="text-xs">apiVersion: reshapr.io/v1alpha1</code>,
 					<code class="text-xs">kind: Prompts</code>, <code class="text-xs">service</code>,
-					<code class="text-xs">prompts:</code> map of prompt definitions. Verify on <a href="/mcp-prompts" class="text-primary hover:underline">MCP prompts</a> (control-plane artifact, no CORS).
+					<code class="text-xs">prompts:</code> map of prompt definitions.
 				</p>
 				<form class="flex flex-wrap items-end gap-3" onsubmit={onAttachFile}>
 					<div class="min-w-[200px] flex-1 space-y-2">
@@ -604,8 +603,6 @@
 		<Button variant="outline" href="/services">Services</Button>
 		<Button variant="outline" href="/plans">Plans</Button>
 		<Button variant="outline" href="/expositions">Expositions</Button>
-		<Button variant="outline" href="/mcp-custom-tools">MCP custom tools</Button>
-		<Button variant="outline" href="/mcp-prompts">MCP prompts</Button>
 	</Card.Content>
 </Card.Root>
 
