@@ -42,13 +42,38 @@
 		DropdownMenuItem,
 		DropdownMenuTrigger
 	} from '$lib/components/ui/dropdown-menu/index.js';
-	import MoreVerticalIcon from '@lucide/svelte/icons/ellipsis-vertical';
-	import EyeIcon from '@lucide/svelte/icons/eye';
-	import PencilIcon from '@lucide/svelte/icons/pencil';
+	import { cn } from '$lib/utils.js';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { Delete02Icon } from '@hugeicons/core-free-icons';
+	import {
+		Delete02Icon,
+		MoreVerticalIcon,
+		ViewIcon,
+		PencilEdit02Icon,
+		Wrench01Icon,
+		BubbleChatIcon,
+		File01Icon,
+		FilterIcon
+	} from '@hugeicons/core-free-icons';
 
 	const ctx = getContext<ServiceContextValue>(SERVICE_CONTEXT_KEY);
+
+	// Distinctive icon per custom artifact type (mirrors the overview Capabilities section).
+	const TYPE_ICONS: Record<string, typeof Wrench01Icon> = {
+		RESHAPR_CUSTOM_TOOLS: Wrench01Icon,
+		RESHAPR_PROMPTS: BubbleChatIcon,
+		RESHAPR_RESOURCES: File01Icon,
+		RESHAPR_TOOLS_OUTPUT_FILTERS: FilterIcon
+	};
+
+	// Color-coded pill per artifact type (mirrors the overview Capabilities section styling).
+	const CAPABILITY_STYLES: Record<string, string> = {
+		RESHAPR_CUSTOM_TOOLS: 'bg-blue-500/10 text-blue-600 ring-blue-500/20 dark:text-blue-400',
+		RESHAPR_PROMPTS: 'bg-violet-500/10 text-violet-600 ring-violet-500/20 dark:text-violet-400',
+		RESHAPR_RESOURCES:
+			'bg-emerald-500/10 text-emerald-600 ring-emerald-500/20 dark:text-emerald-400',
+		RESHAPR_TOOLS_OUTPUT_FILTERS:
+			'bg-amber-500/10 text-amber-600 ring-amber-500/20 dark:text-amber-400'
+	};
 
 	let artifacts = $state<ArtifactRef[]>([]);
 	let error = $state<string | null>(null);
@@ -210,9 +235,9 @@
 	<Table.Root>
 		<Table.Header>
 			<Table.Row>
-				<Table.Head>ID</Table.Head>
 				<Table.Head>Name</Table.Head>
 				<Table.Head>Type</Table.Head>
+				<Table.Head>Capabilities</Table.Head>
 				<Table.Head>Role</Table.Head>
 				<Table.Head>Source</Table.Head>
 				<Table.Head class="w-16 text-right">Actions</Table.Head>
@@ -234,15 +259,42 @@
 			{:else}
 				{#each filtered as artifact (artifact.id)}
 					<Table.Row>
-						<Table.Cell>
-							<code
-								class="text-muted-foreground bg-muted rounded px-1 py-0.5 font-mono text-xs break-all"
-								>{artifact.id}</code
-							>
+						<Table.Cell class="font-medium">
+							<div class="flex flex-col gap-1">
+								<span>{artifact.name}</span>
+								<code
+									class="text-muted-foreground bg-muted w-fit rounded px-1 py-0.5 font-mono text-xs break-all"
+									>{artifact.id}</code
+								>
+							</div>
 						</Table.Cell>
-						<Table.Cell class="font-medium">{artifact.name}</Table.Cell>
 						<Table.Cell>
-							<span class="text-sm">{artifactTypeLabel(artifact.type)}</span>
+							{@const TypeIcon = TYPE_ICONS[artifact.type]}
+							<span class="flex items-center gap-2 text-sm">
+								{#if TypeIcon}
+									<HugeiconsIcon icon={TypeIcon} size={16} class="text-muted-foreground shrink-0" />
+								{/if}
+								{artifactTypeLabel(artifact.type)}
+							</span>
+						</Table.Cell>
+						<Table.Cell>
+							{#if artifact.capabilities.length > 0}
+								<div class="flex max-w-xs flex-wrap gap-1.5">
+									{#each artifact.capabilities as capability (capability)}
+										<span
+											class={cn(
+												'inline-flex items-center rounded-md px-2 py-0.5 font-mono text-xs ring-1 ring-inset',
+												CAPABILITY_STYLES[artifact.type] ??
+													'bg-muted text-muted-foreground ring-border'
+											)}
+										>
+											{capability}
+										</span>
+									{/each}
+								</div>
+							{:else}
+								<span class="text-muted-foreground text-sm">—</span>
+							{/if}
 						</Table.Cell>
 						<Table.Cell>
 							{#if artifact.mainArtifact}
@@ -282,7 +334,7 @@
 								<DropdownMenuTrigger>
 									{#snippet child({ props })}
 										<Button variant="ghost" size="icon" {...props}>
-											<MoreVerticalIcon class="size-4" />
+											<HugeiconsIcon icon={MoreVerticalIcon} size={16} />
 										</Button>
 									{/snippet}
 								</DropdownMenuTrigger>
@@ -290,7 +342,7 @@
 									<DropdownMenuItem>
 										{#snippet child({ props })}
 											<a href={artifactHref(artifact.id)} class="px-4" {...props}>
-												<EyeIcon class="size-4" />
+												<HugeiconsIcon icon={ViewIcon} size={16} />
 												View
 											</a>
 										{/snippet}
@@ -299,7 +351,7 @@
 										<DropdownMenuItem>
 											{#snippet child({ props })}
 												<a href={artifactHref(artifact.id)} class="px-4" {...props}>
-													<PencilIcon class="size-4" />
+													<HugeiconsIcon icon={PencilEdit02Icon} size={16} />
 													Edit
 												</a>
 											{/snippet}

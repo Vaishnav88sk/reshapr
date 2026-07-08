@@ -276,13 +276,28 @@ public class ServiceManagerService {
       }
 
       // Access to artifact information.
-      Artifact artifact = artifactWithServiceRef.artifact();
+      Artifact parsedArtifact = artifactWithServiceRef.artifact();
 
-      // Configure and persist new artifact.
-      artifact.service = service;
-      artifact.mainArtifact = false;
-      artifact.sourceArtifact = artifactInfo.name();
-      artifactRepository.persist(artifact);
+      // Upsert semantics, mirroring importSpecificationFile(): artifact names are unique within a service
+      // (ux_artifacts_service_name), so a re-attachment (e.g. after editing the content) must update the
+      // existing artifact in place rather than inserting a duplicate — which would violate the constraint.
+      Artifact artifact = artifactRepository.findByServiceIdAndName(service.id, parsedArtifact.name);
+      if (artifact != null) {
+         logger.debugf("Updating existing attached artifact '%s' for service '%s'", parsedArtifact.name, service.id);
+         artifact.content = parsedArtifact.content;
+         artifact.type = parsedArtifact.type;
+         artifact.capabilities = parsedArtifact.capabilities;
+         artifact.path = parsedArtifact.path;
+         artifact.mainArtifact = false;
+         artifact.sourceArtifact = artifactInfo.name();
+         // Managed entity: changes are flushed on transaction commit, no explicit persist needed.
+      } else {
+         artifact = parsedArtifact;
+         artifact.service = service;
+         artifact.mainArtifact = false;
+         artifact.sourceArtifact = artifactInfo.name();
+         artifactRepository.persist(artifact);
+      }
 
       // Propagate changes to exposition before returning.
       propagateArtifactsChanges(service);

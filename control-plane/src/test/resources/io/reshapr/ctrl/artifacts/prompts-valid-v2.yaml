@@ -1,0 +1,15 @@
+apiVersion: reshapr.io/v1alpha1
+kind: Prompts
+service:
+  name: Pastry API
+  version: 2.0.0
+prompts:
+  search_pastries:
+    title: Search the pastries
+    description: Search the catalog for pastries matching a query
+    arguments:
+      - name: query
+        description: The search query
+        required: true
+    result: Search the catalog for pastries matching '${query}'.
+

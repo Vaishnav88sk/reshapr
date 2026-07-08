@@ -42,11 +42,17 @@ public class ArtifactRepository implements PanacheRepositoryBase<Artifact, Strin
    }
 
    /**
+    * Finds the artifact of a service by its name. Names are unique within a service (enforced by the
+    * {@code ux_artifacts_service_name} unique index), so this returns at most one artifact.
+    */
+   public Artifact findByServiceIdAndName(String serviceId, String name) {
+      return find("service.id = ?1 and name = ?2", serviceId, name).firstResult();
+   }
+
+   /**
     * Lists the attached artifacts of a service, i.e. the ones a ConfigurationPlan can select via
     * {@code includedArtifacts} (Prompts, Resources, CustomTools, OutputFilters). The service main
     * artifact and the derived protobuf schema are excluded, mirroring the proxy registration logic.
-    * @param serviceId The id of the service.
-    * @return The list of attached artifacts, ordered by name.
     */
    public List<Artifact> findAttachedByServiceId(String serviceId) {
       return find("service.id = ?1 and mainArtifact = false and type <> ?2",
@@ -56,8 +62,6 @@ public class ArtifactRepository implements PanacheRepositoryBase<Artifact, Strin
    /**
     * Returns the set of attached artifact names for a service, used to validate a plan's
     * {@code includedArtifacts} selection.
-    * @param serviceId The id of the service.
-    * @return The set of attached artifact names.
     */
    public Set<String> findAttachedNamesByServiceId(String serviceId) {
       return findAttachedByServiceId(serviceId).stream()

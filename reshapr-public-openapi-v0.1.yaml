@@ -788,6 +788,13 @@ components:
         sourceArtifact:
           description: Name or URL of original artifact file
           type: string
+        capabilities:
+          description: >-
+            Names of the capabilities declared by a custom artifact (prompt names, resource/
+            resourceTemplate uris, custom tool names or filters).
+          type: array
+          items:
+            type: string
     ArtifactDeletionImpact:
       description: >-
         Impact of deleting an artifact on the ConfigurationPlans of its service. Returned as a preview by
@@ -877,6 +884,13 @@ components:
         sourceArtifact:
           description: Name or URL of original artifact file
           type: string
+        capabilities:
+          description: >-
+            Names of the capabilities declared by a custom artifact (prompt names, resource/
+            resourceTemplate uris, custom tool names or filtereds).
+          type: array
+          items:
+            type: string
     ConfigurationPlanSummary:
       description: The summary of a ConfigurationPlan in reShapr control plane
       required:

@@ -27,7 +27,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { cn } from '$lib/utils.js';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { Delete02Icon } from '@hugeicons/core-free-icons';
+	import { Delete02Icon, ArrowLeft01Icon } from '@hugeicons/core-free-icons';
 
 	let { children } = $props();
 
@@ -116,19 +116,25 @@
 	}
 </script>
 
-<p class="mb-4">
-	<a href="/services" class="text-primary text-sm hover:underline">← Services</a>
-</p>
-
 <div class="mb-8 flex flex-wrap items-start justify-between gap-4">
 	<div class="min-w-0">
 		{#if loading}
 			<h1 class="text-2xl font-bold tracking-tight">Service …</h1>
 		{:else if service}
 			<div class="flex flex-wrap items-center gap-6">
-				<h1 class="text-2xl font-bold tracking-tight">
-					{service.name}
-				</h1>
+				<div class="flex items-center gap-1.5">
+					<a
+						href="/services"
+						title="Back to services"
+						aria-label="Back to services"
+						class="text-muted-foreground hover:bg-muted hover:text-foreground -ml-1.5 inline-flex shrink-0 items-center justify-center rounded-lg p-1.5 transition-colors"
+					>
+						<HugeiconsIcon icon={ArrowLeft01Icon} size={20} />
+					</a>
+					<h1 class="text-2xl font-bold tracking-tight">
+						{service.name}
+					</h1>
+				</div>
 				<ServiceTypeBadge type={service.type} />
 			</div>
 			<p class="text-muted-foreground mt-1 text-sm font-normal">

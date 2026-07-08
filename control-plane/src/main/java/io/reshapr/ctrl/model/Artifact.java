@@ -15,6 +15,7 @@
  */
 package io.reshapr.ctrl.model;
 
+import io.hypersistence.utils.hibernate.type.json.JsonType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -23,6 +24,9 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import org.hibernate.annotations.Type;
+
+import java.util.List;
 
 /**
  * An artifact that defines Servcie in the Reshapr control plane.
@@ -48,6 +52,16 @@ public class Artifact extends TenantAwareEntity {
 
    @Enumerated(EnumType.STRING)
    public ArtifactType type;
+
+   /**
+    * Names of the capabilities declared by a custom artifact (Prompts, Resources, CustomTools,
+    * ToolsOutputFilters): prompt names, resource/resourceTemplate uris, custom tool names or
+    * filtered tool names. Extracted from the artifact content at attachment time (see
+    * {@code ReshaprArtifactBuilder}). Empty for non-custom artifacts (OpenAPI, GraphQL, Protobuf…)
+    */
+   @Type(JsonType.class)
+   @Column(columnDefinition = "JSONB")
+   public List<String> capabilities;
 
    @ManyToOne(fetch = FetchType.LAZY)
    public Service service;

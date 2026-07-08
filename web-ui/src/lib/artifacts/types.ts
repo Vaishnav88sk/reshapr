@@ -43,6 +43,7 @@ export type ArtifactRef = {
 	mainArtifact: boolean;
 	sourceArtifact: string | null;
 	type: ArtifactType;
+	capabilities: string[];
 };
 
 export type ArtifactDetail = ArtifactRef & {

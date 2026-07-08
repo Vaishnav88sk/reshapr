@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.net.URL;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -95,6 +96,8 @@ class ReshaprArtifactBuilderTest {
       assertEquals("prompts-valid.yaml", artifact.sourceArtifact);
       assertEquals("Pastry API", artifactWithServiceRef.serviceName());
       assertEquals("2.0.0", artifactWithServiceRef.serviceVersion());
+      // Capabilities are the prompt names, in declaration order.
+      assertEquals(List.of("list_pastries", "get_pastry"), artifact.capabilities);
    }
 
    @Test
@@ -132,6 +135,8 @@ class ReshaprArtifactBuilderTest {
       assertEquals("custom-tools-valid.yaml", artifact.sourceArtifact);
       assertEquals("GitHub GraphQL", artifactWithServiceRef.serviceName());
       assertEquals("20250917", artifactWithServiceRef.serviceVersion());
+      // Capabilities are the custom tool names.
+      assertEquals(List.of("get_user_with_latest_followers"), artifact.capabilities);
    }
 
    @Test
@@ -154,6 +159,8 @@ class ReshaprArtifactBuilderTest {
       assertEquals("custom-tools-script-valid.yaml", artifact.sourceArtifact);
       assertEquals("GitHub GraphQL", artifactWithServiceRef.serviceName());
       assertEquals("20250917", artifactWithServiceRef.serviceVersion());
+      // Capabilities are the custom tool names (script form).
+      assertEquals(List.of("get_user_with_followers_and_issues"), artifact.capabilities);
    }
 
    @Test
@@ -221,6 +228,8 @@ class ReshaprArtifactBuilderTest {
       assertEquals("resources-valid.yaml", artifact.sourceArtifact);
       assertEquals("Repository Service", artifactWithServiceRef.serviceName());
       assertEquals("1.0.0", artifactWithServiceRef.serviceVersion());
+      // Capabilities are the resource uris (the object keys).
+      assertEquals(List.of("file:///project/src/main.rs"), artifact.capabilities);
    }
 
    @Test
@@ -230,7 +239,7 @@ class ReshaprArtifactBuilderTest {
 
       ReshaprArtifactBuilder.ArtifactWithServiceRef artifactWithServiceRef = null;
       try {
-         artifactWithServiceRef = ReshaprArtifactBuilder.parseArtifact("resources-valid.yaml", resourcesFile);
+         artifactWithServiceRef = ReshaprArtifactBuilder.parseArtifact("resources-templates-valid.yaml", resourcesFile);
       } catch (Exception e) {
          fail("Exception should not have been thrown: " + e.getMessage());
       }
@@ -239,10 +248,12 @@ class ReshaprArtifactBuilderTest {
 
       Artifact artifact = artifactWithServiceRef.artifact();
       assertEquals(ArtifactType.RESHAPR_RESOURCES, artifact.type);
-      assertEquals("resources-valid.yaml", artifact.name);
-      assertEquals("resources-valid.yaml", artifact.sourceArtifact);
+      assertEquals("resources-templates-valid.yaml", artifact.name);
+      assertEquals("resources-templates-valid.yaml", artifact.sourceArtifact);
       assertEquals("Repository Service", artifactWithServiceRef.serviceName());
       assertEquals("1.0.0", artifactWithServiceRef.serviceVersion());
+      // Capabilities include the resourceTemplates uris.
+      assertEquals(List.of("file:///project/src/{path}?mode=raw"), artifact.capabilities);
    }
 
    @Test
@@ -252,7 +263,7 @@ class ReshaprArtifactBuilderTest {
 
       ReshaprArtifactBuilder.ArtifactWithServiceRef artifactWithServiceRef = null;
       try {
-         artifactWithServiceRef = ReshaprArtifactBuilder.parseArtifact("resources-valid.yaml", resourcesFile);
+         artifactWithServiceRef = ReshaprArtifactBuilder.parseArtifact("resources-all-valid.yaml", resourcesFile);
       } catch (Exception e) {
          fail("Exception should not have been thrown: " + e.getMessage());
       }
@@ -261,10 +272,15 @@ class ReshaprArtifactBuilderTest {
 
       Artifact artifact = artifactWithServiceRef.artifact();
       assertEquals(ArtifactType.RESHAPR_RESOURCES, artifact.type);
-      assertEquals("resources-valid.yaml", artifact.name);
-      assertEquals("resources-valid.yaml", artifact.sourceArtifact);
+      assertEquals("resources-all-valid.yaml", artifact.name);
+      assertEquals("resources-all-valid.yaml", artifact.sourceArtifact);
       assertEquals("Repository Service", artifactWithServiceRef.serviceName());
       assertEquals("1.0.0", artifactWithServiceRef.serviceVersion());
+      // Capabilities aggregate resources then resourceTemplates uris, in declaration order.
+      assertEquals(List.of(
+            "file:///favicon.ico",
+            "file:///project/src/main.rs",
+            "file:///project/src/{path}?mode=raw"), artifact.capabilities);
    }
 
    @Test
@@ -302,5 +318,7 @@ class ReshaprArtifactBuilderTest {
       assertEquals("tools-output-filters-valid.yaml", artifact.sourceArtifact);
       assertEquals("Pastry API", artifactWithServiceRef.serviceName());
       assertEquals("2.0.0", artifactWithServiceRef.serviceVersion());
+      // Capabilities are the filtered tool names.
+      assertEquals(List.of("listPastries", "getPastry"), artifact.capabilities);
    }
 }

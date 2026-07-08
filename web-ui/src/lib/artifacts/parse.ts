@@ -52,8 +52,14 @@ export function parseArtifactRef(raw: unknown): ArtifactRef | null {
 		path: typeof o.path === 'string' ? o.path : null,
 		mainArtifact: o.mainArtifact === true,
 		sourceArtifact: typeof o.sourceArtifact === 'string' ? o.sourceArtifact : null,
-		type: parseArtifactType(o.type)
+		type: parseArtifactType(o.type),
+		capabilities: parseCapabilities(o.capabilities)
 	};
+}
+
+function parseCapabilities(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value.filter((v): v is string => typeof v === 'string');
 }
 
 export function parseArtifactDetail(raw: unknown): ArtifactDetail | null {

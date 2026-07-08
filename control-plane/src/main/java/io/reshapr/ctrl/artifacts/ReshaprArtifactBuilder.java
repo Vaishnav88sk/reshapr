@@ -39,6 +39,8 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.net.URI;
 import java.util.Locale;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -155,11 +157,53 @@ public class ReshaprArtifactBuilder {
       // Set the type from the kind-version map.
       artifact.type = KIND_VERSIONS_TYPES.get(kind + "-" + apiVersion);
 
+      // Extract the capabilities (element names) declared by this custom artifact.
+      artifact.capabilities = extractCapabilities(artifact.type, artifactNode);
+
       // Finally, extract service name and version to populate Artifact.
       JsonNode serviceNode = artifactNode.get("service");
 
       return new ArtifactWithServiceRef(artifact, serviceNode.get("name").asText(),
             serviceNode.get("version").asText());
+   }
+
+   /**
+    * Extract the capabilities (element names) declared by a custom artifact from its parsed content.
+    * Capabilities are the keys of the type-specific object: prompt names for Prompts, custom tool names
+    * for CustomTools, resource/resourceTemplate uris for Resources and filtered tool names for
+    * ToolsOutputFilters. The extraction is defensive: any missing/malformed sub-node yields an empty list
+    * so it never blocks an attachment (the content has already been validated against the schema).
+    * @param type the resolved artifact type
+    * @param artifactNode the parsed artifact content
+    * @return an ordered, de-duplicated list of capability names (never null)
+    */
+   private static List<String> extractCapabilities(ArtifactType type, JsonNode artifactNode) {
+      if (type == null || artifactNode == null) {
+         return List.of();
+      }
+
+      // Preserve declaration order and de-duplicate names.
+      Set<String> capabilities = new LinkedHashSet<>();
+      switch (type) {
+         case RESHAPR_PROMPTS -> collectFieldNames(artifactNode.get("prompts"), capabilities);
+         case RESHAPR_CUSTOM_TOOLS -> collectFieldNames(artifactNode.get("customTools"), capabilities);
+         case RESHAPR_RESOURCES -> {
+            collectFieldNames(artifactNode.get("resources"), capabilities);
+            collectFieldNames(artifactNode.get("resourceTemplates"), capabilities);
+         }
+         case RESHAPR_TOOLS_OUTPUT_FILTERS -> collectFieldNames(artifactNode.get("filters"), capabilities);
+         default -> {
+            // Non-custom artifact: no capabilities to extract.
+         }
+      }
+      return List.copyOf(capabilities);
+   }
+
+   /** Add the field names of the given node (if it is an object) to the target set. */
+   private static void collectFieldNames(JsonNode node, Set<String> target) {
+      if (node != null && node.isObject()) {
+         node.fieldNames().forEachRemaining(target::add);
+      }
    }
 
    /** Validate the jsonNode against the JSON schema located as schemaResource. */

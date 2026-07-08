@@ -57,9 +57,10 @@ artifactCommand.command('list')
         const longestName = longestArtifactName(data); // +1 for padding
         const longestType = longestArtifactType(data); // +1 for padding
 
-        Logger.log(`${'ID'.padEnd(13, ' ')}  ${'NAME'.padEnd(longestName, ' ')} ${'TYPE'.padEnd(longestType, ' ')} MAIN`);
+        Logger.log(`${'ID'.padEnd(13, ' ')}  ${'NAME'.padEnd(longestName, ' ')} ${'TYPE'.padEnd(longestType, ' ')} ${'MAIN'.padEnd(5, ' ')} CAPS`);
         data.forEach((artifact: any) => {
-          Logger.log(`${artifact.id}  ${artifact.name.padEnd(longestName, ' ')} ${artifact.type.padEnd(longestType, ' ')} ${artifact.mainArtifact ? 'Yes' : 'No'}`);
+          const capsCount = Array.isArray(artifact.capabilities) ? artifact.capabilities.length : 0;
+          Logger.log(`${artifact.id}  ${artifact.name.padEnd(longestName, ' ')} ${artifact.type.padEnd(longestType, ' ')} ${(artifact.mainArtifact ? 'Yes' : 'No').padEnd(5, ' ')} ${capsCount}`);
         });
       }
     }
@@ -102,11 +103,11 @@ artifactCommand.command('get <id>')
     Logger.log(`ID           : ${artifact.id}`);
     Logger.log(`Name         : ${artifact.name}`);
     Logger.log(`Organization : ${artifact.organizationId}`);
-    Logger.log(`Service ID   : ${artifact.serviceId}`);
     Logger.log(`Type         : ${artifact.type}`);
     Logger.log(`Main Artifact: ${artifact.mainArtifact ? 'Yes' : 'No'}`);
     Logger.log(`Source       : ${artifact.sourceArtifact}`);
     Logger.log(`Path         : ${artifact.path ? artifact.path : 'N/A'}`);
+    Logger.log(`Capabilities : ${formatCapabilities(artifact.capabilities)}`);
 
     if (options.display && !options.output) {
       Logger.bold('\nArtifact content');
@@ -190,6 +191,15 @@ function printDeletionImpact(impact: any) {
       : '';
     Logger.log(`  - ${plan.name} (${plan.id})${suffix}`);
   });
+}
+
+/** Format the capabilities of an artifact for display. */
+function formatCapabilities(capabilities: unknown): string {
+  if (!Array.isArray(capabilities) || capabilities.length === 0) {
+    // Non-custom artifacts have none; custom artifacts attached before this feature are not computed yet.
+    return 'N/A';
+  }
+  return capabilities.filter((c) => typeof c === 'string').join(', ');
 }
 
 function getLanguageFromSourceArtifact(sourceArtifact: string | undefined): string | undefined {

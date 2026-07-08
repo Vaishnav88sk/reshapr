@@ -17,16 +17,22 @@ package io.reshapr.ctrl.rest.v1;
 
 import io.reshapr.ctrl.model.ArtifactType;
 
+import io.quarkus.runtime.annotations.RegisterForReflection;
+
+import java.util.List;
+
 /**
  * Data Transfer Object (DTO) for an artifact in the Reshapr control plane.
- * @param id
- * @param organizationId
- * @param name
- * @param path
- * @param mainArtifact
- * @param sourceArtifact
- * @param type
+ * @param id Unique identifier of the artifact
+ * @param organizationId Organization identifier
+ * @param name Artifact name
+ * @param path Artifact path
+ * @param mainArtifact Indicates if this is the main artifact
+ * @param sourceArtifact Source artifact identifier
+ * @param type Artifact type
+ * @param capabilities Names of the capabilities declared by a custom artifact (empty for non-custom artifacts)
  */
+@RegisterForReflection
 public record ArtifactReferenceDTO(
       String id,
       String organizationId,
@@ -34,5 +40,6 @@ public record ArtifactReferenceDTO(
       String path,
       boolean mainArtifact,
       String sourceArtifact,
-      ArtifactType type) {
+      ArtifactType type,
+      List<String> capabilities) {
 }
