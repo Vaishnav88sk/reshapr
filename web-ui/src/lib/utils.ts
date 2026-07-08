@@ -22,6 +22,23 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * Build a URL/identifier-friendly slug by joining the given parts with dashes.
+ * Diacritics are stripped and any non-alphanumeric run is collapsed to a single dash.
+ */
+export function slugify(...parts: (string | number | null | undefined)[]): string {
+  return parts
+    .filter((p) => p != null && String(p).trim() !== '' && String(p).trim() !== '—')
+    .map(String)
+    .join('-')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 /** Utility type used by shadcn-svelte components to support `bind:this` via a `ref` prop. */
 export type WithElementRef<T, E extends HTMLElement = HTMLElement> = T & {
   ref?: E | null;

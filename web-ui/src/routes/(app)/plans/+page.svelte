@@ -71,7 +71,9 @@
 			{#each rows as p (p.id)}
 				<Table.Row>
 					<Table.Cell>
-						<a href="/plans/{p.id}" class="text-primary hover:underline">{p.id}</a>
+						<a href="/services/{p.serviceId}/plans/{p.id}" class="text-primary hover:underline"
+							>{p.id}</a
+						>
 					</Table.Cell>
 					<Table.Cell>{p.name}</Table.Cell>
 					<Table.Cell>{p.serviceId}</Table.Cell>
