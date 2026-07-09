@@ -17,6 +17,7 @@
 import { apiClient } from '$lib/api/client.js';
 import {
   buildGatewayRegisteredDetail,
+  quotaEntry,
   quotaUsed,
   type GatewayRegisteredDetail
 } from '$lib/dashboardStatsCompute.js';
@@ -29,6 +30,15 @@ export {
 } from '$lib/dashboardStatsCompute'
 
 type Api = ReturnType<typeof apiClient>
+
+/** A single quota, ready to render as a gauge on the dashboard. */
+export type QuotaGauge = {
+	metric: string
+	label: string
+	used: number
+	limit: number
+	remaining: number
+}
 
 export type DashboardStats = {
 	/** Current tenant (JWT); not a platform-wide org list. */
@@ -45,6 +55,8 @@ export type DashboardStats = {
 	/** Not exposed on GET /api/v1/* — always null until upstream adds an endpoint. */
 	organizationCount: null
 	gatewayRegisteredDetail: GatewayRegisteredDetail
+	/** Quotas ready to be rendered as gauges (only those returned by the API). */
+	quotaGauges: QuotaGauge[]
 }
 
 async function countAllServices(c: Api): Promise<{ count: number; organizationId: string | null }> {
@@ -101,6 +113,8 @@ export async function loadDashboardStats(): Promise<DashboardStats> {
 		services.organizationId ??
 		pickOrganizationId([], Array.isArray(gatewayGroups) ? gatewayGroups : [])
 
+	const quotaGauges = buildQuotaGauges(quotas)
+
 	return {
 		organizationId: orgId,
 		serviceCount: services.count,
@@ -110,6 +124,23 @@ export async function loadDashboardStats(): Promise<DashboardStats> {
 		expositionCount: quotaUsed(quotas, 'exposition.count'),
 		userCount: null,
 		organizationCount: null,
-		gatewayRegisteredDetail
+		gatewayRegisteredDetail,
+		quotaGauges
 	}
+}
+
+/** Human-friendly labels for the known quota metrics. */
+const QUOTA_LABELS: { metric: string; label: string }[] = [
+	{ metric: 'exposition.count', label: 'MCP Servers' },
+	{ metric: 'gateway.count', label: 'Gateways' },
+	{ metric: 'gateway-group.count', label: 'Gateway groups' }
+]
+
+function buildQuotaGauges(quotas: unknown): QuotaGauge[] {
+	const gauges: QuotaGauge[] = []
+	for (const { metric, label } of QUOTA_LABELS) {
+		const entry = quotaEntry(quotas, metric)
+		if (entry) gauges.push({ metric, label, ...entry })
+	}
+	return gauges
 }

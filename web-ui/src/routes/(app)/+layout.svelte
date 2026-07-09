@@ -22,10 +22,8 @@
   import { sidebar } from '$lib/stores/sidebar.svelte.js';
   import { theme } from '$lib/stores/theme.svelte.js';
   import { getBootstrapConfig } from '$lib/api/config.js';
-  import { cn } from '$lib/utils.js';
   import UserAvatar from '$lib/components/UserAvatar.svelte';
   import { QuickStartWizard } from '$lib/components/artifacts/index.js';
-  import * as Collapsible from '$lib/components/ui/collapsible/index.js';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import { HugeiconsIcon } from '@hugeicons/svelte';
   import {
@@ -36,7 +34,6 @@
     ChevronDownIcon,
     ComputerIcon,
     DashboardSquare02Icon,
-    FlaskConicalIcon,
     Logout01Icon,
     McpServerIcon,
     Moon02Icon,
@@ -53,12 +50,8 @@
   let version = $state('');
   let userMenuOpen = $state(false);
   let orgSelectorOpen = $state(false);
-  let experimentalOpen = $state(false);
   let quickStartOpen = $state(false);
 
-  const experimentalNav = [
-    { href: '/quotas', label: 'Quotas' },
-  ] as const;
 
   onMount(async () => {
     theme.init();
@@ -136,24 +129,6 @@
     return path === href || path.startsWith(href + '/');
   }
 
-  function isExperimentalActive(): boolean {
-    return experimentalNav.some((item) => isActive(item.href));
-  }
-
-  $effect(() => {
-    if (isExperimentalActive()) {
-      experimentalOpen = true;
-    }
-  });
-
-  function experimentalNavClass(href: string): string {
-    return cn(
-      'block rounded-md px-2 py-1.5 text-sm transition-colors',
-      isActive(href)
-        ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground'
-        : 'text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground'
-    );
-  }
 
   function handleSignOut() {
     userMenuOpen = false;
@@ -354,32 +329,6 @@
             {/each}
           {/if}
         {/each}
-
-        {#if !sidebar.collapsed}
-          <Collapsible.Root bind:open={experimentalOpen} class="mt-12">
-            <Collapsible.Trigger
-              class={cn(
-                'flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors',
-                isExperimentalActive()
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                  : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
-              )}
-            >
-              <span class="flex h-5 w-5 shrink-0 items-center justify-center">
-                <HugeiconsIcon icon={FlaskConicalIcon} size={18} />
-              </span>
-              <span class="flex-1 text-left">Experimental</span>
-              <span class={cn('inline-flex shrink-0 transition-transform duration-200', experimentalOpen && 'rotate-180')}>
-                <HugeiconsIcon icon={ChevronDownIcon} size={14} />
-              </span>
-            </Collapsible.Trigger>
-            <Collapsible.Content class="mt-1 space-y-0.5 pl-2">
-              {#each experimentalNav as item (item.href)}
-                <a href={item.href} class={experimentalNavClass(item.href)}>{item.label}</a>
-              {/each}
-            </Collapsible.Content>
-          </Collapsible.Root>
-        {/if}
         </Tooltip.Provider>
       </nav>
 

@@ -16,7 +16,8 @@
 
 <script lang="ts">
 	import { cn } from '$lib/utils.js';
-	import GaugeIcon from '@lucide/svelte/icons/gauge';
+	import { HugeiconsIcon } from '@hugeicons/svelte';
+	import { GaugeIcon } from '@hugeicons/core-free-icons';
 
 	export type QuotaInfo = { used: number; limit: number; remaining: number } | null;
 
@@ -74,7 +75,7 @@
 	>
 		<div class="flex items-center gap-3">
 			<span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-current/10">
-				<GaugeIcon class="size-5" />
+				<HugeiconsIcon icon={GaugeIcon} class="size-5" />
 			</span>
 			<div>
 				<div class="text-sm font-semibold">
