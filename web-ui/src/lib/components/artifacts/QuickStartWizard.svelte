@@ -30,7 +30,7 @@
 	import { parseOperationsList } from '$lib/operationsList.js';
 	import { cn } from '$lib/utils.js';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { Tick02Icon, ArrowRight01Icon } from '@hugeicons/core-free-icons';
+	import { Tick02Icon, ArrowRight01Icon, Copy01Icon } from '@hugeicons/core-free-icons';
 
 	/**
 	 * Quick start wizard: guides a first-time user through importing a
@@ -102,6 +102,21 @@
 	let planId = $state('');
 	let planExisted = $state(false);
 	let createdKey = $state<string | null>(null);
+	let copied = $state(false);
+	let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+	/** Copy the freshly generated API key to the clipboard (once-shown value). */
+	async function copyCreatedKey() {
+		if (!createdKey) return;
+		try {
+			await navigator.clipboard.writeText(createdKey);
+			copied = true;
+			clearTimeout(copiedTimer);
+			copiedTimer = setTimeout(() => (copied = false), 1500);
+		} catch {
+			// Clipboard may be unavailable (e.g. insecure context); ignore.
+		}
+	}
 
 	const currentStepIndex = $derived(STEPS.findIndex((s) => s.view === view));
 
@@ -126,6 +141,7 @@
 		planId = '';
 		planExisted = false;
 		createdKey = null;
+		copied = false;
 	}
 
 	// Reset state each time the wizard is (re)opened.
@@ -541,13 +557,31 @@
 
 					{#if createdKey}
 						<div class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
-							<p class="text-sm font-semibold text-amber-700 dark:text-amber-400">
-								Copy your API key now
-							</p>
-							<p class="text-muted-foreground mt-0.5 text-xs">
-								This is the only time the API key value will be shown.
-							</p>
-							<code class="mt-2 block font-mono text-xs break-all">{createdKey}</code>
+							<div class="flex items-start justify-between gap-3">
+								<div class="min-w-0">
+									<p class="text-sm font-semibold text-amber-700 dark:text-amber-400">
+										Copy your API key now
+									</p>
+									<p class="text-muted-foreground mt-0.5 text-xs">
+										This is the only time the API key value will be shown.
+									</p>
+									<code class="mt-2 block font-mono text-xs break-all">{createdKey}</code>
+								</div>
+								<Button
+									variant="outline"
+									size="sm"
+									class="shrink-0"
+									onclick={() => void copyCreatedKey()}
+								>
+									{#if copied}
+										<HugeiconsIcon icon={Tick02Icon} size={16} />
+										Copied
+									{:else}
+										<HugeiconsIcon icon={Copy01Icon} size={16} />
+										Copy
+									{/if}
+								</Button>
+							</div>
 						</div>
 					{/if}
 
