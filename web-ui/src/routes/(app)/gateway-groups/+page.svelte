@@ -45,6 +45,8 @@
 		DropdownMenuItem,
 		DropdownMenuTrigger
 	} from '$lib/components/ui/dropdown-menu/index.js';
+	import { HugeiconsIcon } from '@hugeicons/svelte';
+	import { RefreshIcon } from '@hugeicons/core-free-icons';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import MoreVerticalIcon from '@lucide/svelte/icons/ellipsis-vertical';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
@@ -236,7 +238,9 @@
 	subtitle="Logical groups of gateways used to expose your MCP servers."
 >
 	{#snippet actions()}
-		<Button variant="outline" disabled={loading} onclick={() => void load()}>Refresh</Button>
+		<Button variant="outline" size="icon" title="Refresh" aria-label="Refresh" disabled={loading} onclick={() => void load()}>
+			<HugeiconsIcon icon={RefreshIcon} size={16} />
+		</Button>
 		<Button onclick={openCreate} disabled={!canCreate} title={canCreate ? undefined : 'Quota reached'}>
 			New group
 		</Button>

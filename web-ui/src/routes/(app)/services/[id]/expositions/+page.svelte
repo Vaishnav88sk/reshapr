@@ -34,7 +34,7 @@
 	} from '$lib/components/ui/dropdown-menu/index.js';
 	import { cn } from '$lib/utils.js';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { MoreVerticalIcon, Delete02Icon, TagsIcon } from '@hugeicons/core-free-icons';
+	import { MoreVerticalIcon, Delete02Icon, TagsIcon, RefreshIcon } from '@hugeicons/core-free-icons';
 
 	const ctx = getContext<ServiceContextValue>(SERVICE_CONTEXT_KEY);
 
@@ -197,7 +197,9 @@
 				aria-label="Show all expositions"
 			/>
 		</div>
-		<Button variant="outline" size="sm" disabled={loading} onclick={() => void load()}>Refresh</Button>
+		<Button variant="outline" size="icon-sm" title="Refresh" aria-label="Refresh" disabled={loading} onclick={() => void load()}>
+			<HugeiconsIcon icon={RefreshIcon} size={14} />
+		</Button>
 		<Button size="sm" disabled={!ctx.id} onclick={() => void openCreate()}>New MCP server</Button>
 	</div>
 </div>

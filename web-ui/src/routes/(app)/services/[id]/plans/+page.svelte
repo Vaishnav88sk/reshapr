@@ -30,7 +30,7 @@
 	} from '$lib/components/ui/dropdown-menu/index.js';
 	import { cn } from '$lib/utils.js';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { MoreVerticalIcon, PencilEdit02Icon, Delete02Icon } from '@hugeicons/core-free-icons';
+	import { MoreVerticalIcon, PencilEdit02Icon, Delete02Icon, RefreshIcon } from '@hugeicons/core-free-icons';
 	import UserLockIcon from '@lucide/svelte/icons/user-lock';
 	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
 	import MessageSquareLockIcon from '@lucide/svelte/icons/message-square-lock';
@@ -214,7 +214,9 @@
 <div class="mb-4 flex flex-wrap items-center justify-between gap-4">
 	<h3 class="text-lg font-semibold">Configuration plans</h3>
 	<div class="flex gap-2">
-		<Button variant="outline" size="sm" disabled={loading} onclick={() => void load()}>Refresh</Button>
+		<Button variant="outline" size="icon-sm" title="Refresh" aria-label="Refresh" disabled={loading} onclick={() => void load()}>
+			<HugeiconsIcon icon={RefreshIcon} size={14} />
+		</Button>
 		<Button size="sm" href="/services/{ctx.id}/plans/new">New plan</Button>
 	</div>
 </div>

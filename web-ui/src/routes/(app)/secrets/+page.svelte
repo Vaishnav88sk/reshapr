@@ -49,6 +49,8 @@
 	import UserLockIcon from '@lucide/svelte/icons/user-lock';
 	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
 	import MessageSquareLockIcon from '@lucide/svelte/icons/message-square-lock';
+	import { HugeiconsIcon } from '@hugeicons/svelte';
+	import { RefreshIcon } from '@hugeicons/core-free-icons';
 	import { cn } from '$lib/utils.js';
 
 	type SecretRefRow = {
@@ -347,7 +349,9 @@
 	subtitle="Manage the credentials your organization uses to authenticate against backend APIs and artifacts."
 >
 	{#snippet actions()}
-		<Button variant="outline" onclick={() => void load()}>Refresh</Button>
+		<Button variant="outline" size="icon" title="Refresh" aria-label="Refresh" onclick={() => void load()}>
+			<HugeiconsIcon icon={RefreshIcon} size={16} />
+		</Button>
 		<Button onclick={openCreate}>New secret</Button>
 	{/snippet}
 </PageHeader>

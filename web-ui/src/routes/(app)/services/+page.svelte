@@ -23,6 +23,8 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import { auth } from '$lib/stores/auth.svelte.js';
+	import { HugeiconsIcon } from '@hugeicons/svelte';
+	import { RefreshIcon } from '@hugeicons/core-free-icons';
 
 	type Service = {
 		id: string;
@@ -89,7 +91,9 @@
 
 <PageHeader title="Services" subtitle="API services registered in your organization.">
 	{#snippet actions()}
-		<Button variant="outline" disabled={loading} onclick={() => void load()}>Refresh</Button>
+		<Button variant="outline" size="icon" title="Refresh" aria-label="Refresh" disabled={loading} onclick={() => void load()}>
+			<HugeiconsIcon icon={RefreshIcon} size={16} />
+		</Button>
 	{/snippet}
 </PageHeader>
 

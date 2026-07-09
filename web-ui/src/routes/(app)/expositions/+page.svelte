@@ -30,7 +30,7 @@
 	import { Switch } from '$lib/components/ui/switch/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { CloudServerIcon, Copy01Icon, Link01Icon, McpServerIcon, Tick02Icon } from '@hugeicons/core-free-icons';
+	import { CloudServerIcon, Copy01Icon, Link01Icon, McpServerIcon, Tick02Icon, RefreshIcon } from '@hugeicons/core-free-icons';
 
 	const QUOTA_METRIC = 'exposition.count';
 
@@ -237,7 +237,9 @@
 					aria-label="Show all MCP servers"
 				/>
 			</div>
-			<Button variant="outline" onclick={() => void load()}>Refresh</Button>
+			<Button variant="outline" size="icon" title="Refresh" aria-label="Refresh" onclick={() => void load()}>
+				<HugeiconsIcon icon={RefreshIcon} size={16} />
+			</Button>
 			<Button onclick={() => void openCreate()} disabled={!canCreate} title={canCreate ? undefined : 'Quota reached'}>
 				New MCP Server
 			</Button>

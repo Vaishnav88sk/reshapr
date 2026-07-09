@@ -24,7 +24,7 @@
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { ApiIcon, McpServerIcon } from '@hugeicons/core-free-icons';
+	import { ApiIcon, McpServerIcon, RefreshIcon } from '@hugeicons/core-free-icons';
 	import Activity from '@lucide/svelte/icons/activity';
 	import Layers from '@lucide/svelte/icons/layers';
 	import Network from '@lucide/svelte/icons/network';
@@ -77,7 +77,9 @@
 		<strong>{auth.user?.org}</strong> organization.
 	{/snippet}
 	{#snippet actions()}
-		<Button variant="outline" disabled={loading} onclick={() => void load()}>Refresh</Button>
+		<Button variant="outline" size="icon" title="Refresh" aria-label="Refresh" disabled={loading} onclick={() => void load()}>
+			<HugeiconsIcon icon={RefreshIcon} size={16} />
+		</Button>
 	{/snippet}
 </PageHeader>
 

@@ -52,7 +52,8 @@
 		Wrench01Icon,
 		BubbleChatIcon,
 		File01Icon,
-		FilterIcon
+		FilterIcon,
+		RefreshIcon
 	} from '@hugeicons/core-free-icons';
 
 	const ctx = getContext<ServiceContextValue>(SERVICE_CONTEXT_KEY);
@@ -186,7 +187,9 @@
 
 <div class="mb-4 flex items-center justify-between gap-4">
 	<h3 class="text-lg font-semibold">Artifacts</h3>
-	<Button variant="outline" size="sm" disabled={loading} onclick={() => void load()}>Refresh</Button>
+	<Button variant="outline" size="icon-sm" title="Refresh" aria-label="Refresh" disabled={loading} onclick={() => void load()}>
+		<HugeiconsIcon icon={RefreshIcon} size={14} />
+	</Button>
 </div>
 
 <p class="text-muted-foreground mb-4 text-sm">

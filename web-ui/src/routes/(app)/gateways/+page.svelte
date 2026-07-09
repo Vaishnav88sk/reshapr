@@ -38,7 +38,7 @@
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { ApiGatewayIcon, Key01Icon, PulseIcon, TagsIcon } from '@hugeicons/core-free-icons';
+	import { ApiGatewayIcon, Key01Icon, PulseIcon, TagsIcon, RefreshIcon } from '@hugeicons/core-free-icons';
 	import ApiTokensTab from './ApiTokensTab.svelte';
 
 	const QUOTA_METRIC = 'gateway.count';
@@ -177,9 +177,13 @@
 	>
 		{#snippet actions()}
 			{#if activeTab === 'gateways'}
-				<Button variant="outline" disabled={loading} onclick={() => void load()}>Refresh</Button>
+				<Button variant="outline" size="icon" title="Refresh" aria-label="Refresh" disabled={loading} onclick={() => void load()}>
+					<HugeiconsIcon icon={RefreshIcon} size={16} />
+				</Button>
 			{:else if activeTab === 'apitokens'}
-				<Button variant="outline" onclick={() => apiTokensTabRef?.refresh()}>Refresh</Button>
+				<Button variant="outline" size="icon" title="Refresh" aria-label="Refresh" onclick={() => apiTokensTabRef?.refresh()}>
+					<HugeiconsIcon icon={RefreshIcon} size={16} />
+				</Button>
 				<Button onclick={() => apiTokensTabRef?.openCreateDrawer()}>New token</Button>
 			{/if}
 		{/snippet}

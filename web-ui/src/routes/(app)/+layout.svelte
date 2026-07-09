@@ -25,6 +25,7 @@
   import { cn } from '$lib/utils.js';
   import UserAvatar from '$lib/components/UserAvatar.svelte';
   import * as Collapsible from '$lib/components/ui/collapsible/index.js';
+  import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import { HugeiconsIcon } from '@hugeicons/svelte';
   import {
     ApiIcon,
@@ -257,16 +258,46 @@
           {/if}
         </div>
       {:else}
-        <!-- Collapsed: just show org icon -->
-        <div class="flex justify-center py-2" title={auth.currentOrg}>
-          <span class="flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground/60">
-            <HugeiconsIcon icon={Building01Icon} size={16} />
-          </span>
-        </div>
+        <!-- Collapsed: just show org icon with a tooltip showing the org name -->
+        <Tooltip.Provider delayDuration={0}>
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <div class="flex justify-center py-2" {...props}>
+                  <span class="flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground/60">
+                    <HugeiconsIcon icon={Building01Icon} size={16} />
+                  </span>
+                </div>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content side="right" sideOffset={8}>
+              {auth.currentOrg}
+            </Tooltip.Content>
+          </Tooltip.Root>
+        </Tooltip.Provider>
       {/if}
 
       <!-- Navigation -->
       <nav class="flex flex-1 flex-col gap-1 overflow-y-auto px-2 py-2">
+        {#snippet navLink(item: NavItem, extraProps: Record<string, unknown> = {})}
+          <a
+            href={item.href}
+            class="flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors
+              {isActive(item.href)
+                ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                : 'text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground'}
+              {sidebar.collapsed ? 'justify-center' : ''}"
+            {...extraProps}
+          >
+            <span class="flex h-5 w-5 shrink-0 items-center justify-center">
+              <HugeiconsIcon icon={item.icon} size={18} />
+            </span>
+            {#if !sidebar.collapsed}
+              <span>{item.label}</span>
+            {/if}
+          </a>
+        {/snippet}
+        <Tooltip.Provider delayDuration={0}>
         {#each navigation as section}
           {#if !section.adminOnly || auth.isAdmin}
             {#if section.title}
@@ -281,22 +312,20 @@
 
             {#each section.items as item}
               {#if !item.adminOnly || auth.isAdmin}
-                <a
-                  href={item.href}
-                  class="flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors
-                    {isActive(item.href)
-                      ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                      : 'text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground'}
-                    {sidebar.collapsed ? 'justify-center' : ''}"
-                  title={sidebar.collapsed ? item.label : undefined}
-                >
-                  <span class="flex h-5 w-5 shrink-0 items-center justify-center">
-                    <HugeiconsIcon icon={item.icon} size={18} />
-                  </span>
-                  {#if !sidebar.collapsed}
-                    <span>{item.label}</span>
-                  {/if}
-                </a>
+                {#if sidebar.collapsed}
+                  <Tooltip.Root>
+                    <Tooltip.Trigger>
+                      {#snippet child({ props })}
+                        {@render navLink(item, props)}
+                      {/snippet}
+                    </Tooltip.Trigger>
+                    <Tooltip.Content side="right" sideOffset={8}>
+                      {item.label}
+                    </Tooltip.Content>
+                  </Tooltip.Root>
+                {:else}
+                  {@render navLink(item)}
+                {/if}
               {/if}
             {/each}
           {/if}
@@ -327,6 +356,7 @@
             </Collapsible.Content>
           </Collapsible.Root>
         {/if}
+        </Tooltip.Provider>
       </nav>
 
       <!-- User profile at bottom -->

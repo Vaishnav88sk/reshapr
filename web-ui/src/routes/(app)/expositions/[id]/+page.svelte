@@ -44,7 +44,8 @@
 		Link01Icon,
 		McpServerIcon,
 		TagsIcon,
-		Tick02Icon
+		Tick02Icon,
+		RefreshIcon
 	} from '@hugeicons/core-free-icons';
 
 	const id = $derived(page.params.id);
@@ -288,7 +289,9 @@
 		</div>
 	</div>
 	<div class="flex shrink-0 items-center gap-2">
-		<Button variant="outline" onclick={() => id && void load(id)}>Refresh</Button>
+		<Button variant="outline" size="icon" title="Refresh" aria-label="Refresh" onclick={() => id && void load(id)}>
+			<HugeiconsIcon icon={RefreshIcon} size={16} />
+		</Button>
 		<Button variant="destructive" onclick={() => void onDelete()}>
 			<HugeiconsIcon icon={Delete02Icon} size={16} />
 			Delete
