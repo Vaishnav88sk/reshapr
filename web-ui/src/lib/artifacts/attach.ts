@@ -36,17 +36,3 @@ export async function saveCustomArtifact(
 	return client.attachArtifactFile(yamlToAttachFile(content, kind, name));
 }
 
-export function formatAttachSuccess(out: unknown): string {
-	if (out && typeof out === 'object') {
-		const o = out as Record<string, unknown>;
-		const name = typeof o.name === 'string' ? o.name : undefined;
-		const type = typeof o.type === 'string' ? o.type : undefined;
-		const id = typeof o.id === 'string' ? o.id : undefined;
-		const bits = ['Artifact saved'];
-		if (type) bits.push(`type ${type}`);
-		if (name) bits.push(`« ${name} »`);
-		if (id) bits.push(`id ${id}`);
-		return bits.join(' — ');
-	}
-	return `Artifact saved: ${JSON.stringify(out)}`;
-}

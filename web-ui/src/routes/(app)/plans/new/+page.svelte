@@ -88,7 +88,7 @@
 	<Alert.Description>
 		Same as <code class="text-xs">reshapr config create</code>. Use <strong>Included operations</strong>
 		(<code class="text-xs">--io</code>) to expose only selected API routes. Attach a
-		<code class="text-xs">CustomTools</code> YAML on <a href="/artifacts" class="text-primary hover:underline">Artifacts</a>
+		<code class="text-xs">CustomTools</code> YAML from the service's <strong>Artifacts</strong> tab
 		for MCP custom tools (step 2).
 	</Alert.Description>
 </Alert.Root>

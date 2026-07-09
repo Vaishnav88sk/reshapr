@@ -18,13 +18,14 @@
 	import { apiClient, ApiError } from '$lib/api/client.js';
 	import ApiErrorAlert from '$lib/components/ApiErrorAlert.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import { QuickStartWizard } from '$lib/components/artifacts/index.js';
 	import { loadDashboardStats, type DashboardStats } from '$lib/dashboardStats.js';
 	import { auth } from '$lib/stores/auth.svelte.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { ApiIcon, McpServerIcon, RefreshIcon } from '@hugeicons/core-free-icons';
+	import { ApiIcon, McpServerIcon, RefreshIcon, AiMagicIcon } from '@hugeicons/core-free-icons';
 	import Activity from '@lucide/svelte/icons/activity';
 	import Layers from '@lucide/svelte/icons/layers';
 	import Network from '@lucide/svelte/icons/network';
@@ -33,6 +34,7 @@
 	let error = $state<string | null>(null);
 	let loading = $state(true);
 	let gatewayDetailOpen = $state(false);
+	let quickStartOpen = $state(false);
 
 	const gatewaySourceLabel: Record<
 		NonNullable<DashboardStats['gatewayRegisteredDetail']>['source'],
@@ -77,11 +79,19 @@
 		<strong>{auth.user?.org}</strong> organization.
 	{/snippet}
 	{#snippet actions()}
+
 		<Button variant="outline" size="icon" title="Refresh" aria-label="Refresh" disabled={loading} onclick={() => void load()}>
 			<HugeiconsIcon icon={RefreshIcon} size={16} />
 		</Button>
+		<Button onclick={() => (quickStartOpen = true)}>
+			<HugeiconsIcon icon={AiMagicIcon} size={16} />
+			Quick start
+		</Button>
 	{/snippet}
 </PageHeader>
+
+<QuickStartWizard bind:open={quickStartOpen} />
+
 
 
 {#if error}
@@ -213,12 +223,4 @@
 			<p class="text-muted-foreground mt-1 text-xs">Via quotas (used)</p>
 		</Card.Content>
 	</Card.Root>
-</div>
-
-<div class="mt-8 flex flex-wrap gap-2">
-	<Button variant="outline" href="/services">Services</Button>
-	<Button variant="outline" href="/expositions">Expositions</Button>
-	<Button variant="outline" href="/gateway-groups">Gateway groups</Button>
-	<Button variant="outline" href="/quotas">Quotas</Button>
-	<Button variant="outline" href="/artifacts">Artifacts</Button>
 </div>

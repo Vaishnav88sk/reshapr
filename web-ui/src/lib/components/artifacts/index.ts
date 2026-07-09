@@ -15,6 +15,7 @@
  */
 
 export { default as ImportArtifactDialog } from './ImportArtifactDialog.svelte';
-export type { ImportArtifactMode } from './ImportArtifactDialog.svelte';
+export { default as ImportArtifactForm, type ImportArtifactMode } from './ImportArtifactForm.svelte';
 export { default as ArtifactSecretSelect } from './ArtifactSecretSelect.svelte';
+export { default as QuickStartWizard } from './QuickStartWizard.svelte';
 

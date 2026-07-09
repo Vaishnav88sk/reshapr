@@ -204,8 +204,9 @@
 <ImportArtifactDialog mode="attach" bind:open={attachOpen} onDone={() => void load()} />
 
 <p class="text-muted-foreground mb-4 text-sm">
-	List, filter and manage custom artifacts here. Main specification import remains under
-	<a href="/artifacts" class="text-primary hover:underline">Experimental → Artifacts</a>.
+	List, filter and manage custom artifacts here. To import a main specification, use
+	<a href="/services" class="text-primary hover:underline">Import specification</a> on the Services page
+	or the <strong>Quick start</strong> wizard.
 </p>
 
 {#if error}

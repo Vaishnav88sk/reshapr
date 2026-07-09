@@ -24,10 +24,12 @@
   import { getBootstrapConfig } from '$lib/api/config.js';
   import { cn } from '$lib/utils.js';
   import UserAvatar from '$lib/components/UserAvatar.svelte';
+  import { QuickStartWizard } from '$lib/components/artifacts/index.js';
   import * as Collapsible from '$lib/components/ui/collapsible/index.js';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import { HugeiconsIcon } from '@hugeicons/svelte';
   import {
+    AiMagicIcon,
     ApiIcon,
     ApiGatewayIcon,
     Building01Icon,
@@ -52,9 +54,9 @@
   let userMenuOpen = $state(false);
   let orgSelectorOpen = $state(false);
   let experimentalOpen = $state(false);
+  let quickStartOpen = $state(false);
 
   const experimentalNav = [
-    { href: '/artifacts', label: 'Artifacts' },
     { href: '/quotas', label: 'Quotas' },
   ] as const;
 
@@ -80,6 +82,8 @@
     label: string;
     icon: any;
     adminOnly?: boolean;
+    /** When set, the entry acts as a button triggering this action instead of navigating. */
+    action?: () => void;
   }
 
   interface NavSection {
@@ -92,6 +96,7 @@
     {
       items: [
         { href: '/', label: 'Dashboard', icon: DashboardSquare02Icon },
+        { href: '', label: 'Quick Start', icon: AiMagicIcon, action: () => (quickStartOpen = true) },
       ]
     },
     {
@@ -120,6 +125,7 @@
 
   function isActive(href: string): boolean {
     const path = page.url.pathname;
+    if (!href) return false;
     if (href === '/') return path === '/';
     if (href === '/services') {
       return path === '/services' || path.startsWith('/services/');
@@ -280,22 +286,40 @@
       <!-- Navigation -->
       <nav class="flex flex-1 flex-col gap-1 overflow-y-auto px-2 py-2">
         {#snippet navLink(item: NavItem, extraProps: Record<string, unknown> = {})}
-          <a
-            href={item.href}
-            class="flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors
-              {isActive(item.href)
-                ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                : 'text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground'}
-              {sidebar.collapsed ? 'justify-center' : ''}"
-            {...extraProps}
-          >
-            <span class="flex h-5 w-5 shrink-0 items-center justify-center">
-              <HugeiconsIcon icon={item.icon} size={18} />
-            </span>
-            {#if !sidebar.collapsed}
-              <span>{item.label}</span>
-            {/if}
-          </a>
+          {#if item.action}
+            <button
+              type="button"
+              onclick={item.action}
+              class="flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors
+                text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground
+                {sidebar.collapsed ? 'justify-center' : ''}"
+              {...extraProps}
+            >
+              <span class="flex h-5 w-5 shrink-0 items-center justify-center">
+                <HugeiconsIcon icon={item.icon} size={18} />
+              </span>
+              {#if !sidebar.collapsed}
+                <span>{item.label}</span>
+              {/if}
+            </button>
+          {:else}
+            <a
+              href={item.href}
+              class="flex items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors
+                {isActive(item.href)
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                  : 'text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground'}
+                {sidebar.collapsed ? 'justify-center' : ''}"
+              {...extraProps}
+            >
+              <span class="flex h-5 w-5 shrink-0 items-center justify-center">
+                <HugeiconsIcon icon={item.icon} size={18} />
+              </span>
+              {#if !sidebar.collapsed}
+                <span>{item.label}</span>
+              {/if}
+            </a>
+          {/if}
         {/snippet}
         <Tooltip.Provider delayDuration={0}>
         {#each navigation as section}
@@ -445,5 +469,7 @@
       </footer>
     </main>
   </div>
+
+  <QuickStartWizard bind:open={quickStartOpen} />
 {/if}
 
