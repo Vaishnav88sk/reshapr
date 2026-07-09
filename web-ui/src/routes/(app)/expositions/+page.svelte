@@ -30,7 +30,7 @@
 	import { Switch } from '$lib/components/ui/switch/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { CloudServerIcon, Copy01Icon, Link01Icon, McpServerIcon, Tick02Icon, RefreshIcon } from '@hugeicons/core-free-icons';
+	import { ApiIcon, CloudServerIcon, Copy01Icon, Link01Icon, McpServerIcon, Tick02Icon, RefreshIcon } from '@hugeicons/core-free-icons';
 
 	const QUOTA_METRIC = 'exposition.count';
 
@@ -293,9 +293,6 @@
 									<Card.Title class="text-base leading-snug break-all">
 										{x.name}
 									</Card.Title>
-									<div class="mt-0.5 truncate text-xs font-medium text-foreground/80" title={x.name}>
-										{x.service}
-									</div>
 								{:else}
 									<Card.Title class="text-base leading-snug break-all">
 										{x.service}
@@ -315,6 +312,21 @@
 						</div>
 					</Card.Header>
 					<Card.Content class="space-y-3 pt-0 text-xs">
+						<!-- Service reference -->
+						<div class="flex items-start gap-2">
+							<HugeiconsIcon
+									icon={ApiIcon}
+									size={16}
+									class="text-muted-foreground mt-0.5 shrink-0"
+							/>
+							<p
+									class="min-w-0 flex-1 truncate rounded px-1.5 py-0.5"
+									title={x.service}
+							>
+								{x.service}
+							</p>
+						</div>
+
 						<!-- Backend endpoint -->
 						<div class="flex items-start gap-2">
 							<HugeiconsIcon

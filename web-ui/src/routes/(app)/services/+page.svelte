@@ -137,8 +137,8 @@
 							</Card.Title>
 							<ServiceTypeBadge type={service.type} class="shrink-0" />
 						</div>
-						<Card.Description class="mt-1">
-							Version: <b>{service.version}</b>
+						<Card.Description class="mt-1 text-foreground text-sm">
+							Version <b>{service.version}</b>
 						</Card.Description>
 					</Card.Header>
 					<Card.Content class="pt-0">

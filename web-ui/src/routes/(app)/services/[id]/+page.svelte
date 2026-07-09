@@ -86,25 +86,6 @@
 		);
 	});
 
-	const createdOn = $derived.by<string | null>(() => {
-		const raw = ctx.raw as Record<string, unknown> | null;
-		return raw ? (str(raw.createdOn) ?? str(raw.created)) : null;
-	});
-
-	function formatDate(iso: string | null): string {
-		if (!iso) return '—';
-		try {
-			return new Date(iso).toLocaleString(undefined, {
-				year: 'numeric',
-				month: 'short',
-				day: 'numeric',
-				hour: '2-digit',
-				minute: '2-digit'
-			});
-		} catch {
-			return iso;
-		}
-	}
 
 	// Color-coded pill per HTTP verb; unknown labels (e.g. gRPC actions) fall back to neutral.
 	const METHOD_STYLES: Record<string, string> = {
@@ -190,20 +171,6 @@
 	);
 </script>
 
-<dl class="mb-8 grid gap-4 sm:grid-cols-2">
-	<div>
-		<dt class="text-muted-foreground text-xs">Service ID</dt>
-		<dd class="mt-1">
-			<code class="text-muted-foreground bg-muted rounded px-1 py-0.5 font-mono text-sm break-all"
-				>{ctx.id}</code
-			>
-		</dd>
-	</div>
-	<div>
-		<dt class="text-muted-foreground text-xs">Created on</dt>
-		<dd class="mt-1 text-sm">{ctx.loading ? '…' : formatDate(createdOn)}</dd>
-	</div>
-</dl>
 
 <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
 	<div class="flex items-baseline gap-2">
