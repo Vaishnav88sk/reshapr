@@ -30,6 +30,7 @@
 	} from '$lib/artifacts/index.js';
 	import ApiErrorAlert from '$lib/components/ApiErrorAlert.svelte';
 	import { SERVICE_CONTEXT_KEY, type ServiceContextValue } from '$lib/serviceContext.js';
+	import { ImportArtifactDialog } from '$lib/components/artifacts/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
@@ -53,7 +54,8 @@
 		BubbleChatIcon,
 		File01Icon,
 		FilterIcon,
-		RefreshIcon
+		RefreshIcon,
+		Link01Icon
 	} from '@hugeicons/core-free-icons';
 
 	const ctx = getContext<ServiceContextValue>(SERVICE_CONTEXT_KEY);
@@ -96,6 +98,7 @@
 
 	let typeFilter = $state<ArtifactTypeFilter>('all');
 	let createKind = $state<ReshaprArtifactKind>('Prompts');
+	let attachOpen = $state(false);
 
 
 	const filterLabel = $derived(
@@ -187,10 +190,18 @@
 
 <div class="mb-4 flex items-center justify-between gap-4">
 	<h3 class="text-lg font-semibold">Artifacts</h3>
-	<Button variant="outline" size="icon-sm" title="Refresh" aria-label="Refresh" disabled={loading} onclick={() => void load()}>
-		<HugeiconsIcon icon={RefreshIcon} size={14} />
-	</Button>
+	<div class="flex items-center gap-2">
+		<Button variant="outline" size="icon-sm" title="Refresh" aria-label="Refresh" disabled={loading} onclick={() => void load()}>
+			<HugeiconsIcon icon={RefreshIcon} size={14} />
+		</Button>
+		<Button size="sm" onclick={() => (attachOpen = true)}>
+			<HugeiconsIcon icon={Link01Icon} size={14} />
+			Attach artifact
+		</Button>
+	</div>
 </div>
+
+<ImportArtifactDialog mode="attach" bind:open={attachOpen} onDone={() => void load()} />
 
 <p class="text-muted-foreground mb-4 text-sm">
 	List, filter and manage custom artifacts here. Main specification import remains under
