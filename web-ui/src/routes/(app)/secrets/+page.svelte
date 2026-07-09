@@ -42,6 +42,7 @@
 		DropdownMenuItem,
 		DropdownMenuTrigger
 	} from '$lib/components/ui/dropdown-menu/index.js';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import MoreVerticalIcon from '@lucide/svelte/icons/ellipsis-vertical';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
@@ -333,14 +334,19 @@
 		}
 	}
 
-	async function onDelete(row: SecretRefRow) {
-		if (!row.id || !confirm(`Delete secret "${row.name ?? row.id}"?`)) return;
-		try {
-			await apiClient().deleteSecret(row.id);
-			await load();
-		} catch (e) {
-			error = formatApiError(e);
-		}
+	let deleteTarget = $state<SecretRefRow | null>(null);
+	let deleteOpen = $state(false);
+
+	function onDelete(row: SecretRefRow) {
+		deleteTarget = row;
+		deleteOpen = true;
+	}
+
+	async function confirmDeleteSecret() {
+		const row = deleteTarget;
+		if (!row?.id) return;
+		await apiClient().deleteSecret(row.id);
+		await load();
 	}
 </script>
 
@@ -405,7 +411,6 @@
 		<Table.Root>
 			<Table.Header>
 				<Table.Row>
-					<Table.Head>ID</Table.Head>
 					<Table.Head>Name</Table.Head>
 					<Table.Head>Credential</Table.Head>
 					<Table.Head>Type</Table.Head>
@@ -416,10 +421,15 @@
 			<Table.Body>
 				{#each filtered as row (row.id ?? `${row.name}-${row.organizationId}`)}
 					<Table.Row>
-						<Table.Cell>
-							<code class="text-muted-foreground bg-muted rounded px-1 py-0.5 font-mono text-xs break-all">{row.id ?? '—'}</code>
+						<Table.Cell class="font-medium">
+							<div class="flex flex-col gap-1">
+								<span>{row.name ?? '—'}</span>
+								<code
+									class="text-muted-foreground bg-muted w-fit rounded px-1 py-0.5 font-mono text-xs break-all"
+									>{row.id ?? '—'}</code
+								>
+							</div>
 						</Table.Cell>
-						<Table.Cell class="font-medium">{row.name ?? '—'}</Table.Cell>
 						<Table.Cell>
 							{@const kind = credentialKind(row)}
 							{@const meta = CRED_META[kind]}
@@ -470,6 +480,21 @@
 		</Table.Root>
 	</div>
 {/if}
+
+<ConfirmDialog
+	bind:open={deleteOpen}
+	title="Delete secret"
+	description={deleteTarget
+		? `You are about to delete the secret "${deleteTarget.name ?? deleteTarget.id}". This action cannot be undone.`
+		: undefined}
+	confirmLabel="Delete"
+	onConfirm={confirmDeleteSecret}
+>
+	<p class="text-muted-foreground text-sm">
+		Any service or artifact that references this secret to authenticate against a backend API will
+		stop working until you point it to another credential.
+	</p>
+</ConfirmDialog>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 <!-- Create / Edit Secret Drawer                                -->

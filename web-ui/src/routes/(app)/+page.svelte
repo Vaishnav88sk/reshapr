@@ -119,7 +119,7 @@
 		</Button>
 		<Button onclick={() => (quickStartOpen = true)}>
 			<HugeiconsIcon icon={AiMagicIcon} size={16} />
-			Quick start
+			Quick Start
 		</Button>
 	{/snippet}
 </PageHeader>

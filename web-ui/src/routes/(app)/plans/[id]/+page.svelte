@@ -19,6 +19,7 @@
 	import { goto } from '$app/navigation';
 	import { apiClient, ApiError } from '$lib/api/client.js';
 	import ApiErrorAlert from '$lib/components/ApiErrorAlert.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Alert from '$lib/components/ui/alert/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
@@ -171,14 +172,17 @@
 		}
 	}
 
-	async function onDelete() {
-		if (!id || !confirm('Delete this plan?')) return;
-		try {
-			await apiClient().deleteConfigurationPlan(id);
-			goto('/plans');
-		} catch (e) {
-			error = e instanceof ApiError ? e.message : String(e);
-		}
+	let deleteOpen = $state(false);
+
+	function onDelete() {
+		if (!id) return;
+		deleteOpen = true;
+	}
+
+	async function confirmDeletePlan() {
+		if (!id) return;
+		await apiClient().deleteConfigurationPlan(id);
+		goto('/plans');
 	}
 </script>
 
@@ -291,3 +295,17 @@
 	<Textarea class="font-mono text-xs" rows={22} bind:value={raw} disabled={loading} />
 	<Button type="submit">Save</Button>
 </form>
+
+<ConfirmDialog
+	bind:open={deleteOpen}
+	title="Delete configuration plan"
+	description={`You are about to delete the configuration plan "${id}". This action cannot be undone.`}
+	confirmLabel="Delete"
+	onConfirm={confirmDeletePlan}
+>
+	<p class="text-muted-foreground text-sm">
+		The MCP endpoint exposed by this plan will no longer be served. Any client connected through it
+		will lose access until another plan is configured.
+	</p>
+</ConfirmDialog>
+

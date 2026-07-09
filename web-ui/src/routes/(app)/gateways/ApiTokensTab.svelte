@@ -42,6 +42,7 @@
 		DropdownMenuItem,
 		DropdownMenuTrigger
 	} from '$lib/components/ui/dropdown-menu/index.js';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import MoreVerticalIcon from '@lucide/svelte/icons/ellipsis-vertical';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
@@ -186,14 +187,19 @@
 		}
 	}
 
-	async function onDelete(row: ApiTokenRow) {
-		if (!row.id || !confirm(`Revoke token "${row.name ?? row.id}"?`)) return;
-		try {
-			await apiClient().deleteApiToken(row.id);
-			await load();
-		} catch (e) {
-			error = formatApiError(e);
-		}
+	let deleteTarget = $state<ApiTokenRow | null>(null);
+	let deleteOpen = $state(false);
+
+	function onDelete(row: ApiTokenRow) {
+		deleteTarget = row;
+		deleteOpen = true;
+	}
+
+	async function confirmRevokeToken() {
+		const row = deleteTarget;
+		if (!row?.id) return;
+		await apiClient().deleteApiToken(row.id);
+		await load();
 	}
 </script>
 
@@ -282,7 +288,6 @@
 		<Table.Root>
 			<Table.Header>
 				<Table.Row>
-					<Table.Head>ID</Table.Head>
 					<Table.Head>Name</Table.Head>
 					{#if auth.isAdmin}
 						<Table.Head>Org</Table.Head>
@@ -295,13 +300,15 @@
 			<Table.Body>
 				{#each filtered as row (row.id ?? `${row.name}-${row.organizationId}`)}
 					<Table.Row>
-						<Table.Cell>
-							<code
-								class="text-muted-foreground bg-muted rounded px-1 py-0.5 font-mono text-xs break-all"
-								>{row.id ?? '—'}</code
-							>
+						<Table.Cell class="font-medium">
+							<div class="flex flex-col gap-1">
+								<span>{row.name ?? '—'}</span>
+								<code
+									class="text-muted-foreground bg-muted w-fit rounded px-1 py-0.5 font-mono text-xs break-all"
+									>{row.id ?? '—'}</code
+								>
+							</div>
 						</Table.Cell>
-						<Table.Cell class="font-medium">{row.name ?? '—'}</Table.Cell>
 						{#if auth.isAdmin}
 							<Table.Cell>
 								{#if row.organizationId}
@@ -419,4 +426,20 @@
 		</form>
 	</SheetContent>
 </Sheet>
+
+<ConfirmDialog
+	bind:open={deleteOpen}
+	title="Revoke API token"
+	description={deleteTarget
+		? `You are about to revoke the token "${deleteTarget.name ?? deleteTarget.id}". This action cannot be undone.`
+		: undefined}
+	confirmLabel="Revoke"
+	confirmingLabel="Revoking…"
+	onConfirm={confirmRevokeToken}
+>
+	<p class="text-muted-foreground text-sm">
+		Any client or gateway currently authenticating with this token will immediately stop working
+		and will need to be reconfigured with a new token.
+	</p>
+</ConfirmDialog>
 

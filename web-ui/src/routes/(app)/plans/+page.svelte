@@ -65,7 +65,6 @@
 	<Table.Root>
 		<Table.Header>
 			<Table.Row>
-				<Table.Head>ID</Table.Head>
 				<Table.Head>Name</Table.Head>
 				<Table.Head>Service</Table.Head>
 				<Table.Head>Backend</Table.Head>
@@ -74,12 +73,17 @@
 		<Table.Body>
 			{#each rows as p (p.id)}
 				<Table.Row>
-					<Table.Cell>
-						<a href="/services/{p.serviceId}/plans/{p.id}" class="text-primary hover:underline"
-							>{p.id}</a
-						>
+					<Table.Cell class="font-medium">
+						<div class="flex flex-col gap-1">
+							<a href="/services/{p.serviceId}/plans/{p.id}" class="text-primary hover:underline"
+								>{p.name}</a
+							>
+							<code
+								class="text-muted-foreground bg-muted w-fit rounded px-1 py-0.5 font-mono text-xs break-all"
+								>{p.id}</code
+							>
+						</div>
 					</Table.Cell>
-					<Table.Cell>{p.name}</Table.Cell>
 					<Table.Cell>{p.serviceId}</Table.Cell>
 					<Table.Cell class="max-w-xs truncate" title={p.backendEndpoint}>
 						{p.backendEndpoint}

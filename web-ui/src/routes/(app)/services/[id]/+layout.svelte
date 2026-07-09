@@ -20,6 +20,7 @@
 	import { setContext } from 'svelte';
 	import { apiClient, ApiError } from '$lib/api/client.js';
 	import ApiErrorAlert from '$lib/components/ApiErrorAlert.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import OrganizationBadge from '$lib/components/OrganizationBadge.svelte';
 	import ServiceTypeBadge from '$lib/components/ServiceTypeBadge.svelte';
 	import { parseServiceRecord } from '$lib/serviceHub.js';
@@ -103,14 +104,17 @@
 		);
 	}
 
-	async function onDelete() {
-		if (!serviceId || !confirm('Delete this service?')) return;
-		try {
-			await apiClient().deleteService(serviceId);
-			goto('/services');
-		} catch (e) {
-			error = e instanceof ApiError ? e.message : String(e);
-		}
+	let deleteOpen = $state(false);
+
+	function onDelete() {
+		if (!serviceId) return;
+		deleteOpen = true;
+	}
+
+	async function confirmDeleteService() {
+		if (!serviceId) return;
+		await apiClient().deleteService(serviceId);
+		goto('/services');
 	}
 </script>
 
@@ -167,3 +171,17 @@
 </nav>
 
 {@render children()}
+
+<ConfirmDialog
+	bind:open={deleteOpen}
+	title="Delete service"
+	description={`You are about to delete the service "${service?.name ?? serviceId}". This action cannot be undone.`}
+	confirmLabel="Delete"
+	onConfirm={confirmDeleteService}
+>
+	<p class="text-muted-foreground text-sm">
+		All expositions, configuration plans and artifacts attached to this service will be permanently
+		removed, and any MCP endpoint it exposes will stop responding.
+	</p>
+</ConfirmDialog>
+

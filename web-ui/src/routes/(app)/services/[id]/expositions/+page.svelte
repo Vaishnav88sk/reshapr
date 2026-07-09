@@ -18,6 +18,7 @@
 	import { getContext, tick } from 'svelte';
 	import { apiClient, ApiError } from '$lib/api/client.js';
 	import ApiErrorAlert from '$lib/components/ApiErrorAlert.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import CreateExpositionDrawer from '$lib/components/exposition/CreateExpositionDrawer.svelte';
 	import { expositionBelongsToService } from '$lib/serviceHub.js';
 	import { SERVICE_CONTEXT_KEY, type ServiceContextValue } from '$lib/serviceContext.js';
@@ -172,14 +173,19 @@
 		if (ctx.id && !ctx.loading) void load();
 	});
 
-	async function onDelete(row: ExpoRow) {
-		if (!confirm(`Delete exposition "${row.name ?? row.id}"?`)) return;
-		try {
-			await apiClient().deleteExposition(row.id);
-			await load();
-		} catch (e) {
-			error = e instanceof ApiError ? e.message : String(e);
-		}
+	let deleteTarget = $state<ExpoRow | null>(null);
+	let deleteOpen = $state(false);
+
+	function onDelete(row: ExpoRow) {
+		deleteTarget = row;
+		deleteOpen = true;
+	}
+
+	async function confirmDeleteExposition() {
+		const row = deleteTarget;
+		if (!row) return;
+		await apiClient().deleteExposition(row.id);
+		await load();
 	}
 </script>
 
@@ -323,4 +329,19 @@
 	{serviceLabel}
 	onCreated={() => void load()}
 />
+
+<ConfirmDialog
+	bind:open={deleteOpen}
+	title="Delete exposition"
+	description={deleteTarget
+		? `You are about to delete the exposition "${deleteTarget.name ?? deleteTarget.id}". This action cannot be undone.`
+		: undefined}
+	confirmLabel="Delete"
+	onConfirm={confirmDeleteExposition}
+>
+	<p class="text-muted-foreground text-sm">
+		The associated MCP server endpoint will be taken down. Any client currently connected to this
+		exposition will immediately lose access.
+	</p>
+</ConfirmDialog>
 

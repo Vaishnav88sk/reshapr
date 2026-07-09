@@ -18,6 +18,7 @@
 	import { getContext } from 'svelte';
 	import { apiClient, ApiError } from '$lib/api/client.js';
 	import ApiErrorAlert from '$lib/components/ApiErrorAlert.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { planBelongsToService } from '$lib/serviceHub.js';
 	import { SERVICE_CONTEXT_KEY, type ServiceContextValue } from '$lib/serviceContext.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -200,14 +201,19 @@
 		if (ctx.id && !ctx.loading) void load();
 	});
 
-	async function onDelete(row: PlanRow) {
-		if (!confirm(`Delete configuration plan "${row.name}"?`)) return;
-		try {
-			await apiClient().deleteConfigurationPlan(row.id);
-			await load();
-		} catch (e) {
-			error = e instanceof ApiError ? e.message : String(e);
-		}
+	let deleteTarget = $state<PlanRow | null>(null);
+	let deleteOpen = $state(false);
+
+	function onDelete(row: PlanRow) {
+		deleteTarget = row;
+		deleteOpen = true;
+	}
+
+	async function confirmDeletePlan() {
+		const row = deleteTarget;
+		if (!row) return;
+		await apiClient().deleteConfigurationPlan(row.id);
+		await load();
 	}
 </script>
 
@@ -347,3 +353,18 @@
 		</Table.Body>
 	</Table.Root>
 </div>
+
+<ConfirmDialog
+	bind:open={deleteOpen}
+	title="Delete configuration plan"
+	description={deleteTarget
+		? `You are about to delete the configuration plan "${deleteTarget.name}". This action cannot be undone.`
+		: undefined}
+	confirmLabel="Delete"
+	onConfirm={confirmDeletePlan}
+>
+	<p class="text-muted-foreground text-sm">
+		The MCP endpoint exposed by this plan will no longer be served. Any client connected through it
+		will lose access until another plan is configured.
+	</p>
+</ConfirmDialog>

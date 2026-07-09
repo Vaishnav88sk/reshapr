@@ -45,6 +45,7 @@
 		DropdownMenuItem,
 		DropdownMenuTrigger
 	} from '$lib/components/ui/dropdown-menu/index.js';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import { RefreshIcon } from '@hugeicons/core-free-icons';
 	import SearchIcon from '@lucide/svelte/icons/search';
@@ -217,15 +218,20 @@
 		}
 	}
 
-	async function onDelete(row: GatewayGroup) {
-		if (!row.id || !confirm(`Delete gateway group "${row.name ?? row.id}"?`)) return;
-		try {
-			await apiClient().deleteGatewayGroup(row.id);
-			// Reload the list and refresh quotas (deletion releases a quota unit).
-			await load();
-		} catch (e) {
-			error = formatApiError(e);
-		}
+	let deleteTarget = $state<GatewayGroup | null>(null);
+	let deleteOpen = $state(false);
+
+	function onDelete(row: GatewayGroup) {
+		deleteTarget = row;
+		deleteOpen = true;
+	}
+
+	async function confirmDeleteGroup() {
+		const row = deleteTarget;
+		if (!row?.id) return;
+		await apiClient().deleteGatewayGroup(row.id);
+		// Reload the list and refresh quotas (deletion releases a quota unit).
+		await load();
 	}
 </script>
 
@@ -309,7 +315,6 @@
 		<Table.Root>
 			<Table.Header>
 				<Table.Row>
-					<Table.Head>ID</Table.Head>
 					<Table.Head>Name</Table.Head>
 					{#if auth.isAdmin}
 						<Table.Head>Org</Table.Head>
@@ -321,12 +326,15 @@
 			<Table.Body>
 				{#each filtered as row (row.id ?? `${row.name}-${row.organizationId}`)}
 					<Table.Row>
-						<Table.Cell>
-							<code class="text-muted-foreground bg-muted rounded px-1 py-0.5 font-mono text-xs break-all"
-								>{row.id ?? '—'}</code
-							>
+						<Table.Cell class="font-medium">
+							<div class="flex flex-col gap-1">
+								<span>{row.name ?? '—'}</span>
+								<code
+									class="text-muted-foreground bg-muted w-fit rounded px-1 py-0.5 font-mono text-xs break-all"
+									>{row.id ?? '—'}</code
+								>
+							</div>
 						</Table.Cell>
-						<Table.Cell class="font-medium">{row.name ?? '—'}</Table.Cell>
 						{#if auth.isAdmin}
 							<Table.Cell>
 								{#if row.organizationId}
@@ -459,4 +467,19 @@
 		</form>
 	</SheetContent>
 </Sheet>
+
+<ConfirmDialog
+	bind:open={deleteOpen}
+	title="Delete gateway group"
+	description={deleteTarget
+		? `You are about to delete the gateway group "${deleteTarget.name ?? deleteTarget.id}". This action cannot be undone.`
+		: undefined}
+	confirmLabel="Delete"
+	onConfirm={confirmDeleteGroup}
+>
+	<p class="text-muted-foreground text-sm">
+		Gateways that belong to this group will lose their group assignment, and any exposition routed
+		through it may become unreachable until reassigned.
+	</p>
+</ConfirmDialog>
 

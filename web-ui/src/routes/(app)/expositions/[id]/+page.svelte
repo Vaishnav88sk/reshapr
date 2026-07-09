@@ -21,6 +21,7 @@
 	import { parseArtifactRefList, type ArtifactRef } from '$lib/artifacts/index.js';
 	import { avatarColor, avatarInitials } from '$lib/avatarColor.js';
 	import ApiErrorAlert from '$lib/components/ApiErrorAlert.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import OrganizationBadge from '$lib/components/OrganizationBadge.svelte';
 	import ServiceTypeBadge from '$lib/components/ServiceTypeBadge.svelte';
 	import PlanOperationsView from '$lib/components/plan/PlanOperationsView.svelte';
@@ -203,14 +204,17 @@
 		}
 	}
 
-	async function onDelete() {
-		if (!id || !confirm('Delete this MCP server?')) return;
-		try {
-			await apiClient().deleteExposition(id);
-			goto('/expositions');
-		} catch (e) {
-			error = e instanceof ApiError ? e.message : String(e);
-		}
+	let deleteOpen = $state(false);
+
+	function onDelete() {
+		if (!id) return;
+		deleteOpen = true;
+	}
+
+	async function confirmDeleteExposition() {
+		if (!id) return;
+		await apiClient().deleteExposition(id);
+		goto('/expositions');
 	}
 </script>
 
@@ -463,3 +467,17 @@
 		</Card.Root>
 	</div>
 {/if}
+
+<ConfirmDialog
+	bind:open={deleteOpen}
+	title="Delete MCP server"
+	description={`You are about to delete the MCP server "${heroTitle}". This action cannot be undone.`}
+	confirmLabel="Delete"
+	onConfirm={confirmDeleteExposition}
+>
+	<p class="text-muted-foreground text-sm">
+		The MCP server endpoint will be taken down. Any client currently connected to this exposition
+		will immediately lose access.
+	</p>
+</ConfirmDialog>
+
