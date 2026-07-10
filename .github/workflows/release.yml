@@ -56,7 +56,7 @@ jobs:
           cache-dependency-path: 'cli/package-lock.json'
 
       - name: Update npm to latest version  # Ensure npm 11.5.1 or later for trusted publishing
-        run: npm install -g npm@latest
+        run: npm install -g npm@11.18.0
 
       - name: Set release version for Java components
         run: mvn -B -q versions:set -DnewVersion=${{ github.event.inputs.version }}
