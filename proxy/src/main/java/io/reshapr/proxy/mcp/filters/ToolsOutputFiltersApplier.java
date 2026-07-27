@@ -209,6 +209,7 @@ public class ToolsOutputFiltersApplier {
     * Retain only the fields matching the given JSON Pointer paths in an object node.
     * A path like "/userInfo" retains the entire "userInfo" subtree.
     * A path like "/userInfo/name" retains only "name" within "userInfo".
+    * A path like "/userInfo/0/name" retains only "name" within the first element of the "userInfo" array.
     */
    private ObjectNode retainFields(ObjectNode objectNode, Set<String> retainPaths) {
       ObjectNode result = JSON_MAPPER.createObjectNode();
@@ -244,17 +245,50 @@ public class ToolsOutputFiltersApplier {
             copyPath(child, nestedResult, segments, index + 1);
             result.set(segment, nestedResult);
          } else if (child.isArray()) {
-            ArrayNode arrayResult = JSON_MAPPER.createArrayNode();
-            for (JsonNode element : child) {
+            // We need to check if the next segment is an array index.
+            int arrayIndex = -1;
+            boolean isNextSegmentIndex = false;
+
+            // Do we have a next segment?
+            if (index + 1 < segments.length) {
+               try {
+                  arrayIndex = Integer.parseInt(segments[index + 1]);
+                  if (arrayIndex >= 0 && arrayIndex < child.size()) {
+                     isNextSegmentIndex = true;
+                  }
+               } catch (NumberFormatException ignored) {
+                  // Not an array index, keep going.
+               }
+            }
+            if (isNextSegmentIndex) {
+               // The next segment is an array index, so we need only to copy the element at that index.
+               JsonNode element = child.get(arrayIndex);
+               ArrayNode arrayResult = JSON_MAPPER.createArrayNode();
+
                if (element.isObject()) {
                   ObjectNode elementResult = JSON_MAPPER.createObjectNode();
-                  copyPath(element, elementResult, segments, index + 1);
+                  copyPath(element, elementResult, segments, index + 2);
                   arrayResult.add(elementResult);
                } else {
                   arrayResult.add(element);
                }
+
+               result.set(segment, arrayResult);
+
+            } else {
+               // The next segment is not an array index, so we need to copy the whole array.
+               ArrayNode arrayResult = JSON_MAPPER.createArrayNode();
+               for (JsonNode element : child) {
+                  if (element.isObject()) {
+                     ObjectNode elementResult = JSON_MAPPER.createObjectNode();
+                     copyPath(element, elementResult, segments, index + 1);
+                     arrayResult.add(elementResult);
+                  } else {
+                     arrayResult.add(element);
+                  }
+               }
+               result.set(segment, arrayResult);
             }
-            result.set(segment, arrayResult);
          }
       }
    }

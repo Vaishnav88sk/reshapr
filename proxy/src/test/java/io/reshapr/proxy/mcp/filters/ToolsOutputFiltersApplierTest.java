@@ -143,6 +143,50 @@ class ToolsOutputFiltersApplierTest {
    }
 
    @Test
+   void testRetainOnArrayIndices() throws Exception {
+      String filterItem0Name = """
+            apiVersion: reshapr.io/v1alpha1
+            kind: ToolsOutputFilters
+            service:
+              name: Test API
+              version: '1.0.0'
+            filters:
+              getItem0Name:
+                jsonRetain:
+                  - /items/0/name
+            """;
+
+      ServiceEntry service = new ServiceEntry("svc-1", "org-1", "Test API", "1.0.0", "REST", null);
+      ArtifactEntry artifact = new ArtifactEntry("art-1", "filters.yaml", null,
+            ArtifactEntryType.RESHAPR_TOOLS_OUTPUT_FILTERS, false, filterItem0Name);
+      WorkCache cache = new WorkCache(100);
+      ToolsOutputFiltersApplier applier = new ToolsOutputFiltersApplier(service, List.of(artifact), cache);
+
+      String response = """
+            {
+              "items": [
+                {
+                  "name": "Item A",
+                  "value": 10
+                },
+                {
+                  "name": "Item B",
+                  "value": 20
+                }
+              ]
+            }
+            """;
+      String filtered = applier.applyFilter("getItem0Name", response);
+
+      JsonNode result = MAPPER.readTree(filtered);
+      assertTrue(result.has("items"));
+      assertTrue(result.get("items").isArray());
+      assertEquals(1, result.get("items").size());
+      assertTrue(result.get("items").get(0).has("name"));
+      assertFalse(result.get("items").get(0).has("value"));
+   }
+
+   @Test
    void testRetainThenPatch() throws Exception {
       ToolsOutputFiltersApplier applier = buildApplier();
 
