@@ -247,6 +247,9 @@ public class McpController {
    private McpHandlerResult handleMcpRequest(ExpositionEntry exposition, McpSchema.JSONRPCRequest request, HttpHeaders headers) {
       McpHandlerResult result = null;
       switch (request.method()) {
+         case McpSchema.METHOD_SERVER_DISCOVER ->
+            result = handleServerDiscoverRequest(request, exposition);
+
          case McpSchema.METHOD_INITIALIZE ->
             result = handleInitializeRequest(request, exposition);
 
@@ -292,6 +295,27 @@ public class McpController {
       public boolean isJSONRPCResponse() {
          return message instanceof McpSchema.JSONRPCResponse;
       }
+   }
+
+   /** Handle the MCP server/discover request. */
+   private McpHandlerResult handleServerDiscoverRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
+      ServiceEntry service = exposition.service();
+      McpSchema.ServerCapabilities serverCapabilities = new McpSchema.ServerCapabilities(null, null,
+            new McpSchema.ServerCapabilities.PromptCapabilities(false),
+            new McpSchema.ServerCapabilities.ResourceCapabilities(false, false),
+            new McpSchema.ServerCapabilities.ToolCapabilities(false));
+
+      Map<String, Object> meta = Map.of(
+            "io.modelcontextprotocol/serverInfo", new McpSchema.Implementation(service.name() + " MCP server", service.version())
+      );
+
+      McpSchema.DiscoverResult discoverResult = new McpSchema.DiscoverResult(
+            McpSchema.SUPPORTED_PROTOCOL_VERSIONS,
+            serverCapabilities,
+            meta,
+            null);
+
+      return toMcpHandlerResult(request, discoverResult);
    }
 
    /** Handle the MCP initialize request. */
