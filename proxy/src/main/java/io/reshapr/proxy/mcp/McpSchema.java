@@ -34,11 +34,20 @@ import java.util.Map;
  */
 public class McpSchema {
 
+   /**
+    * First MCP protocol version introducing the stateless mode (no session): the server no longer
+    * issues an {@code MCP-Session-Id} and elicited secrets are bound to the authenticated user
+    * instead of a session. Protocol versions strictly before this one keep the legacy session-based
+    * behavior.
+    */
+   public static final String PROTOCOL_VERSION_STATELESS = "2026-07-28";
+
    public static final List<String> SUPPORTED_PROTOCOL_VERSIONS = List.of(
          "2024-11-05",
          "2025-03-26",
          "2025-06-18",
-         "2025-11-25"
+         "2025-11-25",
+         PROTOCOL_VERSION_STATELESS
    );
 
    public static final String JSONRPC_VERSION = "2.0";
