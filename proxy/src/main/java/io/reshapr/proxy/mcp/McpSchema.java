@@ -67,6 +67,7 @@ public class McpSchema {
    public static final String METHOD_INITIALIZE = "initialize";
    public static final String METHOD_NOTIFICATION_INITIALIZED = "notifications/initialized";
    public static final String METHOD_PING = "ping";
+   public static final String METHOD_SERVER_DISCOVER = "server/discover";
 
    // Tool Methods
    public static final String METHOD_TOOLS_LIST = "tools/list";
@@ -298,6 +299,22 @@ public class McpSchema {
         @JsonProperty("capabilities") ServerCapabilities capabilities,
         @JsonProperty("serverInfo") Implementation serverInfo,
         @JsonProperty("instructions") String instructions) {
+   }
+
+   @JsonInclude(JsonInclude.Include.NON_ABSENT)
+   @JsonIgnoreProperties(ignoreUnknown = true)
+   public record DiscoverResult(
+         @JsonProperty("resultType") String resultType,
+         @JsonProperty("supportedVersions") List<String> supportedVersions,
+         @JsonProperty("capabilities") ServerCapabilities capabilities,
+         @JsonProperty("_meta") Map<String, Object> meta,
+         @JsonProperty("instructions") String instructions,
+         @JsonProperty("ttlMs") Long ttlMs,
+         @JsonProperty("cacheScope") String cacheScope) implements Meta {
+
+      public DiscoverResult(List<String> supportedVersions, ServerCapabilities capabilities, Map<String, Object> meta, String instructions) {
+         this("complete", supportedVersions, capabilities, meta, instructions, null, null);
+      }
    }
 
    @JsonInclude(JsonInclude.Include.NON_ABSENT)
