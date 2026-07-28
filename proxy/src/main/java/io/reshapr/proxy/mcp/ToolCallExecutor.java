@@ -24,6 +24,7 @@ import io.reshapr.proxy.mcp.converters.OpenAPIMcpToolConverter;
 import io.reshapr.proxy.mcp.converters.ReshaprCustomToolsMcpToolConverter;
 import io.reshapr.proxy.mcp.filters.ToolsOutputFiltersApplier;
 import io.reshapr.proxy.mcp.state.ElicitationStore;
+import io.reshapr.proxy.mcp.state.UserSecretStore;
 import io.reshapr.proxy.proxy.GrpcProxyService;
 import io.reshapr.proxy.proxy.ProxyService;
 import io.reshapr.proxy.registry.ArtifactEntry;
@@ -67,6 +68,7 @@ public class ToolCallExecutor {
 
    private final GatewayRegistry gatewayRegistry;
    private final ElicitationStore elicitationStore;
+   private final UserSecretStore userSecretStore;
    private final WorkCache workCache;
    private final ProxyService proxyService;
    private final GrpcProxyService grpcProxyService;
@@ -104,14 +106,17 @@ public class ToolCallExecutor {
     * Build a ToolCallExecutor with required dependencies.
     * @param gatewayRegistry The registry to access services and configurations.
     * @param elicitationStore The store for managing elicitation flows.
+    * @param userSecretStore The store for per-user elicited secrets (stateless mode).
     * @param workCache The work cache for temporary data storage.
     * @param proxyService The proxy service for handling HTTP proxying.
     * @param grpcProxyService The gRPC proxy service for handling gRPC proxying.
     */
-   public ToolCallExecutor(GatewayRegistry gatewayRegistry, ElicitationStore elicitationStore, WorkCache workCache,
+   public ToolCallExecutor(GatewayRegistry gatewayRegistry, ElicitationStore elicitationStore,
+                           UserSecretStore userSecretStore, WorkCache workCache,
                            ProxyService proxyService, GrpcProxyService grpcProxyService) {
       this.gatewayRegistry = gatewayRegistry;
       this.elicitationStore = elicitationStore;
+      this.userSecretStore = userSecretStore;
       this.workCache = workCache;
       this.proxyService = proxyService;
       this.grpcProxyService = grpcProxyService;
@@ -128,8 +133,18 @@ public class ToolCallExecutor {
    public record Success(String content, boolean isFault) implements ToolCallOutcome {
    }
 
-   /** The call requires one or more backend secrets to be elicited first. */
-   public record ElicitationRequired(List<McpSchema.URLElicitation> elicitations) implements ToolCallOutcome {
+   /**
+    * The call requires one or more backend secrets to be elicited first. In stateless mode it also carries
+    * the opaque {@code requestState} the client must return to resume the paused request (URL Mode OAuth);
+    * it is {@code null} in legacy (session-bound) mode.
+    */
+   public record ElicitationRequired(List<McpSchema.URLElicitation> elicitations,
+                                     @Nullable String requestState) implements ToolCallOutcome {
+
+      /** Legacy (session-bound) elicitation requirement, without a {@code requestState}. */
+      public ElicitationRequired(List<McpSchema.URLElicitation> elicitations) {
+         this(elicitations, null);
+      }
    }
 
    /** The call failed with a JSON-RPC style error code and message. */
@@ -232,29 +247,53 @@ public class ToolCallExecutor {
       logger.debugf("Checking elicitation secret value for secret '%s'", secret.name());
 
       SessionInfo sessionInfo = MethodHandlingContext.getSessionInfo();
-      if (sessionInfo == null) {
-         logger.warn("Session information is missing for elicitation secret handling");
-         return new Failure(McpSchema.ErrorCodes.INVALID_REQUEST,
-               "Session information is missing for elicitation secret handling", null);
+      if (sessionInfo != null) {
+         // Legacy mode: the secret is bound to the MCP session.
+         if (sessionInfo.getSecretValue(secret) != null) {
+            return null;
+         }
+         logger.debugf("Secret value for secret '%s' is missing, initializing session elicitation", secret.name());
+         return new ElicitationRequired(List.of(buildElicitation(service, configuration, secret, sessionInfo)));
       }
 
-      logger.debugf("Session info is '%s'", sessionInfo);
-      logger.debugf("Session secret value: %s", sessionInfo.getSecretValue(secret));
+      // Stateless mode: the secret is bound to the authenticated user identity (iss + sub).
+      String userKey = MethodHandlingContext.getUserKey();
+      if (userKey == null) {
+         logger.warn("Stateless elicitation requires an OAuth-protected exposition (no user identity available)");
+         return new Failure(McpSchema.ErrorCodes.INVALID_REQUEST,
+               "Elicitation in stateless mode requires an OAuth-protected exposition", null);
+      }
 
-      if (sessionInfo.getSecretValue(secret) != null) {
+      String secretRef = secretRef(service.organizationId(), secret);
+      if (userSecretStore.getSecret(userKey, secretRef) != null) {
          return null;
       }
 
-      logger.debugf("Secret value for secret '%s' is missing, initializing elicitation", secret.name());
-      return new ElicitationRequired(List.of(buildElicitation(service, configuration, secret, sessionInfo)));
+      logger.debugf("Secret value for secret '%s' is missing, initializing user elicitation", secret.name());
+      // One opaque resume token for this paused request (mandatory for stateless URL Mode OAuth).
+      String requestState = newRequestState();
+      return new ElicitationRequired(
+            List.of(buildUserElicitation(service, configuration, secret, userKey, requestState)), requestState);
    }
 
-   /** Build a URL elicitation for the given service backend secret and session. */
+   /** Build a URL elicitation for the given service backend secret and session (legacy mode). */
    private McpSchema.URLElicitation buildElicitation(ServiceEntry service, ConfigurationEntry configuration,
                                                      SecretEntry secret, SessionInfo sessionInfo) {
       String elicitationId = elicitationStore.initializeElicitation(sessionInfo.getId(), service.organizationId(),
             configuration.backendEndpoint(), secret);
+      return buildElicitationUrl(elicitationId, secret);
+   }
 
+   /** Build a URL elicitation bound to a user identity (stateless mode), carrying the {@code requestState}. */
+   private McpSchema.URLElicitation buildUserElicitation(ServiceEntry service, ConfigurationEntry configuration,
+                                                         SecretEntry secret, String userKey, String requestState) {
+      String elicitationId = elicitationStore.initializeUserElicitation(userKey, service.organizationId(),
+            configuration.backendEndpoint(), secret, requestState);
+      return buildElicitationUrl(elicitationId, secret);
+   }
+
+   /** Build the elicitation URL descriptor shared by both modes. */
+   private McpSchema.URLElicitation buildElicitationUrl(String elicitationId, SecretEntry secret) {
       // Adapt elicitation endpoint based on type.
       String elicitationPath = secret.oauth2ClientConfiguration() != null ? "/connect" : "/form";
       String elicitationUrl = WebUtils.getHTTPScheme(fqdns.getFirst()) + fqdns.getFirst() + "/elicitation"
@@ -263,6 +302,16 @@ public class ToolCallExecutor {
       logger.debugf("Elicitation URL is '%s'", elicitationUrl);
       return new McpSchema.URLElicitation(elicitationId, elicitationUrl,
             "Please provide backend secret information by visiting the above URL.");
+   }
+
+   /** Build the stable per-user secret reference ({@code organizationId + '/' + secret.name()}). */
+   private static String secretRef(String organizationId, SecretEntry secret) {
+      return organizationId + '/' + secret.name();
+   }
+
+   /** Generate a fresh opaque {@code requestState} resume token for a stateless paused request. */
+   private static String newRequestState() {
+      return java.util.UUID.randomUUID().toString();
    }
 
    /**
@@ -278,6 +327,9 @@ public class ToolCallExecutor {
    @Nullable
    ToolCallOutcome preflightToolsElicitation(ExpositionEntry currentExposition, List<DeclaredTool> declaredTools) {
       SessionInfo sessionInfo = MethodHandlingContext.getSessionInfo();
+      String userKey = sessionInfo == null ? MethodHandlingContext.getUserKey() : null;
+      // One opaque resume token shared by all stateless elicitations of this paused request (null in legacy).
+      String requestState = sessionInfo == null ? newRequestState() : null;
       List<McpSchema.URLElicitation> elicitations = new ArrayList<>();
       Set<String> seenSecrets = new HashSet<>();
 
@@ -292,21 +344,40 @@ public class ToolCallExecutor {
          if (secret == null || !secret.useElicitation()) {
             continue;
          }
-         if (sessionInfo == null) {
-            return new Failure(McpSchema.ErrorCodes.INVALID_REQUEST,
-                  "Session information is missing for elicitation secret handling", null);
+         ServiceEntry targetService = targetExposition.service();
+
+         if (sessionInfo != null) {
+            // Legacy mode: the secret is bound to the MCP session.
+            if (sessionInfo.getSecretValue(secret) != null) {
+               continue;
+            }
+            // Deduplicate by target service + secret name to avoid double elicitation.
+            if (!seenSecrets.add(targetService.id() + "/" + secret.name())) {
+               continue;
+            }
+            elicitations.add(buildElicitation(targetService, configuration, secret, sessionInfo));
+         } else {
+            // Stateless mode: the secret is bound to the authenticated user identity (iss + sub).
+            if (userKey == null) {
+               return new Failure(McpSchema.ErrorCodes.INVALID_REQUEST,
+                     "Elicitation in stateless mode requires an OAuth-protected exposition", null);
+            }
+            String secretRef = secretRef(targetService.organizationId(), secret);
+            if (userSecretStore.getSecret(userKey, secretRef) != null) {
+               continue;
+            }
+            // Deduplicate by target service + secret name to avoid double elicitation.
+            if (!seenSecrets.add(targetService.id() + "/" + secret.name())) {
+               continue;
+            }
+            elicitations.add(buildUserElicitation(targetService, configuration, secret, userKey, requestState));
          }
-         if (sessionInfo.getSecretValue(secret) != null) {
-            continue;
-         }
-         // Deduplicate by target service + secret name to avoid double elicitation.
-         if (!seenSecrets.add(targetExposition.service().id() + "/" + secret.name())) {
-            continue;
-         }
-         elicitations.add(buildElicitation(targetExposition.service(), configuration, secret, sessionInfo));
       }
 
-      return elicitations.isEmpty() ? null : new ElicitationRequired(elicitations);
+      if (elicitations.isEmpty()) {
+         return null;
+      }
+      return new ElicitationRequired(elicitations, requestState);
    }
 
    /**

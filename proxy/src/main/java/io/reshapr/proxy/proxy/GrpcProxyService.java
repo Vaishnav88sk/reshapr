@@ -17,6 +17,7 @@ package io.reshapr.proxy.proxy;
 
 import io.reshapr.proxy.context.MethodHandlingContext;
 import io.reshapr.proxy.context.SessionInfo;
+import io.reshapr.proxy.mcp.state.UserSecretStore;
 import io.reshapr.proxy.registry.ConfigurationEntry;
 import io.reshapr.proxy.registry.SecretEntry;
 import io.reshapr.proxy.secret.SecretReferenceResolver;
@@ -79,6 +80,7 @@ public class GrpcProxyService {
          "content-type", "content-length", "user-agent");
 
    private final SecretReferenceResolver secretResolver;
+   private final UserSecretStore userSecretStore;
 
    @ConfigProperty(name = "reshapr.gateway.backend.grpc.default-timeout")
    Long defaultBackendTimeout;
@@ -86,9 +88,11 @@ public class GrpcProxyService {
    /**
     * Build a GrpcProxyService with required dependencies.
     * @param secretResolver The resolver used to resolve secret references locally on the gateway.
+    * @param userSecretStore The per-user elicited secret store (stateless mode).
     */
-   public GrpcProxyService(SecretReferenceResolver secretResolver) {
+   public GrpcProxyService(SecretReferenceResolver secretResolver, UserSecretStore userSecretStore) {
       this.secretResolver = secretResolver;
+      this.userSecretStore = userSecretStore;
    }
 
    /**
@@ -191,10 +195,16 @@ public class GrpcProxyService {
 
          // If authorization failed, it can be because of a bad elicitation secret value. We need to evict it.
          if (httpStatus == 401 && configuration.backendSecret() != null && configuration.backendSecret().useElicitation()) {
-            logger.warnf("Proxy authorization failed with 401, evicting elicitation secret '%s' from session", configuration.backendSecret().name());
+            logger.warnf("Proxy authorization failed with 401, evicting elicitation secret '%s'", configuration.backendSecret().name());
+            SecretEntry secret = configuration.backendSecret();
             SessionInfo sessionInfo = MethodHandlingContext.getSessionInfo();
             if (sessionInfo != null) {
-               sessionInfo.removeSecretValue(configuration.backendSecret());
+               sessionInfo.removeSecretValue(secret);
+            } else {
+               String userKey = MethodHandlingContext.getUserKey();
+               if (userKey != null) {
+                  userSecretStore.removeSecret(userKey, secretRef(secret));
+               }
             }
          }
 
@@ -274,10 +284,23 @@ public class GrpcProxyService {
                logger.warn("Elicited secret value not found in session info");
             }
          } else {
-            logger.warn("Session info is null, cannot retrieve elicited secret value");
+            // Stateless mode: resolve the secret from the replicated user-secret store.
+            String userKey = MethodHandlingContext.getUserKey();
+            String secretValue = userKey != null ? userSecretStore.getSecret(userKey, secretRef(secret)) : null;
+            if (secretValue != null) {
+               logger.debug("Elicited secret resolved for user, adding it as call credentials");
+               callOptions = callOptions.withCallCredentials(new TokenCallCredentials(secretValue, secret.tokenHeader()));
+            } else {
+               logger.warn("Elicited secret value not found for current request (stateless mode)");
+            }
          }
       }
       return callOptions;
+   }
+
+   /** Build the stable per-user secret reference ({@code organizationId + '/' + secret.name()}). */
+   private static String secretRef(SecretEntry secret) {
+      return MethodHandlingContext.getOrganizationId() + '/' + secret.name();
    }
 
    /** */

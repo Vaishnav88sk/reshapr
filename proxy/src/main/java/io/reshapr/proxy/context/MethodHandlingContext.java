@@ -24,7 +24,7 @@ public class MethodHandlingContext {
    public static final ScopedValue<MethodHandlingInfo> METHOD_HANDLING_INFO = ScopedValue.newInstance();
 
    private MethodHandlingContext() {
-      // Utility class
+      // Utility class.
    }
 
    public static String getRemoteAddress() {
@@ -37,5 +37,31 @@ public class MethodHandlingContext {
 
    public static String getUserId() {
       return METHOD_HANDLING_INFO.get().userId();
+   }
+
+   public static String getIssuer() {
+      return METHOD_HANDLING_INFO.get().issuer();
+   }
+
+   public static String getOrganizationId() {
+      return METHOD_HANDLING_INFO.get().organizationId();
+   }
+
+   /**
+    * The stable, cross-IdP user key ({@code iss + sub}) used to bind user-elicited secrets in
+    * stateless mode. Returns {@code null} when either the issuer or the subject is missing (i.e. the
+    * exposition is not OAuth2-protected), in which case no secret can be safely bound to an identity.
+    */
+   public static String getUserKey() {
+      MethodHandlingInfo info = METHOD_HANDLING_INFO.get();
+      if (info.issuer() == null || info.userId() == null) {
+         return null;
+      }
+      return info.issuer() + "|" + info.userId();
+   }
+
+   /** Whether the current call is handled in stateless mode (no MCP session bound). */
+   public static boolean isStateless() {
+      return METHOD_HANDLING_INFO.get().mcpSessionInfo() == null;
    }
 }

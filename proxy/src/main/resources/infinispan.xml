@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Embedded Infinispan configuration for the reShapr gateway (proxy) replicated MCP state stores.
+
+  Three replicated caches shared across gateway replicas (see plan Steps 4/6/7):
+    - session-store      : legacy MCP sessions (SessionInfo), max-idle 300s
+    - elicitation-store  : in-flight elicitations (ElicitationInfo), max-idle 120s
+    - user-secret-store  : per-user elicited secrets (stateless mode), lifespan aligned on the
+                           OAuth2 token expires_in at write time (this XML value is only a fallback)
+
+  Replication is ASYNC (low-latency same-subnet cluster, regenerable data — see plan decision #10)
+  with ALLOW_READ_WRITES + PREFERRED_NON_NULL partition handling (see plan Point 7).
+
+  Transport stack selection:
+    - default "tcp" (built-in) works for local/dev single or multi node on the same host/subnet.
+    - "reshapr-k8s" (DNS_PING) for Kubernetes: activate with
+        -Dreshapr.infinispan.stack=reshapr-k8s -Dreshapr.infinispan.dns-query=<headless-service>
+      SYM_ENCRYPT of the JGroups transport is provisioned at deployment time (see plan Step 15).
+
+  Serialization: the Protostream SerializationContextInitializer generated from
+  io.reshapr.proxy.ReshaprSerializationContextInitializer is registered automatically on the
+  global serialization context by the quarkus-infinispan-embedded extension.
+-->
+<infinispan xmlns="urn:infinispan:config:16.0"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="urn:infinispan:config:16.0 https://infinispan.org/schemas/infinispan-config-16.0.xsd">
+
+  <jgroups>
+    <!-- Local dev discovery: no network discovery, cluster created immediately -->
+    <stack name="reshapr-local" extends="tcp">
+      <TCPPING initial_hosts="127.0.0.1[7778]" port_range="0"
+               stack.combine="REPLACE" stack.position="MPING"/>
+      <pbcast.GMS join_timeout="1" stack.combine="COMBINE"/>
+    </stack>
+
+    <!--
+      Kubernetes discovery + transport encryption stack.
+
+      Discovery: replaces MPING with DNS_PING over a headless service.
+
+      Transport encryption (SYM_ENCRYPT): DISABLED by default and provisioned at deploy time
+      (see plan Step 15). It only matters for this multi-node stack (the default local "tcp" stack
+      is single-node on localhost, nothing to encrypt). Activating it REQUIRES a shared JCEKS
+      keystore, holding one AES secret key, mounted identically into every gateway replica; without
+      it the channel would fail to start. To enable, provide the keystore + passwords and uncomment
+      the SYM_ENCRYPT protocol below.
+    -->
+    <stack name="reshapr-k8s" extends="tcp">
+      <dns.DNS_PING dns_query="${reshapr.infinispan.dns-query:}"
+                    stack.combine="REPLACE" stack.position="MPING"/>
+      <!--
+      <SYM_ENCRYPT sym_algorithm="AES"
+                   keystore_name="${reshapr.infinispan.encrypt.keystore:reshapr-cluster.jceks}"
+                   store_password="${reshapr.infinispan.encrypt.store-password:}"
+                   key_password="${reshapr.infinispan.encrypt.key-password:}"
+                   alias="${reshapr.infinispan.encrypt.alias:reshapr-cluster}"
+                   stack.combine="INSERT_AFTER" stack.position="dns.DNS_PING"/>
+      -->
+    </stack>
+  </jgroups>
+
+  <cache-container name="reshapr-gateway" statistics="false">
+    <transport cluster="reshapr-gateway-cluster"
+               stack="${reshapr.infinispan.stack:tcp}"/>
+
+    <replicated-cache name="session-store" mode="ASYNC">
+      <expiration max-idle="300000"/>
+      <partition-handling when-split="ALLOW_READ_WRITES" merge-policy="PREFERRED_NON_NULL"/>
+    </replicated-cache>
+
+    <replicated-cache name="elicitation-store" mode="ASYNC">
+      <expiration max-idle="120000"/>
+      <partition-handling when-split="ALLOW_READ_WRITES" merge-policy="PREFERRED_NON_NULL"/>
+    </replicated-cache>
+
+    <replicated-cache name="user-secret-store" mode="ASYNC">
+      <!-- Fallback lifespan (~1h); the effective per-entry lifespan is set at write time,
+           aligned on the OAuth2 token expires_in or equivalent. -->
+      <expiration lifespan="3600000"/>
+      <partition-handling when-split="ALLOW_READ_WRITES" merge-policy="PREFERRED_NON_NULL"/>
+    </replicated-cache>
+  </cache-container>
+</infinispan>
+

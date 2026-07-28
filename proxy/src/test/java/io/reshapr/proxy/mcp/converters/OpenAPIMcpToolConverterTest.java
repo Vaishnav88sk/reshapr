@@ -17,6 +17,7 @@ package io.reshapr.proxy.mcp.converters;
 
 import io.reshapr.proxy.mcp.McpSchema;
 import io.reshapr.proxy.mcp.WorkCache;
+import io.reshapr.proxy.mcp.state.UserSecretStore;
 import io.reshapr.proxy.proxy.ProxyService;
 import io.reshapr.proxy.registry.ArtifactEntry;
 import io.reshapr.proxy.registry.ArtifactEntryType;
@@ -73,7 +74,7 @@ class OpenAPIMcpToolConverterTest {
       ObjectMapper objectMapper = new ObjectMapper();
 
       OpenAPIMcpToolConverter converter = new OpenAPIMcpToolConverter(exposition, new WorkCache(1000),
-            objectMapper, new ProxyService(new SecretReferenceResolver(java.util.List.of())));
+            objectMapper, new ProxyService(new SecretReferenceResolver(java.util.List.of()), new UserSecretStore(null)));
 
       for (OperationEntry operation : operations) {
          McpSchema.JsonSchema schema = converter.getInputSchema(operation);
@@ -117,7 +118,7 @@ class OpenAPIMcpToolConverterTest {
 
       WorkCache cache = new WorkCache(1000);
       ObjectMapper objectMapper = new ObjectMapper();
-      ProxyService proxyService = new ProxyService(new SecretReferenceResolver(List.of()));
+      ProxyService proxyService = new ProxyService(new SecretReferenceResolver(List.of()), new UserSecretStore(null));
       OperationEntry op = new OperationEntry("GET /ping", "GET", null, null, null);
 
       // Exposition #1 (service context A) referencing artifact "shared-art".

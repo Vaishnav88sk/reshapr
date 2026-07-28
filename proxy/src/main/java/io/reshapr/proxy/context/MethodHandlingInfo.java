@@ -22,10 +22,14 @@ import jakarta.annotation.Nullable;
  * @param remoteAddress The remote address of the client making the request.
  * @param mcpSessionInfo THe information on current MCP session if any.
  * @param userId The authenticated user ID (JWT subject), if available.
+ * @param issuer The authenticated token issuer (JWT {@code iss} claim), if available.
+ * @param organizationId The organization id owning the exposition being called, if available.
  * @author laurent
  */
 public record MethodHandlingInfo(
       String remoteAddress,
       @Nullable SessionInfo mcpSessionInfo,
-      @Nullable String userId) {
+      @Nullable String userId,
+      @Nullable String issuer,
+      @Nullable String organizationId) {
 }

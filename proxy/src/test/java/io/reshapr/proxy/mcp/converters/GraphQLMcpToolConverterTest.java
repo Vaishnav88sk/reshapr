@@ -17,6 +17,7 @@ package io.reshapr.proxy.mcp.converters;
 
 import io.reshapr.proxy.mcp.McpSchema;
 import io.reshapr.proxy.mcp.WorkCache;
+import io.reshapr.proxy.mcp.state.UserSecretStore;
 import io.reshapr.proxy.proxy.ProxyService;
 import io.reshapr.proxy.registry.ArtifactEntry;
 import io.reshapr.proxy.registry.ArtifactEntryType;
@@ -71,7 +72,7 @@ class GraphQLMcpToolConverterTest {
       ObjectMapper objectMapper = new ObjectMapper();
 
       GraphQLMcpToolConverter converter = new GraphQLMcpToolConverter(exposition, new WorkCache(1000),
-            objectMapper, new ProxyService(new SecretReferenceResolver(java.util.List.of())));
+            objectMapper, new ProxyService(new SecretReferenceResolver(java.util.List.of()), new UserSecretStore(null)));
 
       for (OperationEntry operation : operations) {
          McpSchema.JsonSchema schema = converter.getInputSchema(operation);

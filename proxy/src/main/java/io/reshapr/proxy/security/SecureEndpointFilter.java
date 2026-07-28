@@ -37,6 +37,7 @@ import com.nimbusds.jwt.proc.ConfigurableJWTProcessor;
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 import io.opentelemetry.api.trace.Span;
+import io.reshapr.proxy.util.WebUtils;
 import io.vertx.core.http.HttpServerRequest;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.container.ContainerRequestFilter;
@@ -71,6 +72,9 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
 
    /** Request context property key for the authenticated user ID. */
    public static final String USER_ID_PROPERTY = "reshapr.auth.userId";
+
+   /** Request context property key for the authenticated token issuer (JWT {@code iss} claim). */
+   public static final String ISSUER_PROPERTY = "reshapr.auth.issuer";
 
    private static final Set<JWSAlgorithm> JWS_SUPPORTED_ALGORITHMS = Set.of(
          JWSAlgorithm.RS256,
@@ -169,12 +173,17 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
    }
 
    private void checkOAuth2Validity(ServiceEntry service, ConfigurationEntry configuration, ContainerRequestContext ctx) {
+      String fqdnScheme = WebUtils.getHTTPScheme(fqdns.getFirst());
       String authorizationHeader = ctx.getHeaderString(HttpHeaders.AUTHORIZATION);
+
       if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
          logger.warnf("Missing or invalid Authorization header for configuration with ID: '%s'", configuration.id());
          emitAuthenticationFailureAuditEvent(service, configuration, AuthenticationFailureAuditEvent.REASON_MISSING_BEARER, Response.Status.UNAUTHORIZED.getStatusCode(), ctx);
+         logger.warnf("Redirecting to '%s'", fqdnScheme
+               + fqdns.getFirst() + "/.well-known/oauth-protected-resource" + ctx.getUriInfo().getPath());
          ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED)
-               .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer resource_metadata=https://" + fqdns.getFirst() + "/.well-known/oauth-protected-resource" + ctx.getUriInfo().getPath())
+               .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer resource_metadata=" + fqdnScheme
+                     + fqdns.getFirst() + "/.well-known/oauth-protected-resource" + ctx.getUriInfo().getPath())
                .build());
          return;
       }
@@ -231,8 +240,8 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
       // Now check the claimsSet for resource as per https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization#token-handling
       try {
          String resource = claimsSet.getClaimAsString("resource");
-         if (resource != null && !resource.equalsIgnoreCase("https://" + fqdns.getFirst() + ctx.getUriInfo().getPath())) {
-            logger.warnf("Invalid OAuth2 token received, resource claim does not match '%s'", "https://" + fqdns.getFirst() + ctx.getUriInfo().getPath());
+         if (resource != null && !resource.equalsIgnoreCase(fqdnScheme + fqdns.getFirst() + ctx.getUriInfo().getPath())) {
+            logger.warnf("Invalid OAuth2 token received, resource claim does not match '%s'", fqdnScheme + fqdns.getFirst() + ctx.getUriInfo().getPath());
             emitAuthenticationFailureAuditEvent(service, configuration, AuthenticationFailureAuditEvent.REASON_FORBIDDEN_RESOURCE, Response.Status.FORBIDDEN.getStatusCode(), ctx);
             ctx.abortWith(Response.status(Response.Status.FORBIDDEN).build());
             return;
@@ -303,12 +312,17 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
           }
        }
 
-       // Store authenticated user ID (JWT subject) in request context for downstream audit use.
+       // Store authenticated user ID (JWT subject) and issuer in request context for downstream
+       // audit use and stateless user-secret keying (iss + sub).
        String subject = claimsSet.getSubject();
        if (subject != null) {
           ctx.setProperty(USER_ID_PROPERTY, subject);
        }
-    }
+       String issuer = claimsSet.getIssuer();
+       if (issuer != null) {
+          ctx.setProperty(ISSUER_PROPERTY, issuer);
+       }
+     }
 
    /** Default JOSE verifies allows only exact match on issuers. This verifier allows multiple issuers. */
    static class MultipleIssuerClaimsVerifier extends DefaultJWTClaimsVerifier<SecurityContext> {

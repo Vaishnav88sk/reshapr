@@ -17,6 +17,7 @@ package io.reshapr.proxy.mcp;
 
 import io.reshapr.proxy.mcp.state.ElicitationInfo;
 import io.reshapr.proxy.mcp.state.ElicitationStore;
+import io.reshapr.proxy.mcp.state.UserSecretStore;
 import io.reshapr.proxy.context.SessionInfo;
 import io.reshapr.proxy.mcp.state.SessionStore;
 import io.reshapr.proxy.registry.SecretEntry;
@@ -51,6 +52,7 @@ public class ElicitationController {
 
    private final ElicitationStore elicitationStore;
    private final SessionStore sessionStore;
+   private final UserSecretStore userSecretStore;
    private final SecretReferenceResolver secretResolver;
 
    @ConfigProperty(name = "reshapr.gateway.fqdns", defaultValue = "localhost:7777")
@@ -59,13 +61,15 @@ public class ElicitationController {
    /**
     * Creates a new ElicitationController with required stores.
     * @param elicitationStore The elicitations store
-    * @param sessionStore The sessions store
+    * @param sessionStore The sessions store (legacy, session-bound secrets)
+    * @param userSecretStore The per-user secret store (stateless mode)
     * @param secretResolver The resolver used to resolve secret references locally on the gateway
     */
    public ElicitationController(ElicitationStore elicitationStore, SessionStore sessionStore,
-                                SecretReferenceResolver secretResolver) {
+                                UserSecretStore userSecretStore, SecretReferenceResolver secretResolver) {
       this.elicitationStore = elicitationStore;
       this.sessionStore = sessionStore;
+      this.userSecretStore = userSecretStore;
       this.secretResolver = secretResolver;
    }
 
@@ -101,19 +105,53 @@ public class ElicitationController {
          return ElicitationController.Templates.error(elicitationId);
       }
 
-      // Store the token in the session information for correct secret entry.
-      SessionInfo sessionInformation = sessionStore.getSessionInfo(elicitationInformation.getSessionId());
-      if (sessionInformation == null) {
-         logger.warnf("Session information not found for session id '%s'", elicitationInformation.getSessionId());
+      // Store the token according to the elicitation mode (legacy session vs stateless user).
+      if (!storeElicitedSecret(elicitationInformation, token)) {
          return ElicitationController.Templates.error(elicitationId);
       }
-      sessionInformation.setSecretValue(elicitationInformation.getSecretEntry(), token);
-      sessionStore.updateSessionInfo(sessionInformation.getId(), sessionInformation);
 
       // Remove the elicitation information so no one can reuse it.
       elicitationStore.removeElicitationInfo(elicitationId);
 
       return ElicitationController.Templates.complete(elicitationId);
+   }
+
+   /**
+    * Persist an elicited secret value according to the elicitation mode.
+    * <ul>
+    *   <li><b>legacy</b> ({@link ElicitationInfo#getSessionId()} bound) ⇒ store it in the session
+    *       ({@code sessionInfo.setSecretValue} + {@code sessionStore.updateSessionInfo});</li>
+    *   <li><b>stateless</b> ({@link ElicitationInfo#getUserKey()} bound) ⇒ store it in the replicated
+    *       {@code user-secret-store} keyed by {@code (userKey, secretRef)}.</li>
+    * </ul>
+    * @return {@code true} if the secret was stored, {@code false} if the binding (session/user) is missing.
+    */
+   private boolean storeElicitedSecret(ElicitationInfo elicitationInformation, String token) {
+      if (elicitationInformation.isStateless()) {
+         String userKey = elicitationInformation.getUserKey();
+         if (userKey == null) {
+            logger.warnf("User key missing for stateless elicitation id '%s'", elicitationInformation.getId());
+            return false;
+         }
+         String secretRef = secretRef(elicitationInformation);
+         userSecretStore.putSecret(userKey, secretRef, token);
+         return true;
+      }
+
+      // Legacy: store the token in the session information for the correct secret entry.
+      SessionInfo sessionInformation = sessionStore.getSessionInfo(elicitationInformation.getSessionId());
+      if (sessionInformation == null) {
+         logger.warnf("Session information not found for session id '%s'", elicitationInformation.getSessionId());
+         return false;
+      }
+      sessionInformation.setSecretValue(elicitationInformation.getSecretEntry(), token);
+      sessionStore.updateSessionInfo(sessionInformation.getId(), sessionInformation);
+      return true;
+   }
+
+   /** Build the stable per-user secret reference ({@code organizationId + '/' + secret.name()}). */
+   private static String secretRef(ElicitationInfo elicitationInformation) {
+      return elicitationInformation.getOrganizationId() + '/' + elicitationInformation.getSecretEntry().name();
    }
 
    @GET
@@ -129,10 +167,8 @@ public class ElicitationController {
                .build();
       }
 
-      // Check we also have a valid session and OAuth2 config.
-      SessionInfo sessionInformation = sessionStore.getSessionInfo(elicitationInformation.getSessionId());
-      if (sessionInformation == null) {
-         logger.warnf("Session information not found for session id '%s'", elicitationInformation.getSessionId());
+      // Check the elicitation binding is still valid (legacy session or stateless user identity).
+      if (!hasValidBinding(elicitationInformation)) {
          return Response.status(Response.Status.BAD_REQUEST)
                .entity(ElicitationController.Templates.error(elicitationId).render())
                .type(MediaType.TEXT_HTML_TYPE)
@@ -161,6 +197,11 @@ public class ElicitationController {
       authorizationEndpoint += "client_id=" + secret.oauth2ClientConfiguration().clientId();
       authorizationEndpoint += "&redirect_uri=" + URLEncoder.encode(redirectUri, StandardCharsets.UTF_8);
       authorizationEndpoint += "&response_type=code";
+      // Stateless URL Mode OAuth: carry the opaque requestState as the OAuth `state` parameter so the
+      // callback (which has no session) can correlate/validate the resumed flow.
+      if (elicitationInformation.getRequestState() != null) {
+         authorizationEndpoint += "&state=" + URLEncoder.encode(elicitationInformation.getRequestState(), StandardCharsets.UTF_8);
+      }
 
       logger.debugf("Redirecting to OAuth2 authorization endpoint: '%s'", authorizationEndpoint);
       return Response.seeOther(URI.create(authorizationEndpoint)).build();
@@ -169,17 +210,23 @@ public class ElicitationController {
    @GET
    @Path("/callback")
    public TemplateInstance oauth2Callback(@QueryParam("elicitationId") String elicitationId,
-                                  @QueryParam("code") String authorizationCode) {
+                                  @QueryParam("code") String authorizationCode,
+                                  @QueryParam("state") String state) {
       ElicitationInfo elicitationInformation = elicitationStore.getElicitationInfo(elicitationId);
       if (elicitationInformation == null) {
          logger.warnf("Elicitation information not found for elicitation id '%s'", elicitationId);
          return ElicitationController.Templates.error(elicitationId);
       }
 
-      // Check we also have a valid session and OAuth2 config.
-      SessionInfo sessionInformation = sessionStore.getSessionInfo(elicitationInformation.getSessionId());
-      if (sessionInformation == null) {
-         logger.warnf("Session information not found for session id '%s'", elicitationInformation.getSessionId());
+      // Check the elicitation binding is still valid (legacy session or stateless user identity).
+      if (!hasValidBinding(elicitationInformation)) {
+         return ElicitationController.Templates.error(elicitationId);
+      }
+
+      // Stateless URL Mode OAuth: the returned `state` must match the opaque requestState we emitted.
+      if (elicitationInformation.getRequestState() != null
+            && !elicitationInformation.getRequestState().equals(state)) {
+         logger.warnf("OAuth2 state mismatch for elicitation id '%s'", elicitationId);
          return ElicitationController.Templates.error(elicitationId);
       }
 
@@ -208,13 +255,34 @@ public class ElicitationController {
          return ElicitationController.Templates.tokenError(e.getMessage());
       }
 
-      // Save the access token in the session information for correct secret entry.
-      sessionInformation.setSecretValue(elicitationInformation.getSecretEntry(), accessToken);
-      sessionStore.updateSessionInfo(sessionInformation.getId(), sessionInformation);
+      // Save the access token according to the elicitation mode (legacy session vs stateless user).
+      if (!storeElicitedSecret(elicitationInformation, accessToken)) {
+         return ElicitationController.Templates.error(elicitationId);
+      }
 
       // Remove the elicitation information so no one can reuse it.
       elicitationStore.removeElicitationInfo(elicitationId);
 
       return ElicitationController.Templates.complete(elicitationId);
+   }
+
+   /**
+    * Whether the elicitation still has a valid binding to persist the secret against: the authenticated user
+    * identity in stateless mode, or the MCP session in legacy mode.
+    */
+   private boolean hasValidBinding(ElicitationInfo elicitationInformation) {
+      if (elicitationInformation.isStateless()) {
+         if (elicitationInformation.getUserKey() == null) {
+            logger.warnf("User key missing for stateless elicitation id '%s'", elicitationInformation.getId());
+            return false;
+         }
+         return true;
+      }
+      SessionInfo sessionInformation = sessionStore.getSessionInfo(elicitationInformation.getSessionId());
+      if (sessionInformation == null) {
+         logger.warnf("Session information not found for session id '%s'", elicitationInformation.getSessionId());
+         return false;
+      }
+      return true;
    }
 }

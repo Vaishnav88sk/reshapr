@@ -15,6 +15,8 @@
  */
 package io.reshapr.proxy.registry;
 
+import org.infinispan.protostream.annotations.ProtoField;
+
 /**
  * Represents a secret entry in the registry.
  * This record holds various types of secrets such as name, username, password, token, token header, and certificate PEM.
@@ -29,12 +31,12 @@ package io.reshapr.proxy.registry;
  * @author laurent
  */
 public record SecretEntry(
-      String name,
-      String username,
-      String password,
-      String token,
-      String tokenHeader,
-      String certPem,
-      boolean useElicitation,
-      OAuth2ClientConfigurationEntry oauth2ClientConfiguration) {
+      @ProtoField(1) String name,
+      @ProtoField(2) String username,
+      @ProtoField(3) String password,
+      @ProtoField(4) String token,
+      @ProtoField(5) String tokenHeader,
+      @ProtoField(6) String certPem,
+      @ProtoField(value = 7, defaultValue = "false") boolean useElicitation,
+      @ProtoField(8) OAuth2ClientConfigurationEntry oauth2ClientConfiguration) {
 }

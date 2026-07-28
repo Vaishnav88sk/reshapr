@@ -15,6 +15,7 @@
  */
 package io.reshapr.proxy.mcp;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import io.opentelemetry.api.trace.Span;
 import io.reshapr.proxy.audit.AuditEvent;
 import io.reshapr.proxy.audit.AuditLogger;
@@ -177,8 +178,28 @@ public class McpController {
          logger.debugf("Request headers: %s", headers.getRequestHeaders());
       }
 
-      // Extract userId from request context (set by SecureEndpointFilter after OAuth2 validation).
+      // Resolve and validate the protocol mode from headers, except for the handshake/negotiation methods
+      // (initialize and server/discover) which happen before any session or version pinning:
+      //   - MCP-Session-Id present -> legacy mode (session-based).
+      //   - MCP-Session-Id absent  -> stateless mode is only allowed when MCP-Protocol-Version
+      //     is exactly the stateless version; otherwise the handshake was skipped/legacy and we reject.
+      if (!isHandshakeMethod(request.method()) && !hasSessionHeader(headers)) {
+         String protocolVersion = getProtocolVersionHeader(headers);
+         if (!McpSchema.PROTOCOL_VERSION_STATELESS.equals(protocolVersion)) {
+            logger.warnf("Rejecting MCP call without session id and without stateless protocol version (got '%s')",
+                  protocolVersion);
+            return Response.ok(buildJSONRPCError(request, McpSchema.ErrorCodes.INVALID_REQUEST,
+                  "Missing MCP session: provide a valid '" + McpSchema.HEADER_SESSION_ID
+                        + "' header (legacy) or set '" + McpSchema.HEADER_PROTOCOL_VERSION + "' to '"
+                        + McpSchema.PROTOCOL_VERSION_STATELESS + "' (stateless).",
+                  Map.of("requiredProtocolVersion", McpSchema.PROTOCOL_VERSION_STATELESS,
+                        "receivedProtocolVersion", protocolVersion == null ? "" : protocolVersion))).build();
+         }
+      }
+
+      // Extract userId and issuer from request context (set by SecureEndpointFilter after OAuth2 validation).
       String userId = (String) requestContext.getProperty(SecureEndpointFilter.USER_ID_PROPERTY);
+      String issuer = (String) requestContext.getProperty(SecureEndpointFilter.ISSUER_PROPERTY);
 
       AtomicReference<McpHandlerResult> resultRef = new AtomicReference<>();
       long startNanos = System.nanoTime();
@@ -187,7 +208,9 @@ public class McpController {
          MethodHandlingInfo handlingInfo = new MethodHandlingInfo(
                serverRequest.remoteAddress().host(),
                getSessionInfo(headers),
-               userId);
+               userId,
+               issuer,
+               service.organizationId());
          ScopedValue.where(MethodHandlingContext.METHOD_HANDLING_INFO, handlingInfo).run(() -> {
             resultRef.set(handleMcpRequest(exposition, request, headers));
          });
@@ -197,6 +220,12 @@ public class McpController {
 
          // Emit audit log if enabled for this configuration.
          emitAuditEvent(exposition, request, result, startNanos, serverRequest, userId);
+
+         try {
+            System.err.println("Response message: " + mapper.writerWithDefaultPrettyPrinter().writeValueAsString(result.message()));
+         } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+         }
 
          Response.ResponseBuilder responseBuilder = Response.ok(result.message());
          if (result.headers() != null) {
@@ -235,6 +264,29 @@ public class McpController {
          return sessionStore.getSessionInfo(sessionId);
       }
       return null;
+   }
+
+   /** Whether the request carries a non-blank MCP session id header (i.e. legacy session mode). */
+   private boolean hasSessionHeader(HttpHeaders headers) {
+      List<String> values = headers.getRequestHeader(McpSchema.HEADER_SESSION_ID);
+      return values != null && !values.isEmpty()
+            && values.getFirst() != null && !values.getFirst().isBlank();
+    }
+
+    /**
+     * Whether the given method is a handshake/negotiation method that runs before any session exists or any
+     * protocol version has been pinned ({@code server/discover} and {@code initialize}). These must bypass the
+     * session/protocol-version dispatch guard, otherwise version negotiation can never complete.
+     */
+    private static boolean isHandshakeMethod(String method) {
+       return McpSchema.METHOD_SERVER_DISCOVER.equals(method) || McpSchema.METHOD_INITIALIZE.equals(method);
+    }
+
+   /** Return the MCP-Protocol-Version header value if present, or {@code null}. */
+   @Nullable
+   private String getProtocolVersionHeader(HttpHeaders headers) {
+      List<String> values = headers.getRequestHeader(McpSchema.HEADER_PROTOCOL_VERSION);
+      return (values != null && !values.isEmpty()) ? values.getFirst() : null;
    }
 
    /**
@@ -305,13 +357,17 @@ public class McpController {
             new McpSchema.ServerCapabilities.ResourceCapabilities(false, false),
             new McpSchema.ServerCapabilities.ToolCapabilities(false));
 
+      McpSchema.Implementation serverInfo =
+            new McpSchema.Implementation(service.name() + " MCP server", service.version());
+
       Map<String, Object> meta = Map.of(
-            "io.modelcontextprotocol/serverInfo", new McpSchema.Implementation(service.name() + " MCP server", service.version())
+            "io.modelcontextprotocol/serverInfo", serverInfo
       );
 
       McpSchema.DiscoverResult discoverResult = new McpSchema.DiscoverResult(
             McpSchema.SUPPORTED_PROTOCOL_VERSIONS,
             serverCapabilities,
+            serverInfo,
             meta,
             null);
 
@@ -338,7 +394,15 @@ public class McpController {
                new McpSchema.InitializeResult(initializeRequest.protocolVersion(), serverCapabilities,
                      new McpSchema.Implementation(service.name() + " MCP server", service.version()), null));
 
-         // Initialize session and return session ID in headers.
+         // Stateless mode (>= 2026-07-28): no server-side session is created. The client must send
+         // MCP-Protocol-Version on every subsequent request; elicited secrets are bound to the user.
+         if (McpSchema.PROTOCOL_VERSION_STATELESS.equals(initializeRequest.protocolVersion())) {
+            logger.debugf("Initializing stateless MCP session (protocol %s) for service '%s'",
+                  initializeRequest.protocolVersion(), service.id());
+            return new McpHandlerResult(response, null);
+         }
+
+         // Legacy mode (< 2026-07-28): create a server-side session and advertise its id.
          String sessionId = sessionStore.initializeSession(service.id(), initializeRequest.protocolVersion());
          Map<String, List<String>> responseHeaders = Map.of(McpSchema.HEADER_SESSION_ID,
                List.of(sessionId));
@@ -439,10 +503,29 @@ public class McpController {
                toMcpHandlerResult(request, new McpSchema.CallToolResult(
                      List.of(new McpSchema.TextContent(success.content())), success.isFault()));
          case ToolCallExecutor.ElicitationRequired elicitationRequired ->
-               toMcpHandlerResult(request, McpSchema.buildURLElicitationRequiredError(elicitationRequired.elicitations()));
+               buildElicitationResult(request, elicitationRequired);
          case ToolCallExecutor.Failure failure ->
                toMcpHandlerResult(request, failure.code(), failure.message(), failure.data());
       };
+   }
+
+   /**
+    * Render an {@link ToolCallExecutor.ElicitationRequired} outcome according to the current mode:
+    * <ul>
+    *   <li><b>legacy</b> (session bound) ⇒ a {@code URL_ELICITATION_REQUIRED} JSON-RPC error carrying the
+    *       elicitations (unchanged pre-{@code 2026-07-28} behavior);</li>
+    *   <li><b>stateless</b> ({@code >= 2026-07-28}) ⇒ an {@code InputRequiredResult} wrapping one
+    *       {@code elicitation/create} ("URL Mode") request per unresolved secret.</li>
+    * </ul>
+    */
+   private McpHandlerResult buildElicitationResult(McpSchema.JSONRPCRequest request,
+         ToolCallExecutor.ElicitationRequired elicitationRequired) {
+      if (MethodHandlingContext.isStateless()) {
+         return toMcpHandlerResult(request, McpSchema.buildInputRequiredResult(
+               elicitationRequired.elicitations(), elicitationRequired.requestState()));
+      }
+      return toMcpHandlerResult(request,
+            McpSchema.buildURLElicitationRequiredError(elicitationRequired.elicitations()));
    }
 
    private static McpHandlerResult toMcpHandlerResult(McpSchema.JSONRPCRequest request, Object result) {

@@ -13,21 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.reshapr.proxy.registry;
+package io.reshapr.proxy.context;
+
+import io.reshapr.proxy.registry.SecretEntry;
 
 import org.infinispan.protostream.annotations.ProtoField;
 
 /**
- * Represents a third-party OAuth2 configuration entry in the registry.
- * @param clientId The OAuth2 client ID
- * @param clientSecret The OAuth2 client secret if any
- * @param authorizationEndpoint The OAuth2 authorization endpoint URL
- * @param tokenEndpoint The OAuth2 token endpoint URL
+ * A serializable pair binding an elicited secret value to the {@link SecretEntry} it was collected for.
+ * This replaces the former {@code Map<SecretEntry, String>} of {@link SessionInfo} with a Protostream
+ * friendly representation (Protostream cannot marshal a map keyed by a complex message type).
+ * @param secret The secret entry the value was elicited for (kept as key to preserve equality-based lookup).
+ * @param value The elicited secret value (token) collected for this secret.
  * @author laurent
  */
-public record OAuth2ClientConfigurationEntry(
-      @ProtoField(1) String clientId,
-      @ProtoField(2) String clientSecret,
-      @ProtoField(3) String authorizationEndpoint,
-      @ProtoField(4) String tokenEndpoint) {
+public record SecretValueEntry(
+      @ProtoField(1) SecretEntry secret,
+      @ProtoField(2) String value) {
 }
+

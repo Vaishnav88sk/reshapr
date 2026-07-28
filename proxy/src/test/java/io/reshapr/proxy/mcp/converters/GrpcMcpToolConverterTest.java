@@ -17,6 +17,7 @@ package io.reshapr.proxy.mcp.converters;
 
 import io.reshapr.proxy.mcp.McpSchema;
 import io.reshapr.proxy.mcp.WorkCache;
+import io.reshapr.proxy.mcp.state.UserSecretStore;
 import io.reshapr.proxy.proxy.GrpcProxyService;
 import io.reshapr.proxy.registry.ArtifactEntry;
 import io.reshapr.proxy.registry.ArtifactEntryType;
@@ -60,7 +61,7 @@ class GrpcMcpToolConverterTest {
 
       ObjectMapper objectMapper = new ObjectMapper();
       GrpcMcpToolConverter converter = new GrpcMcpToolConverter(exposition, new WorkCache(100),
-            objectMapper, new GrpcProxyService(new SecretReferenceResolver(java.util.List.of())));
+            objectMapper, new GrpcProxyService(new SecretReferenceResolver(java.util.List.of()), new UserSecretStore(null)));
 
       McpSchema.JsonSchema schema = converter.getInputSchema(new OperationEntry("CreateDocument", null, null, null, null));
 

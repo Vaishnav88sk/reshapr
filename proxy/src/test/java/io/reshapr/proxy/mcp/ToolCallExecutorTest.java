@@ -19,6 +19,7 @@ import io.reshapr.proxy.context.MethodHandlingContext;
 import io.reshapr.proxy.context.MethodHandlingInfo;
 import io.reshapr.proxy.context.SessionInfo;
 import io.reshapr.proxy.mcp.state.ElicitationStore;
+import io.reshapr.proxy.mcp.state.UserSecretStore;
 import io.reshapr.proxy.proxy.ProxyService;
 import io.reshapr.proxy.registry.ConfigurationEntry;
 import io.reshapr.proxy.registry.ExpositionEntry;
@@ -57,8 +58,8 @@ class ToolCallExecutorTest {
    }
 
    private static ToolCallExecutor newExecutor(GatewayRegistry registry, ElicitationStore store) {
-      ToolCallExecutor executor = new ToolCallExecutor(registry, store, new WorkCache(1000),
-            new ProxyService(new SecretReferenceResolver(java.util.List.of())), null);
+      ToolCallExecutor executor = new ToolCallExecutor(registry, store, new UserSecretStore(null), new WorkCache(1000),
+            new ProxyService(new SecretReferenceResolver(java.util.List.of()), new UserSecretStore(null)), null);
       executor.fqdns = List.of("localhost:7777");
       return executor;
    }
@@ -107,7 +108,7 @@ class ToolCallExecutorTest {
    // ---------------------------------------------------------------------------------------------
 
    @Test
-   void testExecuteReturnsFailureWhenSessionMissing() throws Exception {
+   void testExecuteReturnsFailureWhenStatelessAndNoUserIdentity() throws Exception {
       ServiceEntry service = new ServiceEntry("1", "reshapr", "GitHub GraphQL", "20250917", "GRAPHQL",
             List.of(op("user")));
       SecretEntry secret = new SecretEntry("s", null, null, null, null, null, true, null);
@@ -119,8 +120,8 @@ class ToolCallExecutorTest {
 
       ToolCallExecutor executor = newExecutor(registry, stubElicitationStore());
 
-      // Bind a handling info with no MCP session.
-      MethodHandlingInfo info = new MethodHandlingInfo("127.0.0.1", null, "user1");
+      // Stateless mode (no MCP session) without an OAuth identity (issuer null) -> no user key.
+      MethodHandlingInfo info = new MethodHandlingInfo("127.0.0.1", null, "user1", null, null);
       ToolCallExecutor.ToolCallOutcome outcome = ScopedValue
             .where(MethodHandlingContext.METHOD_HANDLING_INFO, info)
             .call(() -> executor.execute(service, "user", Map.of(), Map.of()));
@@ -144,7 +145,7 @@ class ToolCallExecutorTest {
 
       // Bind a handling info with a session but no resolved secret value.
       SessionInfo session = new SessionInfo("sess-1", service.id(), "2025-06-18");
-      MethodHandlingInfo info = new MethodHandlingInfo("127.0.0.1", session, "user1");
+      MethodHandlingInfo info = new MethodHandlingInfo("127.0.0.1", session, "user1", null, null);
       ToolCallExecutor.ToolCallOutcome outcome = ScopedValue
             .where(MethodHandlingContext.METHOD_HANDLING_INFO, info)
             .call(() -> executor.execute(service, "user", Map.of(), Map.of()));
@@ -209,7 +210,7 @@ class ToolCallExecutorTest {
 
       // A session exists but the secret value is not resolved yet.
       SessionInfo session = new SessionInfo("sess-1", service.id(), "2025-06-18");
-      MethodHandlingInfo info = new MethodHandlingInfo("127.0.0.1", session, "user1");
+      MethodHandlingInfo info = new MethodHandlingInfo("127.0.0.1", session, "user1", null, null);
 
       ToolCallExecutor.ToolCallOutcome outcome = ScopedValue
             .where(MethodHandlingContext.METHOD_HANDLING_INFO, info)

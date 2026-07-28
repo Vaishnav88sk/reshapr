@@ -17,6 +17,7 @@ package io.reshapr.proxy.proxy;
 
 import io.reshapr.proxy.context.MethodHandlingContext;
 import io.reshapr.proxy.context.SessionInfo;
+import io.reshapr.proxy.mcp.state.UserSecretStore;
 import io.reshapr.proxy.registry.ConfigurationEntry;
 import io.reshapr.proxy.registry.SecretEntry;
 import io.reshapr.proxy.secret.SecretReferenceResolver;
@@ -61,6 +62,7 @@ public class ProxyService {
    private static final List<String> RESTRICTED_HEADERS = List.of("host", "connection", "x-reshapr-key");
 
    private final SecretReferenceResolver secretResolver;
+   private final UserSecretStore userSecretStore;
 
    @ConfigProperty(name = "reshapr.gateway.backend.http.default-timeout")
    Long defaultBackendTimeout;
@@ -68,9 +70,11 @@ public class ProxyService {
    /**
     * Build a ProxyService with required dependencies.
     * @param secretResolver The resolver used to resolve secret references locally on the gateway.
+    * @param userSecretStore The per-user elicited secret store (stateless mode).
     */
-   public ProxyService(SecretReferenceResolver secretResolver) {
+   public ProxyService(SecretReferenceResolver secretResolver, UserSecretStore userSecretStore) {
       this.secretResolver = secretResolver;
+      this.userSecretStore = userSecretStore;
    }
 
    /**
@@ -122,11 +126,8 @@ public class ProxyService {
 
          // If authorization failed, it can be because of a bad elicitation secret value. We need to evict it.
          if (response.statusCode() == 401 && configuration.backendSecret() != null && configuration.backendSecret().useElicitation()) {
-            logger.warnf("Proxy authorization failed with 401, evicting elicitation secret '%s' from session", configuration.backendSecret().name());
-            SessionInfo sessionInfo = MethodHandlingContext.getSessionInfo();
-            if (sessionInfo != null) {
-               sessionInfo.removeSecretValue(configuration.backendSecret());
-            }
+            logger.warnf("Proxy authorization failed with 401, evicting elicitation secret '%s'", configuration.backendSecret().name());
+            evictElicitedSecret(configuration.backendSecret());
          }
 
          // If authorization failed with empty body, explanations may be in the WWW-Authenticate header.
@@ -194,24 +195,59 @@ public class ProxyService {
             headers.put(HttpHeaders.AUTHORIZATION, List.of("Basic " + encodedAuth));
          }
       } else {
-         SessionInfo sessionInfo = MethodHandlingContext.getSessionInfo();
-         if (sessionInfo != null) {
-            // Elicitation is used, retrieve secret value from session info.
-            String secretValue = sessionInfo.getSecretValue(secret);
-            if (secretValue != null) {
-               if (secret.tokenHeader() != null && !secret.tokenHeader().isBlank()) {
-                  logger.debug("Elicited secret contains token header, adding them as request header");
-                  headers.put(secret.tokenHeader(), List.of(secretValue));
-               } else {
-                  logger.debug("Elicited secret does not contain token header, assuming Authorization Bearer");
-                  headers.put(HttpHeaders.AUTHORIZATION, List.of("Bearer " + secretValue));
-               }
+         // Elicitation is used: resolve the secret value according to the mode (legacy session vs stateless user).
+         String secretValue = resolveElicitedSecretValue(secret);
+         if (secretValue != null) {
+            if (secret.tokenHeader() != null && !secret.tokenHeader().isBlank()) {
+               logger.debug("Elicited secret contains token header, adding them as request header");
+               headers.put(secret.tokenHeader(), List.of(secretValue));
             } else {
-               logger.warn("Elicited secret value not found in session info");
+               logger.debug("Elicited secret does not contain token header, assuming Authorization Bearer");
+               headers.put(HttpHeaders.AUTHORIZATION, List.of("Bearer " + secretValue));
             }
          } else {
-            logger.warn("Session info is null, cannot retrieve elicited secret value");
+            logger.warn("Elicited secret value not found for current request");
          }
       }
+   }
+
+   /**
+    * Resolve an elicited secret value according to the current request mode:
+    * <ul>
+    *   <li><b>legacy</b> (an MCP session is bound) ⇒ read it from the session;</li>
+    *   <li><b>stateless</b> (no session) ⇒ read it from the replicated user-secret store keyed by
+    *       {@code (userKey, organizationId + '/' + secret.name())}.</li>
+    * </ul>
+    * @return the resolved secret value, or {@code null} if none is available.
+    */
+   private String resolveElicitedSecretValue(SecretEntry secret) {
+      SessionInfo sessionInfo = MethodHandlingContext.getSessionInfo();
+      if (sessionInfo != null) {
+         return sessionInfo.getSecretValue(secret);
+      }
+      String userKey = MethodHandlingContext.getUserKey();
+      if (userKey == null) {
+         logger.warn("No session and no user identity available, cannot resolve elicited secret value");
+         return null;
+      }
+      return userSecretStore.getSecret(userKey, secretRef(secret));
+   }
+
+   /** Evict the elicited secret value bound to the current request (used on a backend 401). */
+   private void evictElicitedSecret(SecretEntry secret) {
+      SessionInfo sessionInfo = MethodHandlingContext.getSessionInfo();
+      if (sessionInfo != null) {
+         sessionInfo.removeSecretValue(secret);
+         return;
+      }
+      String userKey = MethodHandlingContext.getUserKey();
+      if (userKey != null) {
+         userSecretStore.removeSecret(userKey, secretRef(secret));
+      }
+   }
+
+   /** Build the stable per-user secret reference ({@code organizationId + '/' + secret.name()}). */
+   private static String secretRef(SecretEntry secret) {
+      return MethodHandlingContext.getOrganizationId() + '/' + secret.name();
    }
 }

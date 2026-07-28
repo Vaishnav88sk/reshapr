@@ -19,6 +19,8 @@
     <zjsonpatch.version>0.6.2</zjsonpatch.version>
     <jtoon.version>2.0.0</jtoon.version>
     <quickjs4j.version>0.0.19</quickjs4j.version>
+    <quarkus-infinispan-embedded.version>2.0.1</quarkus-infinispan-embedded.version>
+    <protostream.version>6.0.6</protostream.version>
   </properties>
 
   <dependencies>
@@ -68,9 +70,32 @@
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-scheduler</artifactId>
     </dependency>
+
     <dependency>
-      <groupId>io.quarkus</groupId>
-      <artifactId>quarkus-cache</artifactId>
+      <groupId>com.github.ben-manes.caffeine</groupId>
+      <artifactId>caffeine</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.quarkiverse.infinispan</groupId>
+      <artifactId>quarkus-infinispan-embedded</artifactId>
+      <version>${quarkus-infinispan-embedded.version}</version>
+      <exclusions>
+        <!--
+          The Infinispan embedded extension (built for Quarkus 3.33.x) transitively drags in the
+          Quarkiverse micrometer prometheus v1 registry (3.4.1), whose OpenTelemetryExemplarContextUnwrapper
+          calls QuarkusContextStorage.getContext(io.vertx.core.Context) — a method removed in Quarkus 3.35.4,
+          causing a NoSuchMethodError on every HTTP response completion. It is also a duplicate of the
+          quarkus-micrometer-registry-prometheus (core) registry already used by this project, so we exclude it.
+        -->
+        <exclusion>
+          <groupId>io.quarkiverse.micrometer.registry</groupId>
+          <artifactId>quarkus-micrometer-registry-prometheus-v1</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>io.quarkiverse.micrometer.registry</groupId>
+          <artifactId>quarkus-micrometer-registry-prometheus-v1-deployment</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
 
     <dependency>
@@ -206,6 +231,11 @@
               <groupId>io.roastedroot</groupId>
               <artifactId>quickjs4j-processor</artifactId>
               <version>${quickjs4j.version}</version>
+            </path>
+            <path>
+              <groupId>org.infinispan.protostream</groupId>
+              <artifactId>protostream-processor</artifactId>
+              <version>${protostream.version}</version>
             </path>
           </annotationProcessorPaths>
         </configuration>

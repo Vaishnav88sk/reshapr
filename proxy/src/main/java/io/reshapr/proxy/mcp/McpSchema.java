@@ -23,6 +23,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -307,13 +308,19 @@ public class McpSchema {
          @JsonProperty("resultType") String resultType,
          @JsonProperty("supportedVersions") List<String> supportedVersions,
          @JsonProperty("capabilities") ServerCapabilities capabilities,
+         // serverInfo is REQUIRED at the top level by the modern (2026-07-28) DiscoverResult wire schema.
+         // Placing it only under _meta makes clients (e.g. @modelcontextprotocol/client) fail schema
+         // validation and, in pin mode, reject the negotiation with
+         // "did not offer pinned protocol version ... via server/discover".
+         @JsonProperty("serverInfo") Implementation serverInfo,
          @JsonProperty("_meta") Map<String, Object> meta,
          @JsonProperty("instructions") String instructions,
          @JsonProperty("ttlMs") Long ttlMs,
          @JsonProperty("cacheScope") String cacheScope) implements Meta {
 
-      public DiscoverResult(List<String> supportedVersions, ServerCapabilities capabilities, Map<String, Object> meta, String instructions) {
-         this("complete", supportedVersions, capabilities, meta, instructions, null, null);
+      public DiscoverResult(List<String> supportedVersions, ServerCapabilities capabilities,
+            Implementation serverInfo, Map<String, Object> meta, String instructions) {
+         this("complete", supportedVersions, capabilities, serverInfo, meta, instructions, null, null);
       }
    }
 
@@ -612,4 +619,64 @@ public class McpSchema {
          @JsonProperty("blob") String blob) implements ResourceContents {
    }
    // spotless:on
+
+
+   // MCP 2026-07-28 version additions ---------------------------------
+
+   // spotless:off
+
+   // spotless:on
+
+   /**
+    * A single entry of {@link InputRequiredResult#inputRequests}. Per the MCP draft schema it carries
+    * <b>only</b> the {@code method} and {@code params} of the request to perform (not a full JSON-RPC
+    * envelope: no {@code jsonrpc} version, no {@code id} — the id is the map key in {@code inputRequests}).
+    */
+   @JsonInclude(JsonInclude.Include.NON_ABSENT)
+   @JsonIgnoreProperties(ignoreUnknown = true)
+   public record InputRequest(
+         @JsonProperty("method") String method,
+         @JsonProperty("params") Object params) {
+   }
+
+   /**
+    * An InputRequiredResult sent by the server to indicate that additional input is needed before the request can be completed.
+    * ({@code >= 2026-07-28} addition called Multi Round-Trip interactions - typically used to carry the
+    * {@code elicitation/create} ("URL Mode") server-to-client requests.)
+    * <p>
+    * It extends the base {@code Result} (hence the optional {@code _meta}). The mandatory {@code resultType}
+    * discriminator is fixed to {@value #RESULT_TYPE_INPUT_REQUIRED}. {@code inputRequests} is a
+    * <b>map keyed by request id</b> (here the elicitation id) whose values only hold {@code method} and
+    * {@code params} (see {@link InputRequest}). The {@code requestState} is an <b>opaque, server-generated
+    * token</b> that becomes <b>mandatory in stateless mode</b> (no session) when a URL Mode elicitation drives
+    * an OAuth flow: the client MUST echo it back when resuming the paused request so that a stateless server
+    * can correlate the resumed call without server-side session state.
+    */
+   @JsonInclude(JsonInclude.Include.NON_ABSENT)
+   @JsonIgnoreProperties(ignoreUnknown = true)
+   public record InputRequiredResult(
+         @JsonProperty("resultType") String resultType,
+         @JsonProperty("inputRequests") Map<String, InputRequest> inputRequests,
+         @JsonProperty("requestState") String requestState,
+         @JsonProperty("_meta") Map<String, Object> meta) implements Meta {
+   }
+
+   /** The {@code resultType} discriminator value carried by an {@link InputRequiredResult}. */
+   public static final String RESULT_TYPE_INPUT_REQUIRED = "input_required";
+
+   /**
+    * Build an {@link InputRequiredResult} holding one {@code elicitation/create} input request per elicitation,
+    * keyed by elicitation id, and carrying the opaque {@code requestState} the client must return to resume
+    * the paused request.
+    * @param elicitations The URL Mode elicitations to request from the client.
+    * @param requestState The opaque resume token (mandatory for stateless OAuth URL Mode), or {@code null}.
+    */
+   public static InputRequiredResult buildInputRequiredResult(List<URLElicitation> elicitations, String requestState) {
+      Map<String, InputRequest> inputRequests = new LinkedHashMap<>();
+      for (URLElicitation elicitation : elicitations) {
+         inputRequests.put(elicitation.elicitationId(), new InputRequest(METHOD_ELICITATION_CREATE, elicitation));
+      }
+      return new InputRequiredResult(RESULT_TYPE_INPUT_REQUIRED, inputRequests, requestState, null);
+   }
+
 }
