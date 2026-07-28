@@ -51,10 +51,12 @@ public class SecretResource {
 
    private final SecretRepository secretRepository;
    private final Mappers v1Mappers;
+   private final MappersImpl mappersImpl;
 
-   public SecretResource(SecretRepository secretRepository, Mappers v1Mappers) {
+   public SecretResource(SecretRepository secretRepository, Mappers v1Mappers, MappersImpl mappersImpl) {
       this.secretRepository = secretRepository;
       this.v1Mappers = v1Mappers;
+      this.mappersImpl = mappersImpl;
    }
 
    @GET
@@ -113,7 +115,7 @@ public class SecretResource {
    @Transactional
    @Path("/{id}")
    @Produces(MediaType.APPLICATION_JSON)
-   public Response updateSecret(String id, @Valid SecretDTO secretDTO) {
+   public Response updateSecret(@PathParam("id") String id, @Valid SecretDTO secretDTO) {
       logger.debugf("Updating secret with id %s", id);
       Secret secret = secretRepository.findById(id);
       if (secret == null) {
@@ -133,6 +135,14 @@ public class SecretResource {
       }
       if (secretDTO.token() != null && !secretDTO.token().startsWith("*****")) {
          secret.setToken(secretDTO.token());
+      }
+      if (secretDTO.useElicitation() && secretDTO.oauth2ClientConfiguration() != null) {
+         OAuth2ClientConfigurationDTO oauth2ClientConfig = secretDTO.oauth2ClientConfiguration();
+         secret.oauth2ClientConfiguration = new Secret.OAuth2ClientConfiguration(oauth2ClientConfig.clientId(),
+               oauth2ClientConfig.clientSecret(),
+               oauth2ClientConfig.authorizationEndpoint(),
+               oauth2ClientConfig.tokenEndpoint());
+         secret.useElicitation = true;
       }
 
       secretRepository.persist(secret);
