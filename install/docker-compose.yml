@@ -1,3 +1,8 @@
+# This stack runs PostgreSQL + the control-plane only. The gateway (proxy) is deployed separately
+# (see start-proxy.sh for a standalone container, docker-compose-all-in-one.yml for a bundled single
+# gateway, or docker-compose-cluster.yml for a local two-gateway Infinispan replication demo). A
+# standalone/single gateway runs the embedded Infinispan replicated MCP state as a single-node
+# ("reshapr-local") cluster by default (set in Dockerfile.jvm); multi-node clustering uses DNS_PING.
 services:
   postgres:
     image: library/postgres:17-alpine

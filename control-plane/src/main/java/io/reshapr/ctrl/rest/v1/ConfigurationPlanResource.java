@@ -20,6 +20,7 @@ import io.reshapr.ctrl.model.ConfigurationPlan;
 import io.reshapr.ctrl.repository.ConfigurationPlanRepository;
 import io.reshapr.ctrl.service.ConfigurationPlanManagerService;
 import io.reshapr.ctrl.service.DependencyNotFoundException;
+import io.reshapr.ctrl.service.InvalidConfigurationException;
 
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.validation.Valid;
@@ -77,6 +78,9 @@ public class ConfigurationPlanResource {
       } catch (DependencyNotFoundException e) {
          logger.errorf("Failed to create configuration plan: %s", e.getMessage());
          return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+      } catch (InvalidConfigurationException e) {
+         logger.errorf("Rejected configuration plan: %s", e.getMessage());
+         return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
       }
 
       // On creation, be sure to show the API key if it was requested. It will not be shown again after this.
@@ -120,6 +124,9 @@ public class ConfigurationPlanResource {
       } catch (DependencyNotFoundException e) {
          logger.errorf("Failed to update configuration plan: %s", e.getMessage());
          return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+      } catch (InvalidConfigurationException e) {
+         logger.errorf("Rejected configuration plan update: %s", e.getMessage());
+         return Response.status(Response.Status.BAD_REQUEST).entity(e.getMessage()).build();
       }
       return Response.ok(v1Mappers.toResource(configurationPlan)).build();
    }

@@ -91,7 +91,12 @@ COPY --chown=185 target/quarkus-app/quarkus/ /deployments/quarkus/
 
 EXPOSE 8080
 USER 185
-ENV JAVA_OPTS_APPEND="-XX:+UseCompactObjectHeaders -Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager --enable-preview"
+# Default embedded-Infinispan JGroups stack = single-node "reshapr-local" (TCPPING on localhost, no multicast).
+# This makes the out-of-the-box container a clean mono-node cluster (docker run, plain docker-compose, start-proxy.sh).
+# Multi-node deployments override JAVA_OPTS_APPEND to select another stack: "reshapr-k8s" (DNS_PING) on Kubernetes or
+# in the clustered docker-compose demo. When you override JAVA_OPTS_APPEND, remember it REPLACES this value, so
+# re-include the flags below.
+ENV JAVA_OPTS_APPEND="-XX:+UseCompactObjectHeaders -Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager --enable-preview -Dreshapr.infinispan.stack=reshapr-local"
 ENV JAVA_APP_JAR="/deployments/quarkus-run.jar"
 
 ENTRYPOINT [ "/opt/jboss/container/java/run/run-java.sh" ]

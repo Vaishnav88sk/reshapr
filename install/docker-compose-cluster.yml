@@ -1,0 +1,120 @@
+# =============================================================================================
+# reShapr — local TWO-GATEWAY cluster to demonstrate Infinispan replicated MCP state on plain Docker.
+#
+# Both gateways share the Docker network alias "reshapr-gateways". Docker's embedded DNS returns the
+# A records of BOTH gateway containers for that alias, so JGroups DNS_PING discovers them and forms a
+# 2-node cluster. This mirrors EXACTLY the Kubernetes setup (headless Service + DNS_PING) using the
+# same "reshapr-k8s" stack defined in proxy/src/main/resources/infinispan.xml.
+#
+# What it demonstrates: MCP session / elicitation / user-secret state is replicated across gateways.
+# Start an elicitation (OAuth flow) against gateway-01 (http://localhost:7777) and complete it; a
+# subsequent tools/call routed to gateway-02 (http://localhost:7778) resolves the same secret.
+#
+# Run:   docker compose -f docker-compose-cluster.yml up
+# Test:  curl localhost:7777/q/health/ready  and  curl localhost:7778/q/health/ready
+#
+# NOTE: overriding JAVA_OPTS_APPEND REPLACES the value baked into the image, so the baseline flags are
+# copied verbatim from proxy/src/main/docker/Dockerfile.jvm and MUST be kept in sync with it (notably
+# --enable-preview). Only the -Dreshapr.infinispan.* properties differ from the image default.
+# =============================================================================================
+services:
+  postgres:
+    image: library/postgres:17-alpine
+    container_name: reshapr-postgres
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "54321:5432"
+    volumes:
+      - "~/tmp/reshapr-data:/var/lib/postgresql/data/pgdata"
+    environment:
+      - POSTGRES_USER=reshapr
+      - POSTGRES_PASSWORD=reshapr
+      - POSTGRES_DB=reshapr
+      - PGDATA=/var/lib/postgresql/data/pgdata
+
+  control-plane:
+    image: registry.reshapr.io/reshapr/reshapr-ctrl:nightly
+    container_name: reshapr-control-plane
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - postgres
+    restart: on-failure
+    ports:
+      - "5555:5555"
+    environment:
+      - QUARKUS_DATASOURCE_JDBC_URL=jdbc:postgresql://postgres:5432/reshapr
+      - QUARKUS_DATASOURCE_USERNAME=reshapr
+      - QUARKUS_DATASOURCE_PASSWORD=reshapr
+      - RESHAPR_ADMIN_NAME=admin
+      - RESHAPR_ADMIN_PASSWORD=password
+      - RESHAPR_ADMIN_EMAIL=reshapr@example.com
+      - RESHAPR_DEFAULT_GATEWAY_TOKENS=my-super-secret-token-xyz
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:5555/q/health/ready" ]
+      start_period: 5s
+      interval: 5s
+      timeout: 2s
+      retries: 3
+
+  gateway-01:
+    image: registry.reshapr.io/reshapr/reshapr-proxy:nightly
+    container_name: reshapr-gateway-01
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    restart: on-failure
+    ports:
+      - "7777:7777"
+    environment:
+      - RESHAPR_GATEWAY_ID=reshapr-gateway-01
+      - RESHAPR_CTRL_HOST=control-plane
+      - RESHAPR_CTRL_PORT=5555
+      - RESHAPR_CTRL_TOKEN=reshapr-my-super-secret-token-xyz
+      - QUARKUS_OTEL_SDK_DISABLED=true
+      # Join the cluster via DNS_PING on the shared "reshapr-gateways" alias (see file header).
+      - JAVA_OPTS_APPEND=-XX:+UseCompactObjectHeaders -Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager --enable-preview -Dreshapr.infinispan.stack=reshapr-k8s -Dreshapr.infinispan.dns-query=reshapr-gateways
+    networks:
+      default:
+        aliases:
+          - reshapr-gateways
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7777/q/health/ready" ]
+      start_period: 5s
+      interval: 5s
+      timeout: 2s
+      retries: 3
+
+  gateway-02:
+    image: registry.reshapr.io/reshapr/reshapr-proxy:nightly
+    container_name: reshapr-gateway-02
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    restart: on-failure
+    ports:
+      - "7778:7777"
+    environment:
+      - RESHAPR_GATEWAY_ID=reshapr-gateway-02
+      - RESHAPR_CTRL_HOST=control-plane
+      - RESHAPR_CTRL_PORT=5555
+      - RESHAPR_CTRL_TOKEN=reshapr-my-super-secret-token-xyz
+      - QUARKUS_OTEL_SDK_DISABLED=true
+      # Join the cluster via DNS_PING on the shared "reshapr-gateways" alias (see file header).
+      - JAVA_OPTS_APPEND=-XX:+UseCompactObjectHeaders -Dquarkus.http.host=0.0.0.0 -Djava.util.logging.manager=org.jboss.logmanager.LogManager --enable-preview -Dreshapr.infinispan.stack=reshapr-k8s -Dreshapr.infinispan.dns-query=reshapr-gateways
+    networks:
+      default:
+        aliases:
+          - reshapr-gateways
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:7777/q/health/ready" ]
+      start_period: 5s
+      interval: 5s
+      timeout: 2s
+      retries: 3
+

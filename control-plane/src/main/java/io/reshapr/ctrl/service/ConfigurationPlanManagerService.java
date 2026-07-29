@@ -84,13 +84,15 @@ public class ConfigurationPlanManagerService {
     * @param configurationPlan the configuration plan to create
     * @param serviceId the ID of the service to associate with the configuration plan
     * @param backendSecretId the ID of the backend secret to associate with the configuration plan, can be null
+    * @param useApiKey whether an API key must be generated for this configuration plan
     * @return the created configuration plan
     * @throws DependencyNotFoundException if the service or backend secret is not found
+    * @throws InvalidConfigurationException if the plan uses OAuth2 elicitation without being OAuth-protected
     */
    @Transactional
    public ConfigurationPlan createConfigurationPlan(ConfigurationPlan configurationPlan, String serviceId,
                                                     @Nullable String backendSecretId, boolean useApiKey)
-         throws DependencyNotFoundException {
+         throws DependencyNotFoundException, InvalidConfigurationException {
       logger.debugf("Creating configuration plan with name %s", configurationPlan.name);
 
       Service service = serviceRepository.findById(serviceId);
@@ -118,6 +120,10 @@ public class ConfigurationPlanManagerService {
          configurationPlan.apiKey = null;
       }
 
+      // Enforce that an exposition relying on OAuth2 elicitation is OAuth-protected (required for
+      // stateless MCP mode where the elicited secret is bound to the authenticated user identity).
+      validateElicitationRequiresOAuth(configurationPlan);
+
       configurationPlanRepository.persistAndFlush(configurationPlan);
       return configurationPlan;
    }
@@ -128,10 +134,11 @@ public class ConfigurationPlanManagerService {
     * @param backendSecretId the ID of the backend secret to associate with the configuration plan, can be null
     * @return the updated configuration plan
     * @throws DependencyNotFoundException if the backend secret is not found
+    * @throws InvalidConfigurationException if the plan uses OAuth2 elicitation without being OAuth-protected
     */
    @Transactional
    public ConfigurationPlan updateConfigurationPlan(ConfigurationPlan configurationPlan, @Nullable String backendSecretId)
-         throws DependencyNotFoundException {
+         throws DependencyNotFoundException, InvalidConfigurationException {
       logger.debugf("Updating configuration plan with id %s", configurationPlan.id);
       ConfigurationPlan existingPlan = configurationPlanRepository.findById(configurationPlan.id);
       if (existingPlan == null) {
@@ -158,6 +165,11 @@ public class ConfigurationPlanManagerService {
          existingPlan.backendSecret = null;
       }
       existingPlan.oauth2Configuration = configurationPlan.oauth2Configuration;
+
+      // Enforce that an exposition relying on OAuth2 elicitation is OAuth-protected (required for
+      // stateless MCP mode where the elicited secret is bound to the authenticated user identity).
+      validateElicitationRequiresOAuth(existingPlan);
+
       configurationPlanRepository.persistAndFlush(existingPlan);
       expositionManagerService.propagateConfigurationPlanChanges(existingPlan);
       return existingPlan;
@@ -219,5 +231,29 @@ public class ConfigurationPlanManagerService {
          }
       }
       return new ArrayList<>(selected);
+   }
+
+   /**
+    * Enforces the elicitation/OAuth consistency rule: a configuration plan whose backend secret
+    * relies on OAuth2 elicitation ({@code useElicitation == true}) must expose an inbound OAuth2 protection
+    * ({@link ConfigurationPlan#oauth2Configuration} present). This is mandatory because, in the stateless MCP
+    * mode ({@code 2026-07-28}), there is no server-side session to hold the elicited secret: it is bound to
+    * the authenticated user identity (JWT {@code iss}+{@code sub}), which only exists when the exposition is
+    * OAuth-protected. In the legacy (session-based) mode the session would suffice, but the control plane
+    * cannot know at configuration time which mode a client will negotiate, so the stricter invariant is
+    * enforced up-front to guarantee the stateless path is always safe.
+    * @param plan The configuration plan being created or updated (with its backend secret already resolved).
+    * @throws InvalidConfigurationException if the plan uses elicitation without an OAuth2 configuration.
+    */
+   private void validateElicitationRequiresOAuth(ConfigurationPlan plan) throws InvalidConfigurationException {
+      if (plan.backendSecret != null && plan.backendSecret.useElicitation && plan.oauth2Configuration == null) {
+         logger.errorf("Configuration plan '%s' uses OAuth2 elicitation (secret '%s') but is not OAuth-protected",
+               plan.name, plan.backendSecret.name);
+         throw new InvalidConfigurationException("Configuration plan '" + plan.name
+               + "' relies on OAuth2 elicitation (backend secret '" + plan.backendSecret.name
+               + "') and must be protected by an inbound OAuth2 configuration: elicitation in stateless MCP"
+               + " mode binds the collected secret to the authenticated user identity, which requires the"
+               + " exposition to be OAuth-protected.");
+      }
    }
 }

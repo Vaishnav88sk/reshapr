@@ -20,6 +20,8 @@ import io.reshapr.ctrl.model.ArtifactType;
 import io.reshapr.ctrl.model.ConfigurationPlan;
 import io.reshapr.ctrl.model.Service;
 import io.reshapr.ctrl.model.ServiceType;
+import io.reshapr.ctrl.model.Secret;
+import io.reshapr.ctrl.model.SecretType;
 import io.reshapr.ctrl.repository.ConfigurationPlanRepository;
 import io.reshapr.ctrl.security.ReshaprTenantContext;
 
@@ -160,6 +162,78 @@ class ConfigurationPlanManagerServiceTest {
 
       assertThrows(DependencyNotFoundException.class,
             () -> managerService.updateConfigurationPlan(update, null));
+   }
+
+   @Test
+   void testCreateWithElicitationSecretWithoutOAuthIsRejected() {
+      String serviceId = seedServiceWithArtifacts();
+      String secretId = seedSecret(true);
+
+      ConfigurationPlan plan = newPlan("elicitation-no-oauth");
+      // No oauth2Configuration set => not OAuth-protected.
+
+      InvalidConfigurationException thrown = assertThrows(InvalidConfigurationException.class,
+            () -> managerService.createConfigurationPlan(plan, serviceId, secretId, false));
+      assertTrue(thrown.getMessage().contains("OAuth2 elicitation"));
+   }
+
+   @Test
+   void testCreateWithElicitationSecretAndOAuthIsAccepted() throws Exception {
+      String serviceId = seedServiceWithArtifacts();
+      String secretId = seedSecret(true);
+
+      ConfigurationPlan plan = newPlan("elicitation-with-oauth");
+      plan.oauth2Configuration = new ConfigurationPlan.OAuth2Configuration(
+            List.of("https://as.example.com"), "https://as.example.com/jwks", List.of("read"));
+
+      ConfigurationPlan created = managerService.createConfigurationPlan(plan, serviceId, secretId, false);
+      assertNotNull(created.id);
+      assertNotNull(created.backendSecret);
+   }
+
+   @Test
+   void testCreateWithNonElicitationSecretWithoutOAuthIsAccepted() throws Exception {
+      String serviceId = seedServiceWithArtifacts();
+      String secretId = seedSecret(false);
+
+      // A backend secret that does not use elicitation does not require OAuth protection.
+      ConfigurationPlan plan = newPlan("no-elicitation-no-oauth");
+
+      ConfigurationPlan created = managerService.createConfigurationPlan(plan, serviceId, secretId, false);
+      assertNotNull(created.id);
+   }
+
+   @Test
+   void testUpdateAttachingElicitationSecretWithoutOAuthIsRejected() throws Exception {
+      String serviceId = seedServiceWithArtifacts();
+      String secretId = seedSecret(true);
+
+      ConfigurationPlan created = managerService.createConfigurationPlan(newPlan("update-elicitation"), serviceId, null, false);
+
+      ConfigurationPlan update = new ConfigurationPlan();
+      update.id = created.id;
+      update.name = created.name;
+      update.backendEndpoint = created.backendEndpoint;
+      // Attach the elicitation secret but keep the plan unprotected.
+
+      InvalidConfigurationException thrown = assertThrows(InvalidConfigurationException.class,
+            () -> managerService.updateConfigurationPlan(update, secretId));
+      assertTrue(thrown.getMessage().contains("OAuth2 elicitation"));
+   }
+
+   /**
+    * Seeds a fresh Secret in the current tenant and returns its id. When {@code useElicitation} is true the
+    * secret is flagged to trigger OAuth2 elicitation, which requires an OAuth-protected exposition.
+    */
+   private String seedSecret(boolean useElicitation) {
+      return QuarkusTransaction.requiringNew().call(() -> {
+         Secret secret = new Secret();
+         secret.name = "secret-" + UUID.randomUUID();
+         secret.type = SecretType.ENDPOINT;
+         secret.useElicitation = useElicitation;
+         secret.persist();
+         return secret.id;
+      });
    }
 
    /**
