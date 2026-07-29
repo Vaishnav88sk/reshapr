@@ -14,3 +14,8 @@ services:
       - RESHAPR_WEBUI_PUBLIC_URL=http://localhost:5555
       # If you need to restrict access to the web-ui application, you can tune the HOST.
       # - HOST=0.0.0.0
+      # Public origin as perceived by the browser to prevent CSRF protection issues.
+      - ORIGIN=http://localhost:3333
+      # If behind a reverse proxy that sets the X-Forwarded-Proto and X-Forwarded-Host headers, uncomment the following lines.
+      # - PROTOCOL_HEADER=x-forwarded-proto
+      # - HOST_HEADER=x-forwarded-host
