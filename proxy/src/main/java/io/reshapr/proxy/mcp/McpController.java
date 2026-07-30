@@ -221,12 +221,6 @@ public class McpController {
          // Emit audit log if enabled for this configuration.
          emitAuditEvent(exposition, request, result, startNanos, serverRequest, userId);
 
-         try {
-            System.err.println("Response message: " + mapper.writerWithDefaultPrettyPrinter().writeValueAsString(result.message()));
-         } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
-         }
-
          Response.ResponseBuilder responseBuilder = Response.ok(result.message());
          if (result.headers() != null) {
             result.headers().forEach((key, value) -> value.forEach(
@@ -306,25 +300,30 @@ public class McpController {
             result = handleInitializeRequest(request, exposition);
 
          case McpSchema.METHOD_PROMPTS_LIST ->
-            result = handlePromptListRequest(request, exposition);
+            result = handlePromptListRequest(request, exposition,
+                  McpProtocolDialect.forVersion(resolveProtocolVersion(headers)));
 
          case McpSchema.METHOD_PROMPTS_GET ->
             result = handlePromptGetRequest(request, exposition);
 
          case McpSchema.METHOD_RESOURCES_LIST ->
-            result = handleResourceListRequest(request, exposition);
+            result = handleResourceListRequest(request, exposition,
+                  McpProtocolDialect.forVersion(resolveProtocolVersion(headers)));
 
          case McpSchema.METHOD_RESOURCES_TEMPLATES_LIST ->
-            result = handleResourceTemplateListRequest(request, exposition);
+            result = handleResourceTemplateListRequest(request, exposition,
+                  McpProtocolDialect.forVersion(resolveProtocolVersion(headers)));
 
          case McpSchema.METHOD_RESOURCES_READ ->
             result = handleResourceReadRequest(request, exposition);
 
          case McpSchema.METHOD_TOOLS_LIST ->
-            result = handleToolsListRequest(request, exposition);
+            result = handleToolsListRequest(request, exposition,
+                  McpProtocolDialect.forVersion(resolveProtocolVersion(headers)));
 
          case McpSchema.METHOD_TOOLS_CALL ->
-            result = handleToolsCallRequest(request, headers.getRequestHeaders(), exposition);
+            result = handleToolsCallRequest(request, headers.getRequestHeaders(), exposition,
+                  McpProtocolDialect.forVersion(resolveProtocolVersion(headers)));
       }
 
       if (result == null) {
@@ -416,11 +415,21 @@ public class McpController {
    }
 
    /** Handle the MCP prompt/list request. */
-   private McpHandlerResult handlePromptListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
+   private McpHandlerResult handlePromptListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition,
+         McpProtocolDialect dialect) {
       // Build a MCP Prompt Builder based on available elements in registry.
       McpPromptBuilder builder = buildMcpPromptBuilder(exposition);
 
-      return toMcpHandlerResult(request, new McpSchema.ListPromptsResult(builder.listPrompts(), null));
+      // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
+      // client-cache hints are always provided here; they are honored only under a modern dialect and
+      // silently dropped in legacy mode.
+      // TODO: source ttlMs / cacheScope from the exposition configuration instead of these placeholders.
+      McpSchema.ListPromptsResult result = dialect.newListPromptsResult(builder.listPrompts())
+            .ttlMs(60_000L)
+            .cacheScope("public")
+            .build();
+
+      return toMcpHandlerResult(request, result);
    }
 
    /** Handle the MCP prompt/get request. */
@@ -438,19 +447,39 @@ public class McpController {
    }
 
    /** Handle the MCP resource/list request. */
-   private McpHandlerResult handleResourceListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
+   private McpHandlerResult handleResourceListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition,
+         McpProtocolDialect dialect) {
       // Build a MCP Resource Builder based on available elements in registry.
       McpResourceBuilder builder = buildMcpResourceBuilder(exposition);
 
-      return toMcpHandlerResult(request, new McpSchema.ListResourcesResult(builder.listResources(), null));
+      // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
+      // client-cache hints are always provided here; they are honored only under a modern dialect and
+      // silently dropped in legacy mode.
+      // TODO: source ttlMs / cacheScope from the exposition configuration instead of these placeholders.
+      McpSchema.ListResourcesResult result = dialect.newListResourcesResult(builder.listResources())
+            .ttlMs(60_000L)
+            .cacheScope("public")
+            .build();
+
+      return toMcpHandlerResult(request, result);
    }
 
    /** Handle the MCP resource/templates/list request. */
-   private McpHandlerResult handleResourceTemplateListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
+   private McpHandlerResult handleResourceTemplateListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition,
+         McpProtocolDialect dialect) {
       // Build a MCP Resource Builder based on available elements in registry.
       McpResourceBuilder builder = buildMcpResourceBuilder(exposition);
 
-      return toMcpHandlerResult(request, new McpSchema.ListResourceTemplatesResult(builder.listResourceTemplates(), null));
+      // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
+      // client-cache hints are always provided here; they are honored only under a modern dialect and
+      // silently dropped in legacy mode.
+      // TODO: source ttlMs / cacheScope from the exposition configuration instead of these placeholders.
+      McpSchema.ListResourceTemplatesResult result = dialect.newListResourceTemplatesResult(builder.listResourceTemplates())
+            .ttlMs(60_000L)
+            .cacheScope("public")
+            .build();
+
+      return toMcpHandlerResult(request, result);
    }
 
    /** Handle the MCP resource/read request. */
@@ -468,8 +497,23 @@ public class McpController {
       return toMcpHandlerResult(request, new McpSchema.ReadResourceResult(builder.readResource(resourceReadRequest, configuration)));
    }
 
+   /**
+    * Resolve the protocol version negotiated for this call: the pinned version carried by the legacy
+    * session when present, otherwise the {@code MCP-Protocol-Version} header sent in stateless mode.
+    * Returns {@code null} when neither is available (dialect resolution then falls back to legacy).
+    */
+   @Nullable
+   private String resolveProtocolVersion(HttpHeaders headers) {
+      SessionInfo sessionInfo = getSessionInfo(headers);
+      if (sessionInfo != null && sessionInfo.getProtocolVersion() != null) {
+         return sessionInfo.getProtocolVersion();
+      }
+      return getProtocolVersionHeader(headers);
+   }
+
    /** Handle the MCP tools/list request. */
-   private McpHandlerResult handleToolsListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
+   private McpHandlerResult handleToolsListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition,
+         McpProtocolDialect dialect) {
       ServiceEntry service = exposition.service();
       // Get configuration plan from exposition.
       ConfigurationEntry configuration = exposition.configuration();
@@ -484,12 +528,21 @@ public class McpController {
                   converter.getToolMetadata(gatewayRegistry, service, operation)))
             .toList();
 
-      return toMcpHandlerResult(request, new McpSchema.ListToolsResult(tools, null));
+      // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
+      // client-cache hints are always provided here; they are honored only under a modern dialect and
+      // silently dropped in legacy mode.
+      // TODO: source ttlMs / cacheScope from the exposition configuration instead of these placeholders.
+      McpSchema.ListToolsResult result = dialect.newListToolsResult(tools)
+            .ttlMs(60_000L)
+            .cacheScope("public")
+            .build();
+
+      return toMcpHandlerResult(request, result);
    }
 
    /** Handle the MCP tools/call request. */
    private McpHandlerResult handleToolsCallRequest(McpSchema.JSONRPCRequest request, Map<String, List<String>> headers,
-         ExpositionEntry exposition) {
+         ExpositionEntry exposition, McpProtocolDialect dialect) {
       McpSchema.SimpleRequest toolRequest = mapper.convertValue(request.params(),
             new TypeReference<McpSchema.SimpleRequest>() {
             });
@@ -500,8 +553,11 @@ public class McpController {
 
       return switch (outcome) {
          case ToolCallExecutor.Success success ->
-               toMcpHandlerResult(request, new McpSchema.CallToolResult(
-                     List.of(new McpSchema.TextContent(success.content())), success.isFault()));
+               // Delegate the version-specific result shaping to the negotiated protocol dialect.
+               toMcpHandlerResult(request, dialect.newCallToolResult(
+                     List.<McpSchema.Content>of(new McpSchema.TextContent(success.content())))
+                           .isError(success.isFault())
+                           .build());
          case ToolCallExecutor.ElicitationRequired elicitationRequired ->
                buildElicitationResult(request, elicitationRequired);
          case ToolCallExecutor.Failure failure ->
