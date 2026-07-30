@@ -184,11 +184,11 @@ public class GrpcProxyService {
          } catch (InvalidProtocolBufferException ipbe) {
             String message = ipbe.getMessage() != null ? ipbe.getMessage() : "Invalid Protobuf to JSON conversion";
             logger.errorf("Exception while converting Protobuf to JSON: '%s'", message);
-            return new BackendResponse(400, message.getBytes(StandardCharsets.UTF_8), Map.of("x-reshapr-upstream-service-time", List.of(String.valueOf(elapsedMs)), "x-envoy-upstream-service-time", List.of(String.valueOf(elapsedMs))));
+            return new BackendResponse(400, message.getBytes(StandardCharsets.UTF_8), Map.of("x-reshapr-upstream-service-time", List.of(String.valueOf(elapsedMs))));
          }
 
          return new BackendResponse(Status.Code.OK.value(),
-               contentResponse.getBytes(StandardCharsets.UTF_8), Map.of("x-reshapr-upstream-service-time", List.of(String.valueOf(elapsedMs)), "x-envoy-upstream-service-time", List.of(String.valueOf(elapsedMs))));
+               contentResponse.getBytes(StandardCharsets.UTF_8), Map.of("x-reshapr-upstream-service-time", List.of(String.valueOf(elapsedMs))));
       } catch (StatusRuntimeException sre) {
          long elapsedMs = System.currentTimeMillis() - startMs;
          int httpStatus = mapGrpcStatusToHttp(sre.getStatus().getCode());
@@ -211,7 +211,7 @@ public class GrpcProxyService {
             }
          }
 
-         return new BackendResponse(httpStatus, message.getBytes(StandardCharsets.UTF_8), Map.of("x-reshapr-upstream-service-time", List.of(String.valueOf(elapsedMs)), "x-envoy-upstream-service-time", List.of(String.valueOf(elapsedMs))));
+         return new BackendResponse(httpStatus, message.getBytes(StandardCharsets.UTF_8), Map.of("x-reshapr-upstream-service-time", List.of(String.valueOf(elapsedMs))));
       } finally {
          // Shutdown the channel to release resources.
          originChannel.shutdown();

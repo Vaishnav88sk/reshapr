@@ -97,7 +97,6 @@ class ProxyServiceTest {
          
          assertEquals(200, response.status());
          org.junit.jupiter.api.Assertions.assertTrue(response.headers().containsKey("x-reshapr-upstream-service-time"));
-         org.junit.jupiter.api.Assertions.assertTrue(response.headers().containsKey("x-envoy-upstream-service-time"));
          
          long elapsed = Long.parseLong(response.headers().get("x-reshapr-upstream-service-time").get(0));
          org.junit.jupiter.api.Assertions.assertTrue(elapsed >= 50, "Elapsed time should be at least 50ms, but was: " + elapsed);
@@ -126,7 +125,6 @@ class ProxyServiceTest {
          
          assertEquals(502, response.status());
          org.junit.jupiter.api.Assertions.assertTrue(response.headers().containsKey("x-reshapr-upstream-service-time"));
-         org.junit.jupiter.api.Assertions.assertTrue(response.headers().containsKey("x-envoy-upstream-service-time"));
          
          long elapsed = Long.parseLong(response.headers().get("x-reshapr-upstream-service-time").get(0));
          org.junit.jupiter.api.Assertions.assertTrue(elapsed >= 50, "Elapsed time should be at least 50ms, but was: " + elapsed);
