@@ -161,10 +161,12 @@ public class GrpcProxyService {
 
       // Now we can call the gRPC service using the channel and method descriptor.
       byte[] responseBytes = null;
+      long startMs = System.currentTimeMillis();
       try {
          String methodName = md.getService().getFullName() + "/" + md.getName();
          responseBytes = doCallBackend(channel, GrpcUtil.buildGenericUnaryMethodDescriptor(methodName), callOptions,
                headers, requestBytes, configuration.backendEndpoint());
+         long elapsedMs = System.currentTimeMillis() - startMs;
 
          if (logger.isDebugEnabled()) {
             logger.debugf("Proxy returned: '%s'", Status.Code.OK.name());
@@ -182,12 +184,13 @@ public class GrpcProxyService {
          } catch (InvalidProtocolBufferException ipbe) {
             String message = ipbe.getMessage() != null ? ipbe.getMessage() : "Invalid Protobuf to JSON conversion";
             logger.errorf("Exception while converting Protobuf to JSON: '%s'", message);
-            return new BackendResponse(400, message.getBytes(StandardCharsets.UTF_8), Map.of());
+            return new BackendResponse(400, message.getBytes(StandardCharsets.UTF_8), Map.of("x-reshapr-upstream-service-time", List.of(String.valueOf(elapsedMs)), "x-envoy-upstream-service-time", List.of(String.valueOf(elapsedMs))));
          }
 
          return new BackendResponse(Status.Code.OK.value(),
-               contentResponse.getBytes(StandardCharsets.UTF_8), Map.of());
+               contentResponse.getBytes(StandardCharsets.UTF_8), Map.of("x-reshapr-upstream-service-time", List.of(String.valueOf(elapsedMs)), "x-envoy-upstream-service-time", List.of(String.valueOf(elapsedMs))));
       } catch (StatusRuntimeException sre) {
+         long elapsedMs = System.currentTimeMillis() - startMs;
          int httpStatus = mapGrpcStatusToHttp(sre.getStatus().getCode());
          String message = sre.getMessage() != null ? sre.getMessage() : sre.getStatus().getCode().name();
          logger.errorf("gRPC proxy error calling backend '%s' [%s -> HTTP %d]: %s",
@@ -208,7 +211,7 @@ public class GrpcProxyService {
             }
          }
 
-         return new BackendResponse(httpStatus, message.getBytes(StandardCharsets.UTF_8), Map.of());
+         return new BackendResponse(httpStatus, message.getBytes(StandardCharsets.UTF_8), Map.of("x-reshapr-upstream-service-time", List.of(String.valueOf(elapsedMs)), "x-envoy-upstream-service-time", List.of(String.valueOf(elapsedMs))));
       } finally {
          // Shutdown the channel to release resources.
          originChannel.shutdown();
