@@ -49,6 +49,7 @@
                     stack.combine="REPLACE" stack.position="MPING"/>
 
       <SYM_ENCRYPT sym_algorithm="AES"
+                   keystore_type="JCEKS" 
                    keystore_name="${reshapr.infinispan.encrypt.keystore:reshapr-cluster.jceks}"
                    store_password="${reshapr.infinispan.encrypt.store-password:}"
                    key_password="${reshapr.infinispan.encrypt.key-password:}"
