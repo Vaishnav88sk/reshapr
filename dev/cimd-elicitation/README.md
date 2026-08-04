@@ -16,12 +16,29 @@ python3 -m http.server 8000
 
 #### Keycloak Configuration
 
-Use `start-keycloak-docker.sh` to start a local Keycloak instance on http://localhost:8888
-
-Make this Keycloak available in HTTPS by using `ngrok`: 
+Make the (not yet available) Keycloak instance available in HTTPS by using `ngrok`:
 ```shell
 ngrok http 8888
 ```
+
+This will provide this kind of output from where you should extract the forwarding url:
+
+```shell
+▶️ ngrok is way mores than tunnels to localhost. https://ngrokhq.link/video                                                                                                       
+                                                                                                                                                                                 
+Session Status                online                                                                                                                                             
+Account                       Laurent Broudoux (Plan: Free)                                                                                                                      
+Update                        update available (version 3.39.10, Ctrl-U to update)                                                                                               
+Version                       3.37.6                                                                                                                                             
+Region                        Europe (eu)                                                                                                                                        
+Latency                       30ms                                                                                                                                               
+Web Interface                 http://127.0.0.1:4040                                   
+Forwarding                    https://unvibrating-uncondoned-jessia.ngrok-free.dev -> http://localhost:8888                       
+```
+
+Collect this forwarding url and edit the `../dev/start-keycloak-docker.sh`, replacing line 25 with adapter line 26.
+
+Then run `../dev/start-keycloak-docker.sh` to start a local Keycloak instance on http://localhost:8888
 
 Now checking the configuration of the different Keycloak realms (connect to the local Keycloak using `admin`/`admin`):
 
