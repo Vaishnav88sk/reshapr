@@ -72,6 +72,21 @@ public class McpSchema {
    public static final String HEADER_SESSION_ID = "MCP-Session-Id";
    public static final String HEADER_PROTOCOL_VERSION = "MCP-Protocol-Version";
 
+   /** Modern (SEP-2243, {@code >= 2026-07-28}) request header mirroring the JSON-RPC body {@code method}. */
+   public static final String HEADER_METHOD = "Mcp-Method";
+
+   /**
+    * Modern (SEP-2243, {@code >= 2026-07-28}) request header mirroring the JSON-RPC body target,
+    * i.e. {@code params.name} (tools/call, prompts/get) or {@code params.uri} (resources/read).
+    */
+   public static final String HEADER_NAME = "Mcp-Name";
+
+   /**
+    * Key under a modern (stateless) request's {@code params._meta} carrying the negotiated protocol
+    * version the request is framed with (SEP-2243).
+    */
+   public static final String META_KEY_PROTOCOL_VERSION = "io.modelcontextprotocol/protocolVersion";
+
    // ---------------------------
    // Method Names
    // ---------------------------
@@ -140,6 +155,27 @@ public class McpSchema {
 
       /** Internal JSON-RPC error. */
       public static final int INTERNAL_ERROR = -32603;
+
+      // Modern (SEP-2243, >= 2026-07-28) protocol error codes
+
+      /**
+       * A modern mirror header ({@code Mcp-Method}, {@code Mcp-Name} or {@code MCP-Protocol-Version})
+       * disagrees with the request body. Mapped to HTTP 400 by the transport.
+       */
+      public static final int HEADER_MISMATCH = -32020;
+
+      /**
+       * A modern request declares a protocol version the server does not support. Mapped to HTTP 400 by
+       * the transport; the error {@code data} names the supported versions.
+       */
+      public static final int UNSUPPORTED_PROTOCOL_VERSION = -32022;
+
+      /**
+       * A modern request needs a client capability it did not declare (e.g. {@code elicitation} for an
+       * {@code input_required} round trip). Mapped to HTTP 400 by the transport; the error {@code data}
+       * names the required capabilities.
+       */
+      public static final int MISSING_CLIENT_CAPABILITY = -32021;
 
       // Implementation-specific JSON-RPC error codes [-32000, -32099]
 
@@ -331,8 +367,8 @@ public class McpSchema {
          @JsonProperty("cacheScope") String cacheScope) implements Meta {
 
       public DiscoverResult(List<String> supportedVersions, ServerCapabilities capabilities,
-            Implementation serverInfo, Map<String, Object> meta, String instructions) {
-         this("complete", supportedVersions, capabilities, serverInfo, meta, instructions, null, null);
+            Implementation serverInfo, Map<String, Object> meta, Long ttlMs, String cacheScope) {
+         this("complete", supportedVersions, capabilities, serverInfo, meta, null, ttlMs, cacheScope);
       }
    }
 

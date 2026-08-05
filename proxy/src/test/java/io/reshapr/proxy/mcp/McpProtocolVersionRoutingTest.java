@@ -164,6 +164,162 @@ class McpProtocolVersionRoutingTest {
             .statusCode(404);
    }
 
+   @Test
+   @DisplayName("modern Mcp-Method header disagreeing with the body method is rejected (400 + -32020)")
+   void testModernMethodHeaderMismatchIsRejected() {
+      given()
+            .contentType(ContentType.JSON)
+            .header(McpSchema.HEADER_PROTOCOL_VERSION, McpSchema.PROTOCOL_VERSION_STATELESS)
+            // Mcp-Method claims tools/list while the body carries server/discover.
+            .header(McpSchema.HEADER_METHOD, "tools/list")
+            .body(modernJsonRpc("server/discover", ""))
+      .when()
+            .post("/mcp/{expositionId}", EXPOSITION_ID)
+      .then()
+            .statusCode(400)
+            .body("result", nullValue())
+            .body("error.code", equalTo(McpSchema.ErrorCodes.HEADER_MISMATCH));
+   }
+
+   @Test
+   @DisplayName("modern Mcp-Name header disagreeing with the body target is rejected (400 + -32020)")
+   void testModernNameHeaderMismatchIsRejected() {
+      given()
+            .contentType(ContentType.JSON)
+            .header(McpSchema.HEADER_PROTOCOL_VERSION, McpSchema.PROTOCOL_VERSION_STATELESS)
+            .header(McpSchema.HEADER_METHOD, "resources/read")
+            // Mcp-Name disagrees with params.uri: rejected pre-dispatch, before any resource read.
+            .header(McpSchema.HEADER_NAME, "file://wrong")
+            .body(modernJsonRpc("resources/read", "\"uri\":\"file://real\","))
+      .when()
+            .post("/mcp/{expositionId}", EXPOSITION_ID)
+      .then()
+            .statusCode(400)
+            .body("result", nullValue())
+            .body("error.code", equalTo(McpSchema.ErrorCodes.HEADER_MISMATCH));
+   }
+
+   @Test
+   @DisplayName("modern MCP-Protocol-Version header disagreeing with the envelope is rejected (400 + -32020)")
+   void testModernProtocolVersionHeaderMismatchIsRejected() {
+      given()
+            .contentType(ContentType.JSON)
+            // Header names a different revision than the envelope's 2026-07-28.
+            .header(McpSchema.HEADER_PROTOCOL_VERSION, "2025-11-25")
+            .header(McpSchema.HEADER_METHOD, "server/discover")
+            .body(modernJsonRpc("server/discover", ""))
+      .when()
+            .post("/mcp/{expositionId}", EXPOSITION_ID)
+      .then()
+            .statusCode(400)
+            .body("result", nullValue())
+            .body("error.code", equalTo(McpSchema.ErrorCodes.HEADER_MISMATCH));
+   }
+
+   @Test
+   @DisplayName("modern request whose mirror headers all agree with the body is accepted")
+   void testModernMatchingHeadersAreAccepted() {
+      given()
+            .contentType(ContentType.JSON)
+            .header(McpSchema.HEADER_PROTOCOL_VERSION, McpSchema.PROTOCOL_VERSION_STATELESS)
+            .header(McpSchema.HEADER_METHOD, "server/discover")
+            .body(modernJsonRpc("server/discover", ""))
+      .when()
+            .post("/mcp/{expositionId}", EXPOSITION_ID)
+      .then()
+            .statusCode(200)
+            .body("error", nullValue())
+            .body("result.resultType", equalTo("complete"));
+   }
+
+   @Test
+   @DisplayName("methods removed by the 2026 revision answer 404 + -32601 under a modern envelope")
+   void testRemovedMethodsRejectedInModernMode() {
+      for (String method : List.of("initialize", "ping", "logging/setLevel",
+            "resources/subscribe", "resources/unsubscribe")) {
+         given()
+               .contentType(ContentType.JSON)
+               .header(McpSchema.HEADER_PROTOCOL_VERSION, McpSchema.PROTOCOL_VERSION_STATELESS)
+               .header(McpSchema.HEADER_METHOD, method)
+               .body(modernJsonRpc(method, ""))
+         .when()
+               .post("/mcp/{expositionId}", EXPOSITION_ID)
+         .then()
+               .statusCode(404)
+               .body("result", nullValue())
+               .body("error.code", equalTo(McpSchema.ErrorCodes.METHOD_NOT_FOUND));
+      }
+   }
+
+   @Test
+   @DisplayName("a method surviving into 2026 but unimplemented stays in-band -32601 on HTTP 200")
+   void testSurvivingUnimplementedMethodStaysInBand() {
+      // completion/complete is NOT removed by the revision: an unimplemented survivor keeps the ordinary
+      // in-band error on HTTP 200 rather than the 404 reserved for removed methods.
+      given()
+            .contentType(ContentType.JSON)
+            .header(McpSchema.HEADER_PROTOCOL_VERSION, McpSchema.PROTOCOL_VERSION_STATELESS)
+            .header(McpSchema.HEADER_METHOD, "completion/complete")
+            .body(modernJsonRpc("completion/complete", ""))
+      .when()
+            .post("/mcp/{expositionId}", EXPOSITION_ID)
+      .then()
+            .statusCode(200)
+            .body("result", nullValue())
+            .body("error.code", equalTo(McpSchema.ErrorCodes.METHOD_NOT_FOUND));
+   }
+
+   @Test
+   @DisplayName("modern request declaring an unsupported protocol version is rejected (400 + -32022)")
+   void testModernUnsupportedVersionIsRejected() {
+      String unsupported = "1999-01-01";
+      given()
+            .contentType(ContentType.JSON)
+            // Header and envelope agree on the unsupported version, so the -32020 header rung stays silent
+            // and the request reaches version negotiation.
+            .header(McpSchema.HEADER_PROTOCOL_VERSION, unsupported)
+            .header(McpSchema.HEADER_METHOD, "server/discover")
+            .body("""
+                  {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"%s":"%s"}}}"""
+                  .formatted(McpSchema.META_KEY_PROTOCOL_VERSION, unsupported))
+      .when()
+            .post("/mcp/{expositionId}", EXPOSITION_ID)
+      .then()
+            .statusCode(400)
+            .body("result", nullValue())
+            .body("error.code", equalTo(McpSchema.ErrorCodes.UNSUPPORTED_PROTOCOL_VERSION))
+            .body("error.data.supported", hasSize(McpSchema.SUPPORTED_PROTOCOL_VERSIONS.size()));
+   }
+
+   @Test
+   @DisplayName("modern resources/read of an unknown URI returns in-band invalid params (200 + -32602)")
+   void testModernResourceNotFoundYieldsInvalidParams() {
+      String missingUri = "file://does-not-exist";
+      given()
+            .contentType(ContentType.JSON)
+            .header(McpSchema.HEADER_PROTOCOL_VERSION, McpSchema.PROTOCOL_VERSION_STATELESS)
+            .header(McpSchema.HEADER_METHOD, "resources/read")
+            .header(McpSchema.HEADER_NAME, missingUri)
+            .body(modernJsonRpc("resources/read", "\"uri\":\"" + missingUri + "\","))
+      .when()
+            .post("/mcp/{expositionId}", EXPOSITION_ID)
+      .then()
+            .statusCode(200)
+            .body("result", nullValue())
+            .body("error.code", equalTo(McpSchema.ErrorCodes.INVALID_PARAMS));
+   }
+
+   /**
+    * Build a modern (stateless) JSON-RPC request whose {@code params} carry the SEP-2243 envelope in
+    * {@code _meta}. {@code extraParams} is raw JSON prepended inside {@code params} (e.g. {@code "uri":"x",}).
+    */
+   private static String modernJsonRpc(String method, String extraParams) {
+      return """
+            {"jsonrpc":"2.0","id":1,"method":"%s","params":{%s"_meta":{"%s":"%s"}}}"""
+            .formatted(method, extraParams, McpSchema.META_KEY_PROTOCOL_VERSION,
+                  McpSchema.PROTOCOL_VERSION_STATELESS);
+   }
+
    /** Build a minimal JSON-RPC request envelope for a parameter-less method. */
    private static String jsonRpc(String method) {
       return """

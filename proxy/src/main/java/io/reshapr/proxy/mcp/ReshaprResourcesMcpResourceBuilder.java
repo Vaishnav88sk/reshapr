@@ -127,6 +127,7 @@ public class ReshaprResourcesMcpResourceBuilder implements McpResourceBuilder {
    }
 
    @Override
+   @Nullable
    public List<McpSchema.ResourceContents> readResource(McpSchema.ReadResourceRequest request, ConfigurationEntry configuration) {
       JsonNode resourceNode = null;
 
@@ -143,8 +144,8 @@ public class ReshaprResourcesMcpResourceBuilder implements McpResourceBuilder {
 
          JsonNode templatesNode = getResourceTemplatesNode();
          if (templatesNode == null) {
-            return List.of(
-                  new McpSchema.TextResourceContents(request.uri(), "text/plain", "No Resources artifact found."));
+            logger.debugf("No Resources artifact found for service '%s'", service.id());
+            return null;
          }
 
          // Find for resource as an instantiation of a template.
@@ -164,10 +165,8 @@ public class ReshaprResourcesMcpResourceBuilder implements McpResourceBuilder {
 
       // Find the requested resource.
       if (resourceNode == null) {
-         logger.debugf("No resource with URI '%s' not found for service '%s'", request.uri(), service.id());
-         return List.of(
-               new McpSchema.TextResourceContents(request.uri(), "text/plain",
-                     "No Resource with uri '" + request.uri() + "' found."));
+         logger.debugf("No resource with URI '%s' found for service '%s'", request.uri(), service.id());
+         return null;
       }
 
       // Build the resource read result contents.
