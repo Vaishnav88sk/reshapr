@@ -19,8 +19,8 @@ java --enable-preview -jar target/benchmarks.jar McpControllerToolsCallBenchmark
 # - controllerImpl: current,optimized (register more implementations in ControllerFactory.FACTORIES)
 
 # Summarize the results in a human-readable table format
-echo "\n---------------------------------"
+echo "\n-----------------------------------"
 echo "McpController Benchmark Results:"
-echo "\n---------------------------------"
+echo "-----------------------------------"
 ./summarize.sh results-mcp-controller.json
 
