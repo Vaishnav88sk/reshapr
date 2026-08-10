@@ -55,6 +55,35 @@ registered implementation generates a backend request body identical to the refe
 java --enable-preview -cp target/benchmarks.jar io.reshapr.benchmarks.graphql.GraphQLSanityCheck
 ```
 
+### `McpControllerToolsCallBenchmark`
+
+Measures the **pure `McpController` request-handling cost** for a `tools/call`: exposition lookup, modern
+(SEP-2243) pre-dispatch validation ladder, session/protocol-mode resolution, `ScopedValue` binding,
+method dispatch, Jackson params conversion, tool resolution and result shaping.
+
+Everything below the controller is stubbed so no I/O and no real conversion cost is measured:
+the `McpToolConverter` is replaced by `NaiveMcpToolConverter` (canned response, injected by overriding
+`ToolCallExecutor.buildMcpToolConverter()`), audit is disabled on the configuration, OTEL is unresolved
+(no-op `AuditLogger`), and JAX-RS / Vert.x / Infinispan collaborators are container-free stubs
+(`McpBenchStubs`).
+
+Measurement axes:
+
+| Axis | Values |
+|---|---|
+| `protocolMode` | `LEGACY` (session-bound, `MCP-Session-Id` header, protocol 2025-06-18) / `MODERN` (stateless, `MCP-Protocol-Version: 2026-07-28` + mirror headers + `params._meta` envelope, exercising the whole modern validation ladder) |
+| `payloadSize` | `SMALL` (3 scalar args) / `MEDIUM` (20 scalars + 3 nested maps + 64 B blob) / `LARGE` (200 scalars + 10 nested maps + 2 KiB blob) |
+| `headerCount` | `SMALL` (4 base + 4 extra headers) / `MEDIUM` (+16) / `LARGE` (+64) |
+| `audit` | `false` / `true` — controller-side audit overhead (synchronous capture, virtual-thread spawn, async re-serialization). The OTEL emission itself is stubbed out. `gc.alloc.rate.norm` includes the virtual-thread allocations; the reported time only reflects the request thread |
+| `controllerImpl` | implementation under test (see the `ControllerFactory` of the `mcp` package — same pluggable-implementation mechanism as the converter benchmarks) |
+
+```bash
+java --enable-preview -jar target/benchmarks.jar McpControllerToolsCallBenchmark \
+     -prof gc -rf json -rff results-mcp-controller.json
+```
+
+Convenience script: `run-mcp-controller-bench.sh`.
+
 ## Build and run
 
 ```bash
@@ -69,7 +98,8 @@ java --enable-preview -jar target/benchmarks.jar OpenAPIGetCallResponseBenchmark
      -prof gc -rf json -rff results.json
 ```
 
-Convenience scripts are provided: `run-openapi-converter-bench.sh` and `run-graphql-converter-bench.sh` run the full 
+Convenience scripts are provided: `run-openapi-converter-bench.sh`, `run-graphql-converter-bench.sh` and 
+`run-mcp-controller-bench.sh` run the full 
 campaign then print a readable summary table (time + allocations per scenario/implementation) via `summarize.sh` (requires `jq`).
 
 Useful options:
@@ -85,11 +115,23 @@ java --enable-preview -jar target/benchmarks.jar OpenAPIGetCallResponseBenchmark
 
 ## Comparing an alternative implementation
 
+**Converters** (OpenAPI / GraphQL benchmarks):
+
 1. Write the new implementation (it must extend `McpToolConverter` and expose the same
    `(ExpositionEntry, WorkCache, ObjectMapper, ProxyService)` constructor).
 2. Register it in the relevant `ConverterFactory.FACTORIES` with a new key (e.g. `"optimized"`).
 3. Add the key to the `converterImpl` `@Param` of the corresponding benchmark class.
 4. Re-run: both implementations are measured side by side under the exact same conditions.
+
+**Controller** (`McpControllerToolsCallBenchmark`):
+
+1. Write the new implementation: it must extend `McpController`, override the public
+   `handleHttpStreamable(...)` entry points and expose the same
+   `(GatewayRegistry, SessionStore, WorkCache, ProxyService, ToolCallExecutor, AuditLogger)` constructor.
+2. Register it in `io.reshapr.benchmarks.mcp.ControllerFactory.FACTORIES` with a new key (e.g. `"optimized"`).
+3. Add the key to the `controllerImpl` `@Param` of `McpControllerToolsCallBenchmark`.
+4. Re-run: both implementations are measured side by side under the exact same conditions
+   (same wired collaborators, same stubs, same requests).
 
 ## Methodology notes
 
