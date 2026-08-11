@@ -84,6 +84,38 @@ java --enable-preview -jar target/benchmarks.jar McpControllerToolsCallBenchmark
 
 Convenience script: `run-mcp-controller-bench.sh`.
 
+### `ProxyServiceCallBackendBenchmark`
+
+Measures the **pure proxying performance** of `ProxyService.callBackend()` (throughput in ops/s +
+allocations via the GC profiler), end-to-end over loopback. The backend is `MinimalHttpBackend`,
+an ultra-minimal raw-socket HTTP/1.1 server (virtual threads, keep-alive, single pre-serialized
+canned response) designed to never be the bottleneck. Every call runs inside a bound
+`MethodHandlingContext` scoped value, exactly as the MCP layer does in production.
+
+Since `ProxyService` is a highly shared component (static `HttpClient` + connection pool),
+**concurrency is a first-class axis**, selected via the benchmark method name.
+
+Measurement axes:
+
+| Axis | Values |
+|---|---|
+| `requestPayload` | `SMALL` / `MEDIUM` / `LARGE` incoming request body (~100 B / ~10 KiB / ~500 KiB JSON) |
+| `headerCount` | `SMALL` / `MEDIUM` / `LARGE` incoming header set (3 / 12 / 40 headers, incl. restricted ones to filter) |
+| `secretMode` | `NONE` / `TOKEN` (Bearer via `SecretReferenceResolver`) / `BASIC` (username+password, Base64) |
+| `responsePayload` | `SMALL` / `MEDIUM` / `LARGE` backend response body |
+| Concurrency | `callBackend_noConcurrency` (1 thread) / `callBackend_lowConcurrency` (4) / `callBackend_mediumConcurrency` (16) / `callBackend_highConcurrency` (64) |
+| `proxyImpl` | implementation under test (see the `ProxyFactory` of the `proxy` package: `current` = `ProxyService`, `optimized` = `OptimizedProxyService`) |
+
+The full matrix (648 benchmarks) would take hours: the convenience script
+`run-proxy-service-bench.sh` runs a representative baseline instead (each axis explored
+independently around a nominal point) and merges the results into `results-proxy.json`.
+
+```bash
+java --enable-preview -jar target/benchmarks.jar "ProxyServiceCallBackendBenchmark.callBackend_mediumConcurrency" \
+     -p requestPayload=MEDIUM -p responsePayload=MEDIUM -p secretMode=TOKEN \
+     -p proxyImpl=current,optimized -prof gc -rf json -rff results-proxy.json
+```
+
 ## Build and run
 
 ```bash
@@ -98,8 +130,8 @@ java --enable-preview -jar target/benchmarks.jar OpenAPIGetCallResponseBenchmark
      -prof gc -rf json -rff results.json
 ```
 
-Convenience scripts are provided: `run-openapi-converter-bench.sh`, `run-graphql-converter-bench.sh` and 
-`run-mcp-controller-bench.sh` run the full 
+Convenience scripts are provided: `run-openapi-converter-bench.sh`, `run-graphql-converter-bench.sh`, 
+`run-mcp-controller-bench.sh` and `run-proxy-service-bench.sh` run the full 
 campaign then print a readable summary table (time + allocations per scenario/implementation) via `summarize.sh` (requires `jq`).
 
 Useful options:
@@ -132,6 +164,16 @@ java --enable-preview -jar target/benchmarks.jar OpenAPIGetCallResponseBenchmark
 3. Add the key to the `controllerImpl` `@Param` of `McpControllerToolsCallBenchmark`.
 4. Re-run: both implementations are measured side by side under the exact same conditions
    (same wired collaborators, same stubs, same requests).
+
+**Proxy** (`ProxyServiceCallBackendBenchmark`):
+
+1. Write the new implementation in `io.reshapr.benchmarks.proxy.OptimizedProxyService` (or a new
+   class extending `ProxyService` with the same `(SecretReferenceResolver, UserSecretStore)`
+   constructor), overriding `callBackend()` and/or `doCallBackend()`.
+2. Register it in `io.reshapr.benchmarks.proxy.ProxyFactory.FACTORIES` with a new key if needed.
+3. Add the key to the `proxyImpl` `@Param` of `ProxyServiceCallBackendBenchmark`.
+4. Re-run with `-p proxyImpl=current,optimized`: both implementations hit the same
+   `MinimalHttpBackend` under the exact same conditions.
 
 ## Methodology notes
 
