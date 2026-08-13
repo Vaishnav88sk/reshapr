@@ -34,6 +34,7 @@
     ChevronDownIcon,
     ComputerIcon,
     DashboardSquare02Icon,
+    GaugeIcon,
     Logout01Icon,
     McpServerIcon,
     Moon02Icon,
@@ -112,6 +113,7 @@
       adminOnly: true,
       items: [
         { href: '/admin/organizations', label: 'Organizations', icon: Building01Icon },
+        { href: '/admin/quotas', label: 'Quotas', icon: GaugeIcon },
       ]
     }
   ];
