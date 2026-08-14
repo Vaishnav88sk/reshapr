@@ -42,22 +42,30 @@ public final class ProxyBenchPayloads {
 
       /** Build a deterministic JSON document of the target magnitude. */
       public String buildJson() {
-         StringBuilder sb = new StringBuilder(items * 100 + 64);
-         sb.append("{\"kind\":\"bench\",\"items\":[");
-         for (int i = 0; i < items; i++) {
-            if (i > 0) {
-               sb.append(',');
-            }
-            sb.append("{\"id\":").append(i)
-                  .append(",\"name\":\"item-").append(i)
-                  .append("\",\"description\":\"A synthetic benchmark item with some realistic padding text\"")
-                  .append(",\"active\":").append(i % 2 == 0)
-                  .append(",\"score\":").append(i * 3.14)
-                  .append('}');
-         }
-         sb.append("]}");
-         return sb.toString();
+         return ProxyBenchPayloads.buildJson(items);
       }
+   }
+
+   /**
+    * Build a deterministic JSON document with the given number of items (~130 B of JSON per item).
+    * Also used by the end-to-end benchmark environment where item counts are configurable.
+    */
+   public static String buildJson(int items) {
+      StringBuilder sb = new StringBuilder(items * 140 + 64);
+      sb.append("{\"kind\":\"bench\",\"items\":[");
+      for (int i = 0; i < items; i++) {
+         if (i > 0) {
+            sb.append(',');
+         }
+         sb.append("{\"id\":").append(i)
+               .append(",\"name\":\"item-").append(i)
+               .append("\",\"description\":\"A synthetic benchmark item with some realistic padding text\"")
+               .append(",\"active\":").append(i % 2 == 0)
+               .append(",\"score\":").append(i * 3.14)
+               .append('}');
+      }
+      sb.append("]}");
+      return sb.toString();
    }
 
    /** Header count axis: 3 / 12 / 40 incoming headers. */

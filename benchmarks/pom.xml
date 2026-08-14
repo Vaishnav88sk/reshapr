@@ -28,6 +28,21 @@
       <version>${reshapr.version}</version>
     </dependency>
 
+    <!-- Standalone gRPC server transport for the E2E stub control-plane (e2e package).
+         The generated EDS/GHS stubs come transitively from reshapr-api. protobuf-java is pinned
+         to the version of the Quarkus BOM used to generate them (grpc-netty-shaded would
+         otherwise downgrade it to 3.x). -->
+    <dependency>
+      <groupId>io.grpc</groupId>
+      <artifactId>grpc-netty-shaded</artifactId>
+      <version>1.81.0</version>
+    </dependency>
+    <dependency>
+      <groupId>com.google.protobuf</groupId>
+      <artifactId>protobuf-java</artifactId>
+      <version>4.33.2</version>
+    </dependency>
+
     <dependency>
       <groupId>org.openjdk.jmh</groupId>
       <artifactId>jmh-core</artifactId>
