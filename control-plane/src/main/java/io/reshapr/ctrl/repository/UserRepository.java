@@ -37,6 +37,15 @@ public class UserRepository implements PanacheRepository<User> {
    }
 
    /**
+    * Finds a user by their email.
+    * @param email the email of the user to find
+    * @return the User entity if found, otherwise null
+    */
+   public User findByEmail(String email) {
+      return find("email", email).firstResult();
+   }
+
+   /**
     * Adds a new user to the repository.
     * If the user has a password, it hashes the password before persisting.
     * @param user the User entity to add
