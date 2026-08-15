@@ -45,6 +45,10 @@ message Configuration {
   optional Secret backendSecret = 8;
   optional int64 backendTimeout = 9;  // For backend endpoint Timeout
   bool audit = 10; // Whether audit logging is enabled for this configuration
+  repeated string allowedRequestHeaders = 11;
+  repeated string deniedRequestHeaders = 12;
+  repeated string allowedResponseHeaders = 13;
+  repeated string deniedResponseHeaders = 14;
 }
 
 message OAuth2Configuration {

@@ -42,6 +42,10 @@ public interface Mappers {
 
    @Mapping(target = "excludedOperations", source = "excludedOperationsList")
    @Mapping(target = "includedOperations", source = "includedOperationsList")
+   @Mapping(target = "allowedRequestHeaders", source = "allowedRequestHeadersList")
+   @Mapping(target = "deniedRequestHeaders", source = "deniedRequestHeadersList")
+   @Mapping(target = "allowedResponseHeaders", source = "allowedResponseHeadersList")
+   @Mapping(target = "deniedResponseHeaders", source = "deniedResponseHeadersList")
    @Mapping(target = "backendTimeout", expression = "java(configuration.hasBackendTimeout() ? configuration.getBackendTimeout() : null)")
    public ConfigurationEntry toConfigurationEntry(Configuration configuration);
 

@@ -94,9 +94,13 @@ public class ProxyService {
             .timeout(Duration.ofMillis(timeoutMs))
             .method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
 
+      // Filter request headers according to configuration.
+      Map<String, List<String>> filteredHeaders = HeadersUtil.filterHeaders(headers, 
+            configuration.allowedRequestHeaders(), configuration.deniedRequestHeaders());
+
       // Some headers are restricted in HttpClient and must not be propagated.
       Map<String, List<String>> requestHeaders = new HashMap<>();
-      headers.entrySet().stream()
+      filteredHeaders.entrySet().stream()
             .filter(entry -> !RESTRICTED_HEADERS.contains(entry.getKey().toLowerCase()))
             .forEach(entry -> requestHeaders.put(entry.getKey(), entry.getValue()));
 
@@ -132,13 +136,17 @@ public class ProxyService {
 
          // If authorization failed with empty body, explanations may be in the WWW-Authenticate header.
          if (response.statusCode() == 401 && response.body().length == 0 && response.headers().firstValue("www-authenticate").isPresent()) {
+            Map<String, List<String>> responseHeaders = HeadersUtil.filterHeaders(
+                  response.headers().map(), configuration.allowedResponseHeaders(), configuration.deniedResponseHeaders());
             return new BackendResponse(response.statusCode(),
                   response.headers().allValues("www-authenticate").toString().getBytes(StandardCharsets.UTF_8),
-                  response.headers().map());
+                  responseHeaders);
          }
 
          // Return the response as is.
-         return new BackendResponse(response.statusCode(), response.body(), response.headers().map());
+         Map<String, List<String>> responseHeaders = HeadersUtil.filterHeaders(
+               response.headers().map(), configuration.allowedResponseHeaders(), configuration.deniedResponseHeaders());
+         return new BackendResponse(response.statusCode(), response.body(), responseHeaders);
       } catch (HttpTimeoutException e) {
          logger.errorf("Proxy timed out after %dms calling: '%s'", timeoutMs, externalUrl);
          return new BackendResponse(504, ("Backend timed out after " + timeoutMs + "ms").getBytes(StandardCharsets.UTF_8), Map.of());

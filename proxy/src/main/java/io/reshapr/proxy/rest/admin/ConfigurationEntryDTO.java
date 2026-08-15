@@ -23,5 +23,9 @@ public record ConfigurationEntryDTO(
       String id,
       String name,
       String backendEndpoint,
-      Long backendTimeout) {
+      Long backendTimeout,
+      java.util.List<String> allowedRequestHeaders,
+      java.util.List<String> deniedRequestHeaders,
+      java.util.List<String> allowedResponseHeaders,
+      java.util.List<String> deniedResponseHeaders) {
 }

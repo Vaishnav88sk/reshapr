@@ -44,6 +44,10 @@ public class ConfigurationPlanDTO {
    protected List<String> excludedOperations;
    protected List<String> includedOperations;
    protected List<String> includedArtifacts;
+   protected List<String> allowedRequestHeaders;
+   protected List<String> deniedRequestHeaders;
+   protected List<String> allowedResponseHeaders;
+   protected List<String> deniedResponseHeaders;
    protected String backendSecretId;
    protected String apiKey;
    protected OAuth2ConfigurationDTO oauth2Configuration;
@@ -170,4 +174,36 @@ public class ConfigurationPlanDTO {
     public void setAudit(boolean audit) {
        this.audit = audit;
     }
+
+   public List<String> getAllowedRequestHeaders() {
+      return allowedRequestHeaders;
+   }
+
+   public void setAllowedRequestHeaders(List<String> allowedRequestHeaders) {
+      this.allowedRequestHeaders = allowedRequestHeaders;
+   }
+
+   public List<String> getDeniedRequestHeaders() {
+      return deniedRequestHeaders;
+   }
+
+   public void setDeniedRequestHeaders(List<String> deniedRequestHeaders) {
+      this.deniedRequestHeaders = deniedRequestHeaders;
+   }
+
+   public List<String> getAllowedResponseHeaders() {
+      return allowedResponseHeaders;
+   }
+
+   public void setAllowedResponseHeaders(List<String> allowedResponseHeaders) {
+      this.allowedResponseHeaders = allowedResponseHeaders;
+   }
+
+   public List<String> getDeniedResponseHeaders() {
+      return deniedResponseHeaders;
+   }
+
+   public void setDeniedResponseHeaders(List<String> deniedResponseHeaders) {
+      this.deniedResponseHeaders = deniedResponseHeaders;
+   }
 }

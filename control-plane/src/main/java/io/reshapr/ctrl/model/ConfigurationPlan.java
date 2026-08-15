@@ -62,6 +62,22 @@ public class ConfigurationPlan extends TenantAwareEntity {
    @Column(columnDefinition = "JSONB", name = "included_operations")
    public List<String> includedOperations;
 
+   @Type(JsonType.class)
+   @Column(columnDefinition = "JSONB", name = "allowed_request_headers")
+   public List<String> allowedRequestHeaders;
+
+   @Type(JsonType.class)
+   @Column(columnDefinition = "JSONB", name = "denied_request_headers")
+   public List<String> deniedRequestHeaders;
+
+   @Type(JsonType.class)
+   @Column(columnDefinition = "JSONB", name = "allowed_response_headers")
+   public List<String> allowedResponseHeaders;
+
+   @Type(JsonType.class)
+   @Column(columnDefinition = "JSONB", name = "denied_response_headers")
+   public List<String> deniedResponseHeaders;
+
    // Solution belows creates a join table with a single column for operations.
 //   @ElementCollection(fetch = EAGER)
 //   @CollectionTable(name = "config_plans_exclusions", joinColumns = @JoinColumn(name = "id"))

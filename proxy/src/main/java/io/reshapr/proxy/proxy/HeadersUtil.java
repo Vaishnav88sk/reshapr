@@ -92,4 +92,40 @@ public class HeadersUtil {
          }
       }
    }
+
+   /**
+    * Filter headers based on an allow-list or deny-list.
+    * Allow-list takes precedence. If allow-list is present, only headers in it are kept.
+    * Otherwise, if deny-list is present, headers in it are removed.
+    */
+   public static Map<String, List<String>> filterHeaders(Map<String, List<String>> headers,
+         List<String> allowed, List<String> denied) {
+      if ((allowed == null || allowed.isEmpty()) && (denied == null || denied.isEmpty())) {
+         return headers;
+      }
+
+      Map<String, List<String>> filtered = new java.util.HashMap<>();
+      for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
+         String headerName = entry.getKey().toLowerCase();
+         if (allowed != null && !allowed.isEmpty()) {
+            if (isHeaderInList(headerName, allowed)) {
+               filtered.put(entry.getKey(), entry.getValue());
+            }
+         } else if (denied != null && !denied.isEmpty()) {
+            if (!isHeaderInList(headerName, denied)) {
+               filtered.put(entry.getKey(), entry.getValue());
+            }
+         }
+      }
+      return filtered;
+   }
+
+   private static boolean isHeaderInList(String headerName, List<String> list) {
+      for (String item : list) {
+         if (item.toLowerCase().equals(headerName)) {
+            return true;
+         }
+      }
+      return false;
+   }
 }

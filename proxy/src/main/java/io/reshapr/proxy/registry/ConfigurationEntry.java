@@ -28,6 +28,10 @@ public record ConfigurationEntry(
       Long backendTimeout,
       List<String> excludedOperations,
       List<String> includedOperations,
+      List<String> allowedRequestHeaders,
+      List<String> deniedRequestHeaders,
+      List<String> allowedResponseHeaders,
+      List<String> deniedResponseHeaders,
       String apiKey,
       OAuth2ConfigurationEntry oauth2Configuration,
       SecretEntry backendSecret,
@@ -37,7 +41,27 @@ public record ConfigurationEntry(
    public ConfigurationEntry(String id, String name, String backendEndpoint, Long backendTimeout,
                              List<String> excludedOperations, List<String> includedOperations,
                              String apiKey, OAuth2ConfigurationEntry oauth2Configuration, SecretEntry backendSecret) {
-      this(id, name, backendEndpoint, backendTimeout, excludedOperations, includedOperations, apiKey, oauth2Configuration, backendSecret, false);
+      this(id, name, backendEndpoint, backendTimeout, excludedOperations, includedOperations,
+           null, null, null, null,
+           apiKey, oauth2Configuration, backendSecret, false);
+   }
+
+   public ConfigurationEntry(String id, String name, String backendEndpoint, Long backendTimeout,
+                             List<String> excludedOperations, List<String> includedOperations,
+                             String apiKey, OAuth2ConfigurationEntry oauth2Configuration, SecretEntry backendSecret, boolean audit) {
+      this(id, name, backendEndpoint, backendTimeout, excludedOperations, includedOperations,
+           null, null, null, null,
+           apiKey, oauth2Configuration, backendSecret, audit);
+   }
+
+   public ConfigurationEntry(String id, String name, String backendEndpoint, Long backendTimeout,
+                             List<String> excludedOperations, List<String> includedOperations,
+                             List<String> allowedRequestHeaders, List<String> deniedRequestHeaders,
+                             List<String> allowedResponseHeaders, List<String> deniedResponseHeaders,
+                             String apiKey, OAuth2ConfigurationEntry oauth2Configuration, SecretEntry backendSecret) {
+      this(id, name, backendEndpoint, backendTimeout, excludedOperations, includedOperations,
+           allowedRequestHeaders, deniedRequestHeaders, allowedResponseHeaders, deniedResponseHeaders,
+           apiKey, oauth2Configuration, backendSecret, false);
    }
 
    @Override

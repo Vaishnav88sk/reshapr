@@ -103,7 +103,10 @@ public class GrpcProxyService {
     * @return A BackendResponse containing the status code, body, and headers from the backend response.
     */
    public BackendResponse callBackend(ConfigurationEntry configuration, Descriptors.MethodDescriptor md,
-         Map<String, List<String>> headers, String body) throws IOException {
+         Map<String, List<String>> incomingHeaders, String body) throws IOException {
+
+      Map<String, List<String>> headers = HeadersUtil.filterHeaders(incomingHeaders, 
+            configuration.allowedRequestHeaders(), configuration.deniedRequestHeaders());
 
       URL endpoint = URI.create(configuration.backendEndpoint()).toURL();
 

@@ -79,6 +79,11 @@
 	let audit = $state(false);
 	let backendSecretId = $state('');
 
+	let allowedRequestHeadersText = $state('');
+	let deniedRequestHeadersText = $state('');
+	let allowedResponseHeadersText = $state('');
+	let deniedResponseHeadersText = $state('');
+
 	/** 'include' exposes only the selected operations, 'exclude' hides the selected ones. */
 	let opsMode = $state<'include' | 'exclude'>('include');
 	let selectedOps = $state<string[]>([]);
@@ -124,6 +129,7 @@
 	let openArtifacts = $state(false);
 	let openMcp = $state(false);
 	let openBackend = $state(false);
+	let openHeaders = $state(false);
 
 	const NONE_SECRET = '__none__';
 
@@ -186,6 +192,7 @@
 	// Backend & MCP authentication section numbers shift depending on the Artifacts section visibility.
 	const mcpSectionNo = $derived(showArtifacts ? 4 : 3);
 	const backendSectionNo = $derived(showArtifacts ? 5 : 4);
+	const headersSectionNo = $derived(showArtifacts ? 6 : 5);
 
 	// Color-coded pill per HTTP verb.
 	const METHOD_STYLES: Record<string, string> = {
@@ -287,6 +294,11 @@
 			plan.backendTimeout != null && plan.backendTimeout !== '' ? String(plan.backendTimeout) : '';
 		audit = plan.audit === true;
 		backendSecretId = typeof plan.backendSecretId === 'string' ? plan.backendSecretId : '';
+
+		allowedRequestHeadersText = formatOperationsList(plan.allowedRequestHeaders);
+		deniedRequestHeadersText = formatOperationsList(plan.deniedRequestHeaders);
+		allowedResponseHeadersText = formatOperationsList(plan.allowedResponseHeaders);
+		deniedResponseHeadersText = formatOperationsList(plan.deniedResponseHeaders);
 
 		const included = Array.isArray(plan.includedOperations)
 			? plan.includedOperations.map(String).filter(Boolean)
@@ -411,6 +423,22 @@
 
 		if (includedArtifacts.length) body.includedArtifacts = includedArtifacts;
 		else delete body.includedArtifacts;
+
+		const allowReq = parseOperationsList(allowedRequestHeadersText);
+		if (allowReq.length) body.allowedRequestHeaders = allowReq;
+		else delete body.allowedRequestHeaders;
+
+		const denyReq = parseOperationsList(deniedRequestHeadersText);
+		if (denyReq.length) body.deniedRequestHeaders = denyReq;
+		else delete body.deniedRequestHeaders;
+
+		const allowRes = parseOperationsList(allowedResponseHeadersText);
+		if (allowRes.length) body.allowedResponseHeaders = allowRes;
+		else delete body.allowedResponseHeaders;
+
+		const denyRes = parseOperationsList(deniedResponseHeadersText);
+		if (denyRes.length) body.deniedResponseHeaders = denyRes;
+		else delete body.deniedResponseHeaders;
 
 		// MCP endpoint authentication.
 		if (mcpAuthMode === 'oauth') {
@@ -915,6 +943,69 @@
 						<a href="/secrets" class="text-primary hover:underline">Secrets</a> page.
 					</p>
 				{/if}
+			</Card.Content>
+		{/if}
+	</Card.Root>
+
+	<!-- ── Section 6: Headers filtering ────────────────────────────────────── -->
+	<Card.Root>
+		{@render sectionHead(
+			`${headersSectionNo}. Headers filtering`,
+			'Filter HTTP headers for backend requests and client responses.',
+			openHeaders,
+			() => (openHeaders = !openHeaders),
+			''
+		)}
+		{#if openHeaders}
+			<Card.Content class="space-y-4">
+				<div class="grid gap-4 sm:grid-cols-2">
+					<div class="space-y-2">
+						<Label for="allowedRequestHeaders">Allowed request headers</Label>
+						<Textarea
+							id="allowedRequestHeaders"
+							bind:value={allowedRequestHeadersText}
+							rows={2}
+							disabled={loading}
+							placeholder={'Authorization\nContent-Type'}
+						/>
+						<p class="text-muted-foreground text-xs">If set, only these request headers are forwarded. One per line.</p>
+					</div>
+					<div class="space-y-2">
+						<Label for="deniedRequestHeaders">Denied request headers</Label>
+						<Textarea
+							id="deniedRequestHeaders"
+							bind:value={deniedRequestHeadersText}
+							rows={2}
+							disabled={loading}
+							placeholder={'X-Powered-By'}
+						/>
+						<p class="text-muted-foreground text-xs">If allowlist is empty, these request headers are blocked. One per line.</p>
+					</div>
+				</div>
+				<div class="grid gap-4 sm:grid-cols-2">
+					<div class="space-y-2">
+						<Label for="allowedResponseHeaders">Allowed response headers</Label>
+						<Textarea
+							id="allowedResponseHeaders"
+							bind:value={allowedResponseHeadersText}
+							rows={2}
+							disabled={loading}
+							placeholder={'Content-Type'}
+						/>
+						<p class="text-muted-foreground text-xs">If set, only these response headers are forwarded. One per line.</p>
+					</div>
+					<div class="space-y-2">
+						<Label for="deniedResponseHeaders">Denied response headers</Label>
+						<Textarea
+							id="deniedResponseHeaders"
+							bind:value={deniedResponseHeadersText}
+							rows={2}
+							disabled={loading}
+							placeholder={'Server'}
+						/>
+						<p class="text-muted-foreground text-xs">If allowlist is empty, these response headers are blocked. One per line.</p>
+					</div>
+				</div>
 			</Card.Content>
 		{/if}
 	</Card.Root>
