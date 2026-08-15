@@ -24,7 +24,8 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { onMount } from 'svelte';
-  import { Building01Icon, PlusSignIcon, Delete01Icon } from 'hugeicons-svelte';
+  import { HugeiconsIcon } from '@hugeicons/svelte';
+  import { Building01Icon, PlusSignIcon, Delete01Icon } from '@hugeicons/core-free-icons';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
   interface MemberDTO {
@@ -153,7 +154,7 @@
   {:else if !isOwner}
     <Alert.Root class="mb-6">
       <Alert.Title class="flex items-center gap-2">
-        <Building01Icon size={18} />
+        <HugeiconsIcon icon={Building01Icon} size={18} />
         {auth.user.org}
       </Alert.Title>
       <Alert.Description class="text-sm mt-2">
@@ -208,7 +209,7 @@
                           class="h-8 w-8 text-destructive"
                           onclick={() => { memberToRemove = member; isConfirmDialogOpen = true; }}
                         >
-                          <Delete01Icon size={16} />
+                          <HugeiconsIcon icon={Delete01Icon} size={16} />
                         </Button>
                       {/if}
                     </Table.Cell>
@@ -263,7 +264,7 @@
                 {#if isInviting}
                   Adding...
                 {:else}
-                  <PlusSignIcon size={16} class="mr-2" />
+                  <HugeiconsIcon icon={PlusSignIcon} size={16} class="mr-2" />
                   Add Member
                 {/if}
               </Button>

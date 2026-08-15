@@ -9,6 +9,9 @@ update users set default_organization_id = '1' where id = '1';
 update users set default_organization_id = '2' where id = '2';
 update users set default_organization_id = '3' where id = '3';
 
+insert into users_organizations (members_id, organizations_id) values ('2', '2');
+insert into users_organizations (members_id, organizations_id) values ('3', '3');
+
 insert into api_tokens (id, name, token, valid_until, user_id, organization_id) values ('1', 'Dev token', 'my-super-secret-token', '2026-12-24 23:59:59', '1', 'reshapr');
 insert into api_tokens (id, name, token, valid_until, user_id, organization_id) values ('2', 'Acme token', 'my-super-secret-token', '2026-12-24 23:59:59', '2', 'acme');
 
