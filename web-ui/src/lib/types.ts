@@ -43,6 +43,7 @@ export interface Organization {
   name: string;
   description: string | null;
   icon: string | null;
+  isOwner: boolean;
 }
 
 /** Authentication mode determined by the bootstrap configuration. */
