@@ -198,6 +198,15 @@ as 3 tables (latency under nominal load, max throughput, proxy RSS) with:
 ./summarize-e2e.sh some-other-dir # or any directory with latency-*/throughput-*/memory-* files
 ```
 
+To find *where* the proxy spends its time under load, `run-e2e-rest-profile.sh` runs the same
+campaign for one payload with a **Java Flight Recorder** session attached to the proxy
+(CPU sampling + allocation profiling), dumps `results-e2e-rest/proxy-<payload>.jfr` and prints a
+quick report (hottest methods, allocation pressure, GC pauses):
+
+```bash
+./run-e2e-rest-profile.sh large   # then open the .jfr with JDK Mission Control for flame graphs
+```
+
 The environment can also be started standalone (e.g. to point another injector or a profiler at
 the proxy):
 

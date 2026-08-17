@@ -47,6 +47,8 @@ MEASURE_DURATION="${MEASURE_DURATION:-30s}"
 PROXY_HEAP="${PROXY_HEAP:-512m}"
 PROXY_PORT="${PROXY_PORT:-7777}"
 GRPC_PORT="${GRPC_PORT:-15555}"
+# Extra JVM options for the proxy under test (e.g. JFR recording — see run-e2e-rest-profile.sh).
+PROXY_JVM_EXTRA_OPTS="${PROXY_JVM_EXTRA_OPTS:-}"
 PAYLOAD_SMALL_ITEMS="${PAYLOAD_SMALL_ITEMS:-38}"
 PAYLOAD_MEDIUM_ITEMS="${PAYLOAD_MEDIUM_ITEMS:-380}"
 PAYLOAD_LARGE_ITEMS="${PAYLOAD_LARGE_ITEMS:-3700}"
@@ -129,6 +131,7 @@ echo "Starting proxy (:$PROXY_PORT, heap $PROXY_HEAP)..."
 RESHAPR_CTRL_HOST=localhost RESHAPR_CTRL_PORT="$GRPC_PORT" RESHAPR_CTRL_TOKEN=reshapr-bench-token \
 QUARKUS_OTEL_SDK_DISABLED=true QUARKUS_HTTP_PORT="$PROXY_PORT" \
 "$JAVA" --enable-preview -XX:+UseCompactObjectHeaders -Xms"$PROXY_HEAP" -Xmx"$PROXY_HEAP" \
+  ${PROXY_JVM_EXTRA_OPTS:+$PROXY_JVM_EXTRA_OPTS} \
   -Dreshapr.infinispan.stack=reshapr-local \
   -Djava.util.logging.manager=org.jboss.logmanager.LogManager \
   -jar "$REPO_ROOT/proxy/target/quarkus-app/quarkus-run.jar" \
