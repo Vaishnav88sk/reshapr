@@ -49,6 +49,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -778,13 +779,18 @@ public class McpController {
    /** Handle the MCP tools/call request. */
    private McpHandlerResult handleToolsCallRequest(McpSchema.JSONRPCRequest request, Map<String, List<String>> headers,
          ExpositionEntry exposition, McpProtocolDialect dialect) {
-      McpSchema.SimpleRequest toolRequest = mapper.convertValue(request.params(),
-            new TypeReference<McpSchema.SimpleRequest>() {
-            });
+      String toolName = null;
+      Map<String, Object> arguments = null;
+      if (request.params() instanceof Map<?, ?> paramsMap) {
+         toolName = paramsMap.get("name").toString();
+         if (paramsMap.get("arguments") instanceof Map<?, ?> args) {
+            // Shallow defensive copy: converters may add/remove top-level entries.
+            arguments = new HashMap<>((Map<String, Object>) args);
+         }
+      }
 
       // Delegate the whole tool call resolution and invocation to the executor.
-      ToolCallExecutor.ToolCallOutcome outcome = toolCallExecutor.execute(exposition, toolRequest.name(),
-            toolRequest.arguments(), headers);
+      ToolCallExecutor.ToolCallOutcome outcome = toolCallExecutor.execute(exposition, toolName, arguments, headers);
 
       return switch (outcome) {
          case ToolCallExecutor.Success success ->
@@ -917,7 +923,6 @@ public class McpController {
       // scheduled after that point causes intermittent IllegalStateException and silent audit loss.
       String method = request.method();
       Object requestId = request.id();
-      Object requestParams = request.params();
       String serviceName = service.name();
       String serviceVersion = service.version();
       String organizationId = service.organizationId();
@@ -925,8 +930,14 @@ public class McpController {
       SessionInfo sessionInfo = getSessionInfo(serverRequest);
       String sessionId = sessionInfo != null ? sessionInfo.getId() : null;
 
+      final McpSchema.JSONRPCRequest finalRequest = request;
+
       // Execute audit event sending asynchronously.
       Thread.startVirtualThread(() -> {
+         // Extract the target name with a direct cast on the already-deserialized params map
+         // — no deep Jackson re-conversion on the virtual thread.
+         String targetName = getRequestTargetName(finalRequest);
+
          // Determine outcome and error code from the result.
          String outcome = AuditEvent.OUTCOME_SUCCESS;
          Integer errorCode = null;
@@ -941,26 +952,17 @@ public class McpController {
             }
          }
 
-         // Compute response content size.
+         // Estimate the response content size from the CallToolResult text
+         // content already in hand instead of re-serializing the whole result with Jackson.
          long responseSize = 0;
          if (result.isJSONRPCResponse() && result.message() instanceof McpSchema.JSONRPCResponse response
-               && response.result() != null) {
-            try {
-               responseSize = mapper.writeValueAsString(response.result()).length();
-            } catch (Exception _) {
-               // Serialization failed, keep 0.
-            }
-         }
-
-         // Extract target name from request params for tools/call and prompts/get.
-         String targetName = null;
-         if (requestParams != null) {
-            try {
-               McpSchema.SimpleRequest simpleRequest = mapper.convertValue(requestParams,
-                     new TypeReference<McpSchema.SimpleRequest>() {});
-               targetName = simpleRequest.name();
-            } catch (Exception _) {
-               // Not a SimpleRequest, ignore — targetName stays null.
+               && response.result() instanceof McpSchema.CallToolResult callToolResult) {
+            if (callToolResult.content() != null) {
+               for (McpSchema.Content content : callToolResult.content()) {
+                  if (content instanceof McpSchema.TextContent textContent && textContent.text() != null) {
+                     responseSize += textContent.text().length();
+                  }
+               }
             }
          }
 
