@@ -90,6 +90,32 @@ public interface McpProtocolDialect {
    }
 
    /**
+    * Start building a {@code resources/read} result for the negotiated protocol version. As with
+    * {@link #newCallToolResult(List)}, callers may set every property — including the modern-only
+    * {@code ttlMs} and {@code cacheScope} — on the returned builder: each dialect keeps the properties
+    * its wire shape supports and silently drops the others.
+    * @param contents The resource contents.
+    * @return A {@link ReadResourceResultBuilder} producing the version-specific record.
+    */
+   ReadResourceResultBuilder newReadResourceResult(List<McpSchema.ResourceContents> contents);
+
+   /**
+    * Builder for a {@code resources/read} result. Exposes every property across all protocol versions; the
+    * concrete {@link McpProtocolDialect} implementation decides which ones make it into the final record
+    * ({@link McpSchema.ReadResourceResult.Legacy} or {@link McpSchema.ReadResourceResult.Modern}).
+    */
+   interface ReadResourceResultBuilder {
+      /** Client-cache TTL hint — honored only by modern dialects ({@code >= 2026-07-28}). */
+      ReadResourceResultBuilder ttlMs(Long ttlMs);
+
+      /** Client-cache scope hint — honored only by modern dialects ({@code >= 2026-07-28}). */
+      ReadResourceResultBuilder cacheScope(String cacheScope);
+
+      /** Build the version-specific result record. */
+      McpSchema.ReadResourceResult build();
+   }
+
+   /**
     * Start building a {@code resources/list} result for the negotiated protocol version. As with
     * {@link #newListToolsResult(List)}, callers may set any property — including the modern-only client-cache
     * hints ({@code ttlMs}, {@code cacheScope}) — on the returned builder.

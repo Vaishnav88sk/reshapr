@@ -89,6 +89,37 @@ final class LegacyProtocolDialect implements McpProtocolDialect {
    }
 
    @Override
+   public ReadResourceResultBuilder newReadResourceResult(List<McpSchema.ResourceContents> contents) {
+      return new ReadResourceBuilder(contents);
+   }
+
+   /** Builds a {@link McpSchema.ReadResourceResult.Legacy}; modern-only fields are accepted but dropped. */
+   private static final class ReadResourceBuilder implements ReadResourceResultBuilder {
+      private final List<McpSchema.ResourceContents> contents;
+
+      private ReadResourceBuilder(List<McpSchema.ResourceContents> contents) {
+         this.contents = contents;
+      }
+
+      @Override
+      public ReadResourceResultBuilder ttlMs(Long ttlMs) {
+         // Not part of the legacy wire shape — intentionally ignored.
+         return this;
+      }
+
+      @Override
+      public ReadResourceResultBuilder cacheScope(String cacheScope) {
+         // Not part of the legacy wire shape — intentionally ignored.
+         return this;
+      }
+
+      @Override
+      public McpSchema.ReadResourceResult build() {
+         return new McpSchema.ReadResourceResult.Legacy(contents);
+      }
+   }
+
+   @Override
    public CallToolResultBuilder newCallToolResult(List<McpSchema.Content> content) {
       return new CallToolBuilder(content);
    }

@@ -529,7 +529,8 @@ public class McpController {
                   McpProtocolDialect.forVersion(resolveProtocolVersion(headers)));
 
          case McpSchema.METHOD_RESOURCES_READ ->
-            result = handleResourceReadRequest(request, exposition);
+            result = handleResourceReadRequest(request, exposition,
+                  McpProtocolDialect.forVersion(resolveProtocolVersion(headers)));
 
          case McpSchema.METHOD_TOOLS_LIST ->
             result = handleToolsListRequest(request, exposition,
@@ -698,7 +699,8 @@ public class McpController {
    }
 
    /** Handle the MCP resource/read request. */
-   private McpHandlerResult handleResourceReadRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
+   private McpHandlerResult handleResourceReadRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition,
+         McpProtocolDialect dialect) {
       McpSchema.ReadResourceRequest resourceReadRequest = mapper.convertValue(request.params(),
             new TypeReference<McpSchema.ReadResourceRequest>() {
             });
@@ -718,7 +720,16 @@ public class McpController {
                Map.of("uri", resourceReadRequest.uri()));
       }
 
-      return toMcpHandlerResult(request, new McpSchema.ReadResourceResult(contents));
+      // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
+      // client-cache hints are always provided here; they are honored only under a modern dialect and
+      // silently dropped in legacy mode.
+      // TODO: source ttlMs / cacheScope from the exposition configuration instead of these placeholders.
+      McpSchema.ReadResourceResult result = dialect.newReadResourceResult(contents)
+            .ttlMs(60_000L)
+            .cacheScope("public")
+            .build();
+
+      return toMcpHandlerResult(request, result);
    }
 
    /**

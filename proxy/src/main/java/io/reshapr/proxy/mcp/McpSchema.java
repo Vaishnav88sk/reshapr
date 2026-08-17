@@ -496,10 +496,34 @@ public class McpSchema {
          @JsonProperty("uri") String uri) {
    }
 
-   @JsonInclude(JsonInclude.Include.NON_ABSENT)
-   @JsonIgnoreProperties(ignoreUnknown = true)
-   public record ReadResourceResult(
-         @JsonProperty("contents") List<ResourceContents> contents) {
+   /**
+    * Result of a {@code resources/read} call. Two wire shapes coexist depending on the negotiated protocol
+    * version, hence the sealed hierarchy:
+    * <ul>
+    *   <li>{@link Legacy} — protocol versions strictly before {@link #PROTOCOL_VERSION_STATELESS}: only
+    *       {@code contents}.</li>
+    *   <li>{@link Modern} — protocol versions {@code >= 2026-07-28}: adds the mandatory {@code resultType}
+    *       discriminator plus the client-cache hints {@code ttlMs} and {@code cacheScope}.</li>
+    * </ul>
+    * The concrete shape is chosen by {@code McpProtocolDialect}, never by callers.
+    */
+   public sealed interface ReadResourceResult permits ReadResourceResult.Legacy, ReadResourceResult.Modern {
+      List<ResourceContents> contents();
+
+      @JsonInclude(JsonInclude.Include.NON_ABSENT)
+      @JsonIgnoreProperties(ignoreUnknown = true)
+      record Legacy(
+            @JsonProperty("contents") List<ResourceContents> contents) implements ReadResourceResult {
+      }
+
+      @JsonInclude(JsonInclude.Include.NON_ABSENT)
+      @JsonIgnoreProperties(ignoreUnknown = true)
+      record Modern(
+            @JsonProperty("resultType") String resultType,
+            @JsonProperty("contents") List<ResourceContents> contents,
+            @JsonProperty("ttlMs") Long ttlMs,
+            @JsonProperty("cacheScope") String cacheScope) implements ReadResourceResult {
+      }
    }
 
    /**

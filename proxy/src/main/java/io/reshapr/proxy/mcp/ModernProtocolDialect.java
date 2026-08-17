@@ -112,6 +112,39 @@ final class ModernProtocolDialect implements McpProtocolDialect {
    }
 
    @Override
+   public ReadResourceResultBuilder newReadResourceResult(List<McpSchema.ResourceContents> contents) {
+      return new ReadResourceBuilder(contents);
+   }
+
+   /** Builds a {@link McpSchema.ReadResourceResult.Modern}, honoring {@code ttlMs} and {@code cacheScope}. */
+   private static final class ReadResourceBuilder implements ReadResourceResultBuilder {
+      private final List<McpSchema.ResourceContents> contents;
+      private Long ttlMs;
+      private String cacheScope;
+
+      private ReadResourceBuilder(List<McpSchema.ResourceContents> contents) {
+         this.contents = contents;
+      }
+
+      @Override
+      public ReadResourceResultBuilder ttlMs(Long ttlMs) {
+         this.ttlMs = ttlMs;
+         return this;
+      }
+
+      @Override
+      public ReadResourceResultBuilder cacheScope(String cacheScope) {
+         this.cacheScope = cacheScope;
+         return this;
+      }
+
+      @Override
+      public McpSchema.ReadResourceResult build() {
+         return new McpSchema.ReadResourceResult.Modern(RESULT_TYPE_COMPLETE, contents, ttlMs, cacheScope);
+      }
+   }
+
+   @Override
    public CallToolResultBuilder newCallToolResult(List<McpSchema.Content> content) {
       return new CallToolBuilder(content);
    }
