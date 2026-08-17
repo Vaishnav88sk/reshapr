@@ -3,3 +3,4 @@ dependency-reduced-pom.xml
 
 # e2e benchmark outputs (k6 summaries, memory samples, logs)
 results-e2e-rest/
+results-*.json
