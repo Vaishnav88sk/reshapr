@@ -15,6 +15,8 @@
  */
 package io.reshapr.proxy.proxy;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.reshapr.proxy.context.MethodHandlingContext;
 import io.reshapr.proxy.context.SessionInfo;
 import io.reshapr.proxy.mcp.state.UserSecretStore;
@@ -56,6 +58,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -79,8 +82,16 @@ public class GrpcProxyService {
    private static final List<String> RESTRICTED_HEADERS = List.of("host", "connection", "accept",
          "content-type", "content-length", "user-agent");
 
+   /** Default upper bound on the number of pooled channels (distinct endpoints). */
+   private static final long DEFAULT_MAX_CHANNELS = 512L;
+   /** Default idle time-to-live after which an unused endpoint's channel is evicted. */
+   private static final Duration DEFAULT_IDLE_TTL = Duration.ofMinutes(15);
+
    private final SecretReferenceResolver secretResolver;
    private final UserSecretStore userSecretStore;
+
+   /** Per-endpoint {@code ManagedChannel} pool: bounded (LRU + idle TTL), evictions shut down gracefully. */
+   private final Cache<String, ManagedChannel> channelCache;
 
    @ConfigProperty(name = "reshapr.gateway.backend.grpc.default-timeout")
    Long defaultBackendTimeout;
@@ -93,6 +104,47 @@ public class GrpcProxyService {
    public GrpcProxyService(SecretReferenceResolver secretResolver, UserSecretStore userSecretStore) {
       this.secretResolver = secretResolver;
       this.userSecretStore = userSecretStore;
+      this.channelCache = Caffeine.newBuilder()
+            .maximumSize(DEFAULT_MAX_CHANNELS)
+            .expireAfterAccess(DEFAULT_IDLE_TTL)
+            .<String, ManagedChannel>removalListener((key, channel, cause) -> {
+               if (channel != null) {
+                  logger.debugf("Evicting pooled gRPC channel for '%s' (cause %s)", key, cause);
+                  gracefulShutdown(channel);
+               }
+            })
+            .build();
+   }
+
+   /**
+    * Invalidate (and gracefully shut down) every pooled channel whose transport matches the given
+    * backend endpoint. Intended to be called from the registry/EDS sync when an exposition is
+    * redeployed so obsolete channels are reclaimed immediately rather than at idle-TTL expiry.
+    */
+   public void invalidateEndpoint(String backendEndpoint) {
+      try {
+         URL endpoint = URI.create(backendEndpoint).toURL();
+         String base = endpoint.getProtocol() + "://" + endpoint.getHost() + ":" + endpoint.getPort();
+         List<String> keys = channelCache.asMap().keySet().stream()
+               .filter(k -> k.equals(base) || k.startsWith(base + "|"))
+               .toList();
+         channelCache.invalidateAll(keys);
+      } catch (Exception e) {
+         logger.warnf("Unable to invalidate pooled channel for endpoint '%s': %s", backendEndpoint, e.getMessage());
+      }
+   }
+
+   /** @return the current number of pooled channels (for tests/benchmarks). */
+   public long pooledChannelCount() {
+      channelCache.cleanUp();
+      return channelCache.estimatedSize();
+   }
+
+   /** Shut down all pooled channels. Usable from tests/benchmarks or a container destroy callback. */
+   public void shutdown() {
+      channelCache.asMap().values().forEach(GrpcProxyService::gracefulShutdown);
+      channelCache.invalidateAll();
+      channelCache.cleanUp();
    }
 
    /**
@@ -114,23 +166,9 @@ public class GrpcProxyService {
          logger.tracef("Proxy request body: '%s'", body);
       }
 
-      ManagedChannel originChannel;
-      if (endpoint.getProtocol().equals("https") || endpoint.getPort() == 443) {
-         TlsChannelCredentials.Builder tlsBuilder = TlsChannelCredentials.newBuilder();
-         if (configuration.backendSecret() != null && configuration.backendSecret().certPem() != null) {
-            // Install a trust manager with custom CA certificate.
-            String certPem = secretResolver.resolve(configuration.backendSecret().certPem());
-            tlsBuilder.trustManager(new ByteArrayInputStream(certPem.getBytes(StandardCharsets.UTF_8)));
-         }
-         // Build a Channel using the TLS Builder.
-         originChannel = Grpc.newChannelBuilderForAddress(endpoint.getHost(), endpoint.getPort(), tlsBuilder.build())
-               .build();
-      } else {
-         // Build a simple Channel using no creds (now default to plain text so usePlainText() is no longer necessary).
-         originChannel = Grpc
-               .newChannelBuilderForAddress(endpoint.getHost(), endpoint.getPort(), InsecureChannelCredentials.create())
-               .build();
-      }
+      // Reuse a cached ManagedChannel for this endpoint instead of creating one per call. The channel
+      // carries only the transport; per-user credentials and headers are still applied per call below.
+      ManagedChannel originChannel = getOrCreateChannel(endpoint, configuration);
 
       // Add a custom header interceptor which adds the request-specific headers.
       ClientInterceptor headerInterceptor = new HeaderInterceptor();
@@ -209,10 +247,8 @@ public class GrpcProxyService {
          }
 
          return new BackendResponse(httpStatus, message.getBytes(StandardCharsets.UTF_8), Map.of());
-      } finally {
-         // Shutdown the channel to release resources.
-         originChannel.shutdown();
       }
+      // Note: the channel is intentionally NOT shut down here — it is pooled and reused across calls.
    }
 
    @WithSpan(kind = SpanKind.CLIENT)
@@ -303,7 +339,72 @@ public class GrpcProxyService {
       return MethodHandlingContext.getOrganizationId() + '/' + secret.name();
    }
 
-   /** */
+   /**
+    * Return the pooled {@code ManagedChannel} for this endpoint, building it lazily on first use.
+    * The cache key is derived from the transport identity only (protocol, host, port and, for TLS,
+    * the configured trust material reference). It deliberately excludes anything user-specific, so a
+    * single channel is safely shared by all users while credentials remain per call.
+    */
+   private ManagedChannel getOrCreateChannel(URL endpoint, ConfigurationEntry configuration) {
+      String key = channelKey(endpoint, configuration);
+      ManagedChannel channel = channelCache.get(key, k -> buildChannel(endpoint, configuration));
+      // Defensive guard against the narrow evict-then-use race: an evicted channel is shut down by the
+      // removal listener; if we ever hand out a shut-down channel, drop it and rebuild.
+      if (channel != null && channel.isShutdown()) {
+         channelCache.asMap().remove(key, channel);
+         channel = channelCache.get(key, k -> buildChannel(endpoint, configuration));
+      }
+      return channel;
+   }
+
+   /** Build the cache key for a channel from its transport identity. */
+   private static String channelKey(URL endpoint, ConfigurationEntry configuration) {
+      String base = endpoint.getProtocol() + "://" + endpoint.getHost() + ":" + endpoint.getPort();
+      boolean tls = endpoint.getProtocol().equals("https") || endpoint.getPort() == 443;
+      if (tls && configuration.backendSecret() != null && configuration.backendSecret().certPem() != null) {
+         // Different trust material must never share a channel.
+         return base + "|cert=" + configuration.backendSecret().certPem();
+      }
+      return base;
+   }
+
+   /** Build a new {@code ManagedChannel} for the given endpoint (plaintext or TLS). */
+   private ManagedChannel buildChannel(URL endpoint, ConfigurationEntry configuration) {
+      if (endpoint.getProtocol().equals("https") || endpoint.getPort() == 443) {
+         TlsChannelCredentials.Builder tlsBuilder = TlsChannelCredentials.newBuilder();
+         if (configuration.backendSecret() != null && configuration.backendSecret().certPem() != null) {
+            // Install a trust manager with custom CA certificate.
+            String certPem = secretResolver.resolve(configuration.backendSecret().certPem());
+            try {
+               tlsBuilder.trustManager(new ByteArrayInputStream(certPem.getBytes(StandardCharsets.UTF_8)));
+            } catch (Exception e) {
+               throw new IllegalStateException("Unable to install custom trust manager for gRPC backend", e);
+            }
+         }
+         // Build a Channel using the TLS Builder.
+         return Grpc.newChannelBuilderForAddress(endpoint.getHost(), endpoint.getPort(), tlsBuilder.build())
+               .build();
+      }
+      // Build a simple Channel using no creds (now default to plain text so usePlainText() is no longer necessary).
+      return Grpc
+            .newChannelBuilderForAddress(endpoint.getHost(), endpoint.getPort(), InsecureChannelCredentials.create())
+            .build();
+   }
+
+   /** Shutdowns a gRPC channel gracefully. */
+   private static void gracefulShutdown(ManagedChannel channel) {
+      try {
+         channel.shutdown();
+         if (!channel.awaitTermination(5, TimeUnit.SECONDS)) {
+            channel.shutdownNow();
+         }
+      } catch (InterruptedException e) {
+         channel.shutdownNow();
+         Thread.currentThread().interrupt();
+      }
+   }
+
+   /** A client interceptor that adds custom headers to the gRPC request. */
    class HeaderInterceptor implements ClientInterceptor {
 
       @Override
