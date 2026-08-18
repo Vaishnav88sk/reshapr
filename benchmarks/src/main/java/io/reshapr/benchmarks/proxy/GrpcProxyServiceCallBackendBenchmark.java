@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.reshapr.benchmarks.grpc;
+package io.reshapr.benchmarks.proxy;
 
 import io.reshapr.proxy.context.MethodHandlingContext;
 import io.reshapr.proxy.context.MethodHandlingInfo;
@@ -41,7 +41,6 @@ import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.annotations.Warmup;
 
-import java.io.IOException;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
@@ -58,16 +57,18 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Axes:</p>
  * <ul>
+ *   <li>{@code grpcProxyImpl}: implementation under test (see {@link GrpcProxyFactory}) —
+ *       {@code current} (new channel per call) vs {@code optimized} (pooled channels)</li>
  *   <li>{@code requestPayload}: SMALL / MEDIUM / LARGE incoming JSON body (~50 B / ~500 B / ~2 KiB)</li>
  *   <li>{@code secretMode}: NONE / TOKEN (Bearer token backend secret)</li>
  *   <li>concurrency: dedicated benchmark methods at 1 (none), 4 (low), 16 (medium), 64 (high) threads</li>
  * </ul>
  *
- * <p><strong>Note on per-call channel creation:</strong> The current {@link GrpcProxyService}
- * creates a new {@code ManagedChannel} on <em>every single call</em> (see
- * {@code GrpcProxyService#callBackend}, lines ~117–133). This is a known architectural cost
- * that this benchmark intentionally exposes — it is the baseline we are establishing so that
- * any future channel-reuse optimization is clearly measurable.</p>
+ * <p><strong>Comparing implementations in one run:</strong> the {@code grpcProxyImpl} axis is wired
+ * through {@link GrpcProxyFactory}, so a single invocation measures both the production
+ * {@link GrpcProxyService} (which creates and shuts down a new {@code ManagedChannel} on every call,
+ * see {@code GrpcProxyService#callBackend} lines ~117–133) and the candidate
+ * {@link OptimizedGrpcProxyService} (which pools channels per endpoint) side by side.</p>
  *
  * <p>Run with {@code -prof gc} to also capture per-op allocations.</p>
  *
@@ -103,6 +104,9 @@ public class GrpcProxyServiceCallBackendBenchmark {
    @State(Scope.Benchmark)
    public static class BenchState {
 
+      @Param({ "current", "optimized" })
+      public String grpcProxyImpl;
+
       @Param({ "SMALL", "MEDIUM", "LARGE" })
       public String requestPayload;
 
@@ -110,7 +114,7 @@ public class GrpcProxyServiceCallBackendBenchmark {
       public String secretMode;
 
       MinimalGrpcBackend backend;
-      GrpcProxyService grpcProxy;
+      GrpcProxyFactory.GrpcProxyInvoker invoker;
       ConfigurationEntry configuration;
       Descriptors.MethodDescriptor methodDescriptor;
       String requestBody;
@@ -126,10 +130,13 @@ public class GrpcProxyServiceCallBackendBenchmark {
          methodDescriptor = GrpcUtil.findMethodDescriptor(HELLO_V1_DESCRIPTOR_BASE64, SERVICE_NAME, METHOD_NAME);
 
          // Build request JSON for the HelloRequest message (firstname + lastname fields).
+         // NOTE: HelloRequest only has firstname + lastname, and the proxy's JSON->protobuf parser
+         //       is STRICT (unknown fields are rejected). Larger payloads are therefore produced by
+         //       inflating the valid lastname value, never by adding synthetic fields.
          requestBody = switch (requestPayload) {
             case "SMALL" -> "{\"firstname\":\"Bench\",\"lastname\":\"Mark\"}";
-            case "MEDIUM" -> buildRequest(50);   // ~500 B
-            case "LARGE"  -> buildRequest(200);  // ~2 KiB
+            case "MEDIUM" -> buildRequest(500);   // ~500 B
+            case "LARGE"  -> buildRequest(2048);  // ~2 KiB
             default -> throw new IllegalArgumentException("Unknown requestPayload: " + requestPayload);
          };
 
@@ -144,14 +151,13 @@ public class GrpcProxyServiceCallBackendBenchmark {
          configuration = new ConfigurationEntry("cfg-grpc-1", "bench-grpc", backendEndpoint,
                10_000L, null, null, null, null, secret);
 
-         grpcProxy = new GrpcProxyService(new SecretReferenceResolver(List.of()), new UserSecretStore(null));
-         // Inject the CDI default-timeout via reflection (avoids Quarkus bootstrap).
-         injectDefaultTimeout(grpcProxy, 10_000L);
+         invoker = GrpcProxyFactory.forName(grpcProxyImpl)
+               .create(new SecretReferenceResolver(List.of()), new UserSecretStore(null));
 
          handlingInfo = new MethodHandlingInfo("127.0.0.1", null, null, null, "org-bench");
 
-         System.out.printf("%n>>> gRPC proxy bench: requestPayload %s (%d bytes), secret %s%n",
-               requestPayload, requestBody.length(), secretMode);
+         System.out.printf("%n>>> gRPC proxy bench: impl %s, requestPayload %s (%d bytes), secret %s%n",
+               grpcProxyImpl, requestPayload, requestBody.length(), secretMode);
 
          // Sanity check: one successful round-trip before measurement.
          // NOTE: GrpcProxyService returns status 0 on success (gRPC Status.Code.OK.value()),
@@ -167,28 +173,25 @@ public class GrpcProxyServiceCallBackendBenchmark {
 
       @TearDown(Level.Trial)
       public void tearDownTrial() {
+         if (invoker != null) {
+            invoker.shutdown();
+         }
          if (backend != null) {
             backend.close();
          }
       }
 
-      /** Build a larger JSON request by padding with additional synthetic fields. */
-      private static String buildRequest(int extraFieldCount) {
-         StringBuilder sb = new StringBuilder("{\"firstname\":\"Bench\",\"lastname\":\"Mark\"");
-         for (int i = 0; i < extraFieldCount; i++) {
-            // HelloRequest only has firstname+lastname; extra fields are silently ignored by
-            // JsonFormat.parser() which is fine for load generation purposes.
-            sb.append(",\"extra_field_").append(i).append("\":\"synthetic-padding-value-").append(i).append("\"");
+      /**
+       * Build a larger JSON request that stays schema-valid by inflating the {@code lastname}
+       * value to approximately {@code targetBytes} of padding. HelloRequest exposes only
+       * firstname + lastname and the proxy rejects unknown fields, so we never add synthetic ones.
+       */
+      private static String buildRequest(int targetBytes) {
+         StringBuilder lastname = new StringBuilder("Mark-");
+         while (lastname.length() < targetBytes) {
+            lastname.append("padding-");
          }
-         sb.append("}");
-         return sb.toString();
-      }
-
-      /** Inject the default timeout into the non-CDI GrpcProxyService instance via reflection. */
-      private static void injectDefaultTimeout(GrpcProxyService service, long timeoutMs) throws Exception {
-         java.lang.reflect.Field field = GrpcProxyService.class.getDeclaredField("defaultBackendTimeout");
-         field.setAccessible(true);
-         field.set(service, timeoutMs);
+         return "{\"firstname\":\"Bench\",\"lastname\":\"" + lastname + "\"}";
       }
    }
 
@@ -243,7 +246,7 @@ public class GrpcProxyServiceCallBackendBenchmark {
       return ScopedValue.where(MethodHandlingContext.METHOD_HANDLING_INFO, bench.handlingInfo)
             .call(() -> {
                try {
-                  return bench.grpcProxy.callBackend(bench.configuration, bench.methodDescriptor,
+                  return bench.invoker.callBackend(bench.configuration, bench.methodDescriptor,
                         headers, bench.requestBody);
                } catch (Exception e) {
                   throw new RuntimeException("gRPC proxy call failed", e);

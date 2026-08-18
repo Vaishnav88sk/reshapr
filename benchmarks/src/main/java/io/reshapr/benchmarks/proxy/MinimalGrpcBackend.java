@@ -13,14 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.reshapr.benchmarks.grpc;
+package io.reshapr.benchmarks.proxy;
 
 import io.grpc.MethodDescriptor;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.ServerMethodDefinition;
 import io.grpc.ServerServiceDefinition;
-import io.grpc.Status;
 import io.grpc.stub.ServerCalls;
 
 import java.io.ByteArrayInputStream;
