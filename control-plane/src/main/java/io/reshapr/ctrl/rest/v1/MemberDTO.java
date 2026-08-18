@@ -18,15 +18,16 @@ package io.reshapr.ctrl.rest.v1;
 import io.quarkus.runtime.annotations.RegisterForReflection;
 
 /**
- * DTO for a user's organization membership.
- * @param name
- * @param description
- * @param icon
+ * DTO for representing a member of an organization.
+ * @param username
+ * @param email
+ * @param firstname
+ * @param lastname
  */
 @RegisterForReflection
-public record UserOrganizationDTO(
-      String name,
-      String description,
-      String icon,
-      boolean isOwner) {
+public record MemberDTO(
+      String username,
+      String email,
+      String firstname,
+      String lastname) {
 }

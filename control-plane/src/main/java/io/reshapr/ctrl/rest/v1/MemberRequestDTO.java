@@ -16,17 +16,16 @@
 package io.reshapr.ctrl.rest.v1;
 
 import io.quarkus.runtime.annotations.RegisterForReflection;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
 
 /**
- * DTO for a user's organization membership.
- * @param name
- * @param description
- * @param icon
+ * DTO for requesting to add a member to an organization.
+ * @param email
  */
 @RegisterForReflection
-public record UserOrganizationDTO(
-      String name,
-      String description,
-      String icon,
-      boolean isOwner) {
+public record MemberRequestDTO(
+      @NotBlank
+      @Email
+      String email) {
 }

@@ -96,7 +96,9 @@ public class UserProfileResource {
    private UserProfileDTO getUserProfile(User user) {
       return new UserProfileDTO(user.firstname, user.lastname,
             user.defaultOrganization != null ? user.defaultOrganization.name : null,
-            v1Mappers.toResource(user.organizations));
+            user.organizations.stream().map(o -> new UserOrganizationDTO(
+                  o.name, o.description, o.icon, o.owner != null && o.owner.username.equals(user.username)
+            )).toList());
    }
 }
 
