@@ -54,7 +54,9 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -86,6 +88,11 @@ public class GrpcProxyService {
    private static final long DEFAULT_MAX_CHANNELS = 512L;
    /** Default idle time-to-live after which an unused endpoint's channel is evicted. */
    private static final Duration DEFAULT_IDLE_TTL = Duration.ofMinutes(15);
+
+   /** JSON to Protobuf parser. */
+   private static final JsonFormat.Parser PARSER = JsonFormat.parser();
+   /** Protobuf to JSON printer, configured to omit insignificant whitespace. */
+   private static final JsonFormat.Printer PRINTER = JsonFormat.printer().omittingInsignificantWhitespace();
 
    private final SecretReferenceResolver secretResolver;
    private final UserSecretStore userSecretStore;
@@ -176,11 +183,10 @@ public class GrpcProxyService {
 
       // Use a builder for out type with a Json parser to merge content and build outMsg.
       DynamicMessage.Builder reqBuilder = DynamicMessage.newBuilder(md.getInputType());
-      JsonFormat.Parser parser = JsonFormat.parser();
 
       // Now produce the request message byte array.
       try {
-         parser.merge(body, reqBuilder);
+         PARSER.merge(body, reqBuilder);
       } catch (InvalidProtocolBufferException e) {
          String message = e.getMessage() != null ? e.getMessage() : "Invalid JSON to Protobuf conversion";
          logger.errorf("Exception while parsing JSON to Protobuf: '%s'", message);
@@ -209,22 +215,22 @@ public class GrpcProxyService {
             logger.tracef("Proxy response body: '%s'", new String(responseBytes, StandardCharsets.UTF_8));
          }
 
-         String contentResponse;
          try {
             // Validate incoming message parsing a DynamicMessage.
             DynamicMessage respMsg = DynamicMessage.parseFrom(md.getOutputType(), responseBytes);
 
-            // Now update response content with readable content.
-            JsonFormat.Printer printer = JsonFormat.printer();
-            contentResponse = printer.print(respMsg);
+            // Stream protobuf -> JSON straight to UTF-8 bytes: avoids materializing the full
+            // intermediate String (UTF-16) and the extra getBytes() copy on large payloads.
+            ByteArrayOutputStream baos = new ByteArrayOutputStream(responseBytes.length + (responseBytes.length >> 1));
+            try (OutputStreamWriter writer = new OutputStreamWriter(baos, StandardCharsets.UTF_8)) {
+               PRINTER.appendTo(respMsg, writer);
+            }
+            return new BackendResponse(Status.Code.OK.value(), baos.toByteArray(), Map.of());
          } catch (InvalidProtocolBufferException ipbe) {
             String message = ipbe.getMessage() != null ? ipbe.getMessage() : "Invalid Protobuf to JSON conversion";
             logger.errorf("Exception while converting Protobuf to JSON: '%s'", message);
             return new BackendResponse(400, message.getBytes(StandardCharsets.UTF_8), Map.of());
          }
-
-         return new BackendResponse(Status.Code.OK.value(),
-               contentResponse.getBytes(StandardCharsets.UTF_8), Map.of());
       } catch (StatusRuntimeException sre) {
          int httpStatus = mapGrpcStatusToHttp(sre.getStatus().getCode());
          String message = sre.getMessage() != null ? sre.getMessage() : sre.getStatus().getCode().name();
