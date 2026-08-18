@@ -93,6 +93,7 @@ public class OrganizationResource {
       }
 
       if (organization.owner == null || !organization.owner.username.equals(username)) {
+         logger.warnf("User %s tried to add member %s to organization %s", username, memberRequest.email(), organizationName);
          return Response.status(Response.Status.FORBIDDEN).entity("Only the owner can add members").build();
       }
 
@@ -126,6 +127,7 @@ public class OrganizationResource {
       }
 
       if (organization.owner == null || !organization.owner.username.equals(username)) {
+         logger.warnf("User %s tried to remove member %s from organization %s", username, email, organizationName);
          return Response.status(Response.Status.FORBIDDEN).entity("Only the owner can remove members").build();
       }
 
