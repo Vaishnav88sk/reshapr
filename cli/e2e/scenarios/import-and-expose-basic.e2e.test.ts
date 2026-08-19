@@ -18,7 +18,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getTempHome, login, runCli, runCliExpectSuccess, runCliJson } from '../helpers/cli-runner.js';
 import { deleteServiceIfPresent, deleteServicesByNameVersion } from '../helpers/cleanup.js';
-import { callMcpTool, initializeMcp, mcpUrl, waitForMcpTools } from '../helpers/mcp-client.js';
+import { callMcpTool, discoverMcp, initializeMcp, LEGACY_PROTOCOL_VERSION, mcpUrl, STATELESS_PROTOCOL_VERSION, waitForMcpTools, type McpSession } from '../helpers/mcp-client.js';
 
 const OPEN_METEO_SPEC = path.resolve(import.meta.dirname, '../../../dev/open-meteo-openapi.yml');
 const OPEN_METEO_SERVICE_NAME = 'Open-Meteo APIs';
@@ -106,40 +106,72 @@ describe.sequential('Scenario: Import and expose an OpenAPI service via MCP', ()
     expect(exposition?.configurationPlan?.backendEndpoint).toBe(OPEN_METEO_BACKEND);
   });
 
-  test('initializes MCP endpoint through gateway', async () => {
-    const endpoint = mcpUrl(OPEN_METEO_SERVICE_NAME, OPEN_METEO_SERVICE_VERSION);
-    const initialized = await initializeMcp(endpoint);
+  describe.each([
+    {
+      label: `legacy protocol ${LEGACY_PROTOCOL_VERSION}`,
+      protocolVersion: LEGACY_PROTOCOL_VERSION,
+      handshake: initializeMcp,
+      stateless: false,
+    },
+    {
+      label: `stateless protocol ${STATELESS_PROTOCOL_VERSION}`,
+      protocolVersion: STATELESS_PROTOCOL_VERSION,
+      handshake: discoverMcp,
+      stateless: true,
+    },
+  ])('MCP endpoint over $label', ({ protocolVersion, handshake, stateless }) => {
+    let session: McpSession | undefined;
 
-    expect(initialized.body.result?.serverInfo).toBeDefined();
-  });
+    function requireSession(): McpSession {
+      if (!session) {
+        throw new Error('MCP session was not initialized');
+      }
+      return session;
+    }
 
-  test('lists Open-Meteo MCP tool', async () => {
-    const importedService = requireService();
-    const endpoint = mcpUrl(OPEN_METEO_SERVICE_NAME, OPEN_METEO_SERVICE_VERSION);
-    const tools = await waitForMcpTools(endpoint, {
-      exact: OPEN_METEO_EXPECTED_TOOLS,
-      include: [OPEN_METEO_TOOL_NAME],
+    test('negotiates MCP endpoint through gateway', async () => {
+      const endpoint = mcpUrl(OPEN_METEO_SERVICE_NAME, OPEN_METEO_SERVICE_VERSION);
+      const negotiated = await handshake(endpoint, protocolVersion);
+
+      expect(negotiated.body.result?.serverInfo).toBeDefined();
+      expect(negotiated.session.protocolVersion).toBe(protocolVersion);
+      if (stateless) {
+        expect(negotiated.session.sessionId).toBeUndefined();
+      } else {
+        expect(negotiated.session.sessionId).toEqual(expect.any(String));
+      }
+
+      session = negotiated.session;
     });
 
-    expect(tools).toHaveLength(importedService.operations?.length ?? 0);
-  });
+    test('lists Open-Meteo MCP tool', async () => {
+      const importedService = requireService();
+      const endpoint = mcpUrl(OPEN_METEO_SERVICE_NAME, OPEN_METEO_SERVICE_VERSION);
+      const tools = await waitForMcpTools(endpoint, {
+        exact: OPEN_METEO_EXPECTED_TOOLS,
+        include: [OPEN_METEO_TOOL_NAME],
+      }, requireSession());
 
-  test('calls Open-Meteo forecast tool through MCP', async () => {
-    const endpoint = mcpUrl(OPEN_METEO_SERVICE_NAME, OPEN_METEO_SERVICE_VERSION);
-    const toolCall = await callMcpTool(endpoint, OPEN_METEO_TOOL_NAME, {
-      latitude: 48.8566,
-      longitude: 2.3522,
-      current_weather: true,
-      timezone: 'Europe/Paris',
+      expect(tools).toHaveLength(importedService.operations?.length ?? 0);
     });
 
-    expect(toolCall.error).toBeUndefined();
-    expect(toolCall.result?.isError).not.toBe(true);
-    expect(toolCall.result?.content?.[0]?.text).toEqual(expect.any(String));
+    test('calls Open-Meteo forecast tool through MCP', async () => {
+      const endpoint = mcpUrl(OPEN_METEO_SERVICE_NAME, OPEN_METEO_SERVICE_VERSION);
+      const toolCall = await callMcpTool(endpoint, OPEN_METEO_TOOL_NAME, {
+        latitude: 48.8566,
+        longitude: 2.3522,
+        current_weather: true,
+        timezone: 'Europe/Paris',
+      }, requireSession());
 
-    const backendPayload = JSON.parse(toolCall.result.content[0].text);
-    expect(backendPayload.latitude).toEqual(expect.any(Number));
-    expect(backendPayload.longitude).toEqual(expect.any(Number));
+      expect(toolCall.error).toBeUndefined();
+      expect(toolCall.result?.isError).not.toBe(true);
+      expect(toolCall.result?.content?.[0]?.text).toEqual(expect.any(String));
+
+      const backendPayload = JSON.parse(toolCall.result.content[0].text);
+      expect(backendPayload.latitude).toEqual(expect.any(Number));
+      expect(backendPayload.longitude).toEqual(expect.any(Number));
+    });
   });
 
   test('deletes imported Open-Meteo service before logout', async () => {

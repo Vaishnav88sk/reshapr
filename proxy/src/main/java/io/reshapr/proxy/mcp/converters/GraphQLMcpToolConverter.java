@@ -47,6 +47,7 @@ import org.jboss.logging.Logger;
 
 import java.net.URI;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -153,86 +154,103 @@ public class GraphQLMcpToolConverter extends McpToolConverter {
       return null;
    }
 
-   /** */
+   /** Get (or build once) the parsed Document. */
    private Document getDocument() throws Exception {
       String major = artifact.id();
       String minor = CACHE_KEYS_PREFIX + "document";
-      Object value = workCache.get(major, minor);
-      if (value instanceof Document document) {
-         logger.debugf("Got a cached value of Document for service '%s'", service.id());
-         return document;
-      }
+      // Single-flight: parse the (potentially large) schema at most once per artifact, even under
+      // concurrent access, to avoid a thundering herd of concurrent parses exhausting the heap.
+      return (Document) workCache.computeIfAbsent(major, minor, () -> {
+         logger.debugf("Need to build the Document for service '%s'", service.id());
+         return new Parser().parseDocument(artifact.content());
+      });
+   }
 
-      // Compute new value to cache.
-      logger.debugf("Need to build the Document for service '%s'", service.id());
-      Document document = new Parser().parseDocument(artifact.content());
-      workCache.set(major, minor, document);
-      return document;
+   /** Get (or build once) the name-indexed views over the document. */
+   private DocumentIndex getDocumentIndex(Document document) {
+      String major = artifact.id();
+      String minor = CACHE_KEYS_PREFIX + "index";
+      // Single-flight: build the index at most once per artifact, even under concurrent access.
+      return (DocumentIndex) workCache.computeIfAbsent(major, minor, () -> {
+         // Compute new value to cache: single pass over the document definitions.
+         logger.debugf("Need to build the DocumentIndex for service '%s'", service.id());
+         Map<String, FieldDefinition> operationDefinitions = new HashMap<>();
+         Map<String, ObjectTypeDefinition> objectTypes = new HashMap<>();
+         for (ObjectTypeDefinition typeDefinition : document.getDefinitionsOfType(ObjectTypeDefinition.class)) {
+            objectTypes.putIfAbsent(typeDefinition.getName(), typeDefinition);
+            if (VALID_OPERATION_TYPES.contains(typeDefinition.getName().toLowerCase())) {
+               for (FieldDefinition fieldDef : typeDefinition.getFieldDefinitions()) {
+                  operationDefinitions.putIfAbsent(fieldDef.getName(), fieldDef);
+               }
+            }
+         }
+         Map<String, EnumTypeDefinition> enumTypes = new HashMap<>();
+         for (EnumTypeDefinition enumTypeDefinition : document.getDefinitionsOfType(EnumTypeDefinition.class)) {
+            enumTypes.putIfAbsent(enumTypeDefinition.getName(), enumTypeDefinition);
+         }
+         Map<String, InputObjectTypeDefinition> inputTypes = new HashMap<>();
+         for (InputObjectTypeDefinition inputObjectTypeDefinition : document.getDefinitionsOfType(InputObjectTypeDefinition.class)) {
+            inputTypes.putIfAbsent(inputObjectTypeDefinition.getName(), inputObjectTypeDefinition);
+         }
+         Set<String> scalarNames = document.getDefinitionsOfType(ScalarTypeDefinition.class).stream()
+               .map(ScalarTypeDefinition::getName)
+               .collect(Collectors.toSet());
+
+         return new DocumentIndex(operationDefinitions, objectTypes, enumTypes, inputTypes, scalarNames);
+      });
    }
 
    /** */
    private ObjectNode getInputSchemaNode(OperationEntry operation) {
       String major = artifact.id();
       String minor = CACHE_KEYS_PREFIX + operation.hashCode() + "-schema";
-      Object value = workCache.get(major, minor);
-      if (value instanceof ObjectNode inputSchemaNode) {
-         logger.debugf("Got a cached value of InputSchemaNode for service '%s' and operation '%s", service.id(), operation.name());
-         return inputSchemaNode;
-      }
+      // Single-flight: build the input schema at most once per operation, even under concurrent access.
+      return (ObjectNode) workCache.computeIfAbsent(major, minor, () -> {
+         // Compute new value to cache.
+         logger.debugf("Need to build the InputSchemaNode for service '%s' and operation '%s'", service.id(), operation.name());
+         ObjectNode inputSchemaNode = mapper.createObjectNode();
+         ObjectNode schemaPropertiesNode = mapper.createObjectNode();
+         ArrayNode requiredPropertiesNode = mapper.createArrayNode();
 
-      // Compute new value to cache.
-      logger.debugf("Need to build the InputSchemaNode for service '%s' and operation '%s'", service.id(), operation.name());
-      ObjectNode inputSchemaNode = mapper.createObjectNode();
-      ObjectNode schemaPropertiesNode = mapper.createObjectNode();
-      ArrayNode requiredPropertiesNode = mapper.createArrayNode();
+         // Initialize input schema with empty object.
+         inputSchemaNode.put(JSON_SCHEMA_TYPE_ELEMENT, JSON_SCHEMA_OBJECT_TYPE);
+         inputSchemaNode.set(JSON_SCHEMA_PROPERTIES_ELEMENT, schemaPropertiesNode);
+         inputSchemaNode.set(JSON_SCHEMA_REQUIRED_ELEMENT, requiredPropertiesNode);
+         inputSchemaNode.put(JSON_SCHEMA_ADD_PROPERTIES_ELEMENT, false);
+         try {
+            Document document = getDocument();
+            FieldDefinition operationDefinition = getOperationDefinition(document, operation.name());
 
-      // Initialize input schema with empty object.
-      inputSchemaNode.put(JSON_SCHEMA_TYPE_ELEMENT, JSON_SCHEMA_OBJECT_TYPE);
-      inputSchemaNode.set(JSON_SCHEMA_PROPERTIES_ELEMENT, schemaPropertiesNode);
-      inputSchemaNode.set(JSON_SCHEMA_REQUIRED_ELEMENT, requiredPropertiesNode);
-      inputSchemaNode.put(JSON_SCHEMA_ADD_PROPERTIES_ELEMENT, false);
-      try {
-         Document document = getDocument();
-         FieldDefinition operationDefinition = getOperationDefinition(document, operation.name());
+            if (operationDefinition != null && operationDefinition.getInputValueDefinitions() != null
+                  && !operationDefinition.getInputValueDefinitions().isEmpty()) {
+               for (InputValueDefinition inputValueDef : operationDefinition.getInputValueDefinitions()) {
+                  visitProperty(document, inputValueDef.getName(), inputValueDef.getType(), inputValueDef.getDescription(),
+                        schemaPropertiesNode, requiredPropertiesNode);
+               }
 
-         if (operationDefinition != null && operationDefinition.getInputValueDefinitions() != null
-               && !operationDefinition.getInputValueDefinitions().isEmpty()) {
-            for (InputValueDefinition inputValueDef : operationDefinition.getInputValueDefinitions()) {
-               visitProperty(document, inputValueDef.getName(), inputValueDef.getType(), inputValueDef.getDescription(),
-                     schemaPropertiesNode, requiredPropertiesNode);
-            }
-
-            // We should also visit the output type to allow fetching relations.
-            TypeInfo outputTypeInfo = TypeInfo.typeInfo(operationDefinition.getType());
-            ObjectTypeDefinition typeDef = getTypeDefinition(document, outputTypeInfo.getName());
-            if (typeDef != null) {
-               for (FieldDefinition fd : typeDef.getFieldDefinitions()) {
-                  // We only want to fetch relation => !(argument-less scalar or enum types).
-                  if (!fd.getInputValueDefinitions().isEmpty()) {
-                     visitRelationProperty(document, fd, schemaPropertiesNode, requiredPropertiesNode);
+               // We should also visit the output type to allow fetching relations.
+               TypeInfo outputTypeInfo = TypeInfo.typeInfo(operationDefinition.getType());
+               ObjectTypeDefinition typeDef = getTypeDefinition(document, outputTypeInfo.getName());
+               if (typeDef != null) {
+                  for (FieldDefinition fd : typeDef.getFieldDefinitions()) {
+                     // We only want to fetch relation => !(argument-less scalar or enum types).
+                     if (!fd.getInputValueDefinitions().isEmpty()) {
+                        visitRelationProperty(document, fd, schemaPropertiesNode, requiredPropertiesNode);
+                     }
                   }
                }
             }
+         } catch (Exception e) {
+            logger.error("Exception while trying to get input schema", e);
          }
-      } catch (Exception e) {
-         logger.error("Exception while trying to get input schema", e);
-      }
-      workCache.set(major, minor, inputSchemaNode);
-      return inputSchemaNode;
+         return inputSchemaNode;
+      });
    }
 
    /** Retrieve the correct operation definition in GraphQL schema document. */
    private FieldDefinition getOperationDefinition(Document document, String operationName) {
-      for (ObjectTypeDefinition typeDefinition : document.getDefinitionsOfType(ObjectTypeDefinition.class)) {
-         if (VALID_OPERATION_TYPES.contains(typeDefinition.getName().toLowerCase())) {
-            for (FieldDefinition fieldDef : typeDefinition.getFieldDefinitions()) {
-               if (fieldDef.getName().equals(operationName)) {
-                  return fieldDef;
-               }
-            }
-         }
-      }
-      return null;
+      //# O(1) lookup in the cached index instead of scanning all type definitions.
+      return getDocumentIndex(document).operationDefinitions().get(operationName);
    }
 
    /** Visit a property and add it to the input schema elements (properties and required properties). */
@@ -360,40 +378,27 @@ public class GraphQLMcpToolConverter extends McpToolConverter {
 
    /** Check if the type is a scalar type. */
    private boolean isScalarType(Document graphqlDocument, String typeName) {
+      // O(1) lookup in the cached index instead of scanning scalar definitions.
       return ScalarInfo.isGraphqlSpecifiedScalar(typeName)
-            || graphqlDocument.getDefinitionsOfType(ScalarTypeDefinition.class).stream()
-            .anyMatch(scalarTypeDefinition -> scalarTypeDefinition.getName().equals(typeName));
+            || getDocumentIndex(graphqlDocument).scalarNames().contains(typeName);
    }
 
    /** Retrieve the correct type definition in GraphQL schema document. */
    private ObjectTypeDefinition getTypeDefinition(Document graphqlDocument, String typeName) {
-      for (ObjectTypeDefinition typeDefinition : graphqlDocument.getDefinitionsOfType(ObjectTypeDefinition.class)) {
-         if (typeDefinition.getName().equals(typeName)) {
-            return typeDefinition;
-         }
-      }
-      return null;
+      // O(1) lookup in the cached index instead of scanning all type definitions.
+      return getDocumentIndex(graphqlDocument).objectTypes().get(typeName);
    }
 
    /** Retrieve the correct enum type definition in GraphQL schema document. */
    private EnumTypeDefinition getEnumTypeDefinition(Document graphqlDocument, String typeName) {
-      for (EnumTypeDefinition enumTypeDefinition : graphqlDocument.getDefinitionsOfType(EnumTypeDefinition.class)) {
-         if (enumTypeDefinition.getName().equals(typeName)) {
-            return enumTypeDefinition;
-         }
-      }
-      return null;
+      // O(1) lookup in the cached index instead of scanning all enum definitions.
+      return getDocumentIndex(graphqlDocument).enumTypes().get(typeName);
    }
 
    /** Retrieve the correct input value definition in GraphQL schema document. */
    private InputObjectTypeDefinition getInputValueDefinition(Document graphqlDocument, String typeName) {
-      for (InputObjectTypeDefinition inputObjectTypeDefinition : graphqlDocument
-            .getDefinitionsOfType(InputObjectTypeDefinition.class)) {
-         if (inputObjectTypeDefinition.getName().equals(typeName)) {
-            return inputObjectTypeDefinition;
-         }
-      }
-      return null;
+      // O(1) lookup in the cached index instead of scanning all input definitions.
+      return getDocumentIndex(graphqlDocument).inputTypes().get(typeName);
    }
 
    /** Retrieve the correct field definition in Object type definition. */
@@ -523,6 +528,55 @@ public class GraphQLMcpToolConverter extends McpToolConverter {
       return sb.toString();
    }
 
+   /**
+    * Request-independent selection of all argument-less fields of the operation
+    * output type, built once per operation and cached as a plain string in the WorkCache.
+    */
+   private String getOutputFieldsSkeleton(Document graphqlDocument, FieldDefinition operationDefinition) {
+      String major = artifact.id();
+      String minor = CACHE_KEYS_PREFIX + operationDefinition.getName() + "-output-fields";
+      // Single-flight: build the skeleton at most once per operation, even under concurrent access.
+      return (String) workCache.computeIfAbsent(major, minor, () -> {
+         logger.debugf("Need to build the output fields skeleton for operation '%s'", operationDefinition.getName());
+         StringBuilder builder = new StringBuilder();
+         TypeInfo operationOutputTypeInfo = TypeInfo.typeInfo(operationDefinition.getType());
+         ObjectTypeDefinition typeDef = getTypeDefinition(graphqlDocument, operationOutputTypeInfo.getName());
+
+         // Fetch all argument-less fields.
+         if (typeDef != null) {
+            for (FieldDefinition fd : typeDef.getFieldDefinitions()) {
+               addFieldDefinitionPropertiesToFetch(graphqlDocument, fd, builder, new HashSet<>());
+            }
+         }
+         return builder.toString();
+      });
+   }
+
+   /**
+    * Request-independent selection of the argument-less fields of a relation type,
+    * built once per relation type and cached as a plain string in the WorkCache.
+    */
+   private String getRelationFieldsSkeleton(Document graphqlDocument, ObjectTypeDefinition relationTypeDef) {
+      String major = artifact.id();
+      String minor = CACHE_KEYS_PREFIX + relationTypeDef.getName() + "-relation-fields";
+      // Single-flight: build the skeleton at most once per relation type, even under concurrent access.
+      return (String) workCache.computeIfAbsent(major, minor, () -> {
+         logger.debugf("Need to build the relation fields skeleton for type '%s'", relationTypeDef.getName());
+         // Start fetching its properties and initialize a set to track and avoid cycles.
+         Set<String> fetchingTypes = new HashSet<>();
+         fetchingTypes.add(relationTypeDef.getName());
+
+         StringBuilder builder = new StringBuilder();
+         builder.append(" {\\n");
+         for (FieldDefinition fd : relationTypeDef.getFieldDefinitions()) {
+            addFieldDefinitionPropertiesToFetch(graphqlDocument, fd, builder, fetchingTypes);
+         }
+         builder.append("}\\n");
+
+         return builder.toString();
+      });
+   }
+
    /** Add output fields to fetch in the operation. */
    private void addOutputFieldsToFetch(Document graphqlDocument, FieldDefinition operationDefinition,
                                        McpSchema.SimpleRequest request, StringBuilder builder) {
@@ -530,12 +584,8 @@ public class GraphQLMcpToolConverter extends McpToolConverter {
       TypeInfo operationOutputTypeInfo = TypeInfo.typeInfo(operationOutputType);
       ObjectTypeDefinition typeDef = getTypeDefinition(graphqlDocument, operationOutputTypeInfo.getName());
 
-      // Fetch all argument-less fields.
-      if (typeDef != null) {
-         for (FieldDefinition fd : typeDef.getFieldDefinitions()) {
-            addFieldDefinitionPropertiesToFetch(graphqlDocument, fd, builder, new HashSet<>());
-         }
-      }
+      // The argument-less fields selection is request-independent and cached.
+      builder.append(getOutputFieldsSkeleton(graphqlDocument, operationDefinition));
 
       // Also add relation fields if any.
       for (String requestField : request.arguments().keySet()) {
@@ -565,15 +615,8 @@ public class GraphQLMcpToolConverter extends McpToolConverter {
                TypeInfo relationFieldTypeInfo = TypeInfo.typeInfo(relationFieldDef.getType());
                ObjectTypeDefinition relationTypeDef = getTypeDefinition(graphqlDocument, relationFieldTypeInfo.getName());
                if (relationTypeDef != null) {
-                  // Start fetching its properties and initialize a set to track and avoid cycles.
-                  Set<String> fetchingTypes = new HashSet<>();
-                  fetchingTypes.add(relationTypeDef.getName());
-
-                  builder.append(" {\\n");
-                  for (FieldDefinition fd : relationTypeDef.getFieldDefinitions()) {
-                     addFieldDefinitionPropertiesToFetch(graphqlDocument, fd, builder, fetchingTypes);
-                  }
-                  builder.append("}\\n");
+                  // The relation fields selection is request-independent and cached.
+                  builder.append(getRelationFieldsSkeleton(graphqlDocument, relationTypeDef));
                }
             }
          }
@@ -628,5 +671,17 @@ public class GraphQLMcpToolConverter extends McpToolConverter {
          // Remove the current type from the set of resolving types.
          fetchingTypes.remove(objectTypeInfo.getName());
       }
+   }
+
+   /**
+    * Name-indexed views over the parsed document, built once and cached in the
+    * WorkCache under the artifact id (evicted together with the Document on invalidation).
+    */
+   private record DocumentIndex(
+         Map<String, FieldDefinition> operationDefinitions,
+         Map<String, ObjectTypeDefinition> objectTypes,
+         Map<String, EnumTypeDefinition> enumTypes,
+         Map<String, InputObjectTypeDefinition> inputTypes,
+         Set<String> scalarNames) {
    }
 }

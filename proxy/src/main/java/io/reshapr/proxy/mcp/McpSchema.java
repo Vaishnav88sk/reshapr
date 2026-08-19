@@ -53,12 +53,39 @@ public class McpSchema {
 
    public static final String JSONRPC_VERSION = "2.0";
 
+   /**
+    * Whether {@code protocolVersion} is greater than or equal to {@code reference}, using the declared
+    * order of {@link #SUPPORTED_PROTOCOL_VERSIONS}. Unknown or {@code null} versions are treated as the
+    * oldest (i.e. "not at least"), so callers safely fall back to the legacy behavior. Prefer this over a
+    * strict {@code equals} so future protocol versions keep selecting the modern shape.
+    */
+   public static boolean isAtLeast(String protocolVersion, String reference) {
+      int versionIndex = SUPPORTED_PROTOCOL_VERSIONS.indexOf(protocolVersion);
+      int referenceIndex = SUPPORTED_PROTOCOL_VERSIONS.indexOf(reference);
+      return versionIndex >= 0 && versionIndex >= referenceIndex;
+   }
+
    // ---------------------------
    // Http Header Names
    // ---------------------------
 
    public static final String HEADER_SESSION_ID = "MCP-Session-Id";
    public static final String HEADER_PROTOCOL_VERSION = "MCP-Protocol-Version";
+
+   /** Modern (SEP-2243, {@code >= 2026-07-28}) request header mirroring the JSON-RPC body {@code method}. */
+   public static final String HEADER_METHOD = "Mcp-Method";
+
+   /**
+    * Modern (SEP-2243, {@code >= 2026-07-28}) request header mirroring the JSON-RPC body target,
+    * i.e. {@code params.name} (tools/call, prompts/get) or {@code params.uri} (resources/read).
+    */
+   public static final String HEADER_NAME = "Mcp-Name";
+
+   /**
+    * Key under a modern (stateless) request's {@code params._meta} carrying the negotiated protocol
+    * version the request is framed with (SEP-2243).
+    */
+   public static final String META_KEY_PROTOCOL_VERSION = "io.modelcontextprotocol/protocolVersion";
 
    // ---------------------------
    // Method Names
@@ -128,6 +155,27 @@ public class McpSchema {
 
       /** Internal JSON-RPC error. */
       public static final int INTERNAL_ERROR = -32603;
+
+      // Modern (SEP-2243, >= 2026-07-28) protocol error codes
+
+      /**
+       * A modern mirror header ({@code Mcp-Method}, {@code Mcp-Name} or {@code MCP-Protocol-Version})
+       * disagrees with the request body. Mapped to HTTP 400 by the transport.
+       */
+      public static final int HEADER_MISMATCH = -32020;
+
+      /**
+       * A modern request declares a protocol version the server does not support. Mapped to HTTP 400 by
+       * the transport; the error {@code data} names the supported versions.
+       */
+      public static final int UNSUPPORTED_PROTOCOL_VERSION = -32022;
+
+      /**
+       * A modern request needs a client capability it did not declare (e.g. {@code elicitation} for an
+       * {@code input_required} round trip). Mapped to HTTP 400 by the transport; the error {@code data}
+       * names the required capabilities.
+       */
+      public static final int MISSING_CLIENT_CAPABILITY = -32021;
 
       // Implementation-specific JSON-RPC error codes [-32000, -32099]
 
@@ -319,8 +367,8 @@ public class McpSchema {
          @JsonProperty("cacheScope") String cacheScope) implements Meta {
 
       public DiscoverResult(List<String> supportedVersions, ServerCapabilities capabilities,
-            Implementation serverInfo, Map<String, Object> meta, String instructions) {
-         this("complete", supportedVersions, capabilities, serverInfo, meta, instructions, null, null);
+            Implementation serverInfo, Map<String, Object> meta, Long ttlMs, String cacheScope) {
+         this("complete", supportedVersions, capabilities, serverInfo, meta, null, ttlMs, cacheScope);
       }
    }
 
@@ -331,11 +379,37 @@ public class McpSchema {
          @JsonProperty("arguments") Map<String, Object> arguments) implements Request {
    }
 
-   @JsonInclude(JsonInclude.Include.NON_ABSENT)
-   @JsonIgnoreProperties(ignoreUnknown = true)
-   public record ListPromptsResult(
-         @JsonProperty("prompts") List<Prompt> tools,
-         @JsonProperty("nextCursor") String nextCursor) {
+   /**
+    * Result of a {@code prompts/list} call. Like {@link ListToolsResult}, two wire shapes coexist
+    * depending on the negotiated protocol version (Option B: one record per version):
+    * <ul>
+    *   <li>{@link Legacy} — protocol versions strictly before {@link #PROTOCOL_VERSION_STATELESS}: only
+    *       {@code prompts} and the optional {@code nextCursor}.</li>
+    *   <li>{@link Modern} — protocol versions {@code >= 2026-07-28}: adds the mandatory {@code resultType}
+    *       discriminator plus the client-cache hints {@code ttlMs} and {@code cacheScope}.</li>
+    * </ul>
+    * The concrete shape is chosen by {@code McpProtocolDialect}, never by callers.
+    */
+   public sealed interface ListPromptsResult permits ListPromptsResult.Legacy, ListPromptsResult.Modern {
+      List<Prompt> prompts();
+      String nextCursor();
+
+      @JsonInclude(JsonInclude.Include.NON_ABSENT)
+      @JsonIgnoreProperties(ignoreUnknown = true)
+      record Legacy(
+            @JsonProperty("prompts") List<Prompt> prompts,
+            @JsonProperty("nextCursor") String nextCursor) implements ListPromptsResult {
+      }
+
+      @JsonInclude(JsonInclude.Include.NON_ABSENT)
+      @JsonIgnoreProperties(ignoreUnknown = true)
+      record Modern(
+            @JsonProperty("resultType") String resultType,
+            @JsonProperty("prompts") List<Prompt> prompts,
+            @JsonProperty("nextCursor") String nextCursor,
+            @JsonProperty("ttlMs") Long ttlMs,
+            @JsonProperty("cacheScope") String cacheScope) implements ListPromptsResult {
+      }
    }
 
    @JsonInclude(JsonInclude.Include.NON_ABSENT)
@@ -349,18 +423,71 @@ public class McpSchema {
       }
    }
 
-   @JsonInclude(JsonInclude.Include.NON_ABSENT)
-   @JsonIgnoreProperties(ignoreUnknown = true)
-   public record ListResourcesResult(
-         @JsonProperty("resources") List<Resource> resources,
-         @JsonProperty("nextCursor") String nextCursor) {
+   /**
+    * Result of a {@code resources/list} call. Like {@link ListToolsResult}, two wire shapes coexist
+    * depending on the negotiated protocol version (Option B: one record per version):
+    * <ul>
+    *   <li>{@link Legacy} — protocol versions strictly before {@link #PROTOCOL_VERSION_STATELESS}: only
+    *       {@code resources} and the optional {@code nextCursor}.</li>
+    *   <li>{@link Modern} — protocol versions {@code >= 2026-07-28}: adds the mandatory {@code resultType}
+    *       discriminator plus the client-cache hints {@code ttlMs} and {@code cacheScope}.</li>
+    * </ul>
+    * The concrete shape is chosen by {@code McpProtocolDialect}, never by callers.
+    */
+   public sealed interface ListResourcesResult permits ListResourcesResult.Legacy, ListResourcesResult.Modern {
+      List<Resource> resources();
+      String nextCursor();
+
+      @JsonInclude(JsonInclude.Include.NON_ABSENT)
+      @JsonIgnoreProperties(ignoreUnknown = true)
+      record Legacy(
+            @JsonProperty("resources") List<Resource> resources,
+            @JsonProperty("nextCursor") String nextCursor) implements ListResourcesResult {
+      }
+
+      @JsonInclude(JsonInclude.Include.NON_ABSENT)
+      @JsonIgnoreProperties(ignoreUnknown = true)
+      record Modern(
+            @JsonProperty("resultType") String resultType,
+            @JsonProperty("resources") List<Resource> resources,
+            @JsonProperty("nextCursor") String nextCursor,
+            @JsonProperty("ttlMs") Long ttlMs,
+            @JsonProperty("cacheScope") String cacheScope) implements ListResourcesResult {
+      }
    }
 
-   @JsonInclude(JsonInclude.Include.NON_ABSENT)
-   @JsonIgnoreProperties(ignoreUnknown = true)
-   public record ListResourceTemplatesResult(
-         @JsonProperty("resourceTemplates") List<ResourceTemplate> resourceTemplates,
-         @JsonProperty("nextCursor") String nextCursor) {
+   /**
+    * Result of a {@code resources/templates/list} call. Like {@link ListToolsResult}, two wire shapes coexist
+    * depending on the negotiated protocol version (Option B: one record per version):
+    * <ul>
+    *   <li>{@link Legacy} — protocol versions strictly before {@link #PROTOCOL_VERSION_STATELESS}: only
+    *       {@code resourceTemplates} and the optional {@code nextCursor}.</li>
+    *   <li>{@link Modern} — protocol versions {@code >= 2026-07-28}: adds the mandatory {@code resultType}
+    *       discriminator plus the client-cache hints {@code ttlMs} and {@code cacheScope}.</li>
+    * </ul>
+    * The concrete shape is chosen by {@code McpProtocolDialect}, never by callers.
+    */
+   public sealed interface ListResourceTemplatesResult
+         permits ListResourceTemplatesResult.Legacy, ListResourceTemplatesResult.Modern {
+      List<ResourceTemplate> resourceTemplates();
+      String nextCursor();
+
+      @JsonInclude(JsonInclude.Include.NON_ABSENT)
+      @JsonIgnoreProperties(ignoreUnknown = true)
+      record Legacy(
+            @JsonProperty("resourceTemplates") List<ResourceTemplate> resourceTemplates,
+            @JsonProperty("nextCursor") String nextCursor) implements ListResourceTemplatesResult {
+      }
+
+      @JsonInclude(JsonInclude.Include.NON_ABSENT)
+      @JsonIgnoreProperties(ignoreUnknown = true)
+      record Modern(
+            @JsonProperty("resultType") String resultType,
+            @JsonProperty("resourceTemplates") List<ResourceTemplate> resourceTemplates,
+            @JsonProperty("nextCursor") String nextCursor,
+            @JsonProperty("ttlMs") Long ttlMs,
+            @JsonProperty("cacheScope") String cacheScope) implements ListResourceTemplatesResult {
+      }
    }
 
    @JsonInclude(JsonInclude.Include.NON_ABSENT)
@@ -369,24 +496,98 @@ public class McpSchema {
          @JsonProperty("uri") String uri) {
    }
 
-   @JsonInclude(JsonInclude.Include.NON_ABSENT)
-   @JsonIgnoreProperties(ignoreUnknown = true)
-   public record ReadResourceResult(
-         @JsonProperty("contents") List<ResourceContents> contents) {
+   /**
+    * Result of a {@code resources/read} call. Two wire shapes coexist depending on the negotiated protocol
+    * version, hence the sealed hierarchy:
+    * <ul>
+    *   <li>{@link Legacy} — protocol versions strictly before {@link #PROTOCOL_VERSION_STATELESS}: only
+    *       {@code contents}.</li>
+    *   <li>{@link Modern} — protocol versions {@code >= 2026-07-28}: adds the mandatory {@code resultType}
+    *       discriminator plus the client-cache hints {@code ttlMs} and {@code cacheScope}.</li>
+    * </ul>
+    * The concrete shape is chosen by {@code McpProtocolDialect}, never by callers.
+    */
+   public sealed interface ReadResourceResult permits ReadResourceResult.Legacy, ReadResourceResult.Modern {
+      List<ResourceContents> contents();
+
+      @JsonInclude(JsonInclude.Include.NON_ABSENT)
+      @JsonIgnoreProperties(ignoreUnknown = true)
+      record Legacy(
+            @JsonProperty("contents") List<ResourceContents> contents) implements ReadResourceResult {
+      }
+
+      @JsonInclude(JsonInclude.Include.NON_ABSENT)
+      @JsonIgnoreProperties(ignoreUnknown = true)
+      record Modern(
+            @JsonProperty("resultType") String resultType,
+            @JsonProperty("contents") List<ResourceContents> contents,
+            @JsonProperty("ttlMs") Long ttlMs,
+            @JsonProperty("cacheScope") String cacheScope) implements ReadResourceResult {
+      }
    }
 
-   @JsonInclude(JsonInclude.Include.NON_ABSENT)
-   @JsonIgnoreProperties(ignoreUnknown = true)
-   public record ListToolsResult(
-         @JsonProperty("tools") List<Tool> tools,
-         @JsonProperty("nextCursor") String nextCursor) {
+   /**
+    * Result of a {@code tools/list} call. Two wire shapes coexist depending on the negotiated protocol
+    * version, hence the sealed hierarchy (Option B: one record per version):
+    * <ul>
+    *   <li>{@link Legacy} — protocol versions strictly before {@link #PROTOCOL_VERSION_STATELESS}: only
+    *       {@code tools} and the optional {@code nextCursor}.</li>
+    *   <li>{@link Modern} — protocol versions {@code >= 2026-07-28}: adds the mandatory {@code resultType}
+    *       discriminator plus the client-cache hints {@code ttlMs} and {@code cacheScope}.</li>
+    * </ul>
+    * The concrete shape is chosen by {@code McpProtocolDialect}, never by callers.
+    */
+   public sealed interface ListToolsResult permits ListToolsResult.Legacy, ListToolsResult.Modern {
+      List<Tool> tools();
+      String nextCursor();
+
+      @JsonInclude(JsonInclude.Include.NON_ABSENT)
+      @JsonIgnoreProperties(ignoreUnknown = true)
+      record Legacy(
+            @JsonProperty("tools") List<Tool> tools,
+            @JsonProperty("nextCursor") String nextCursor) implements ListToolsResult {
+      }
+
+      @JsonInclude(JsonInclude.Include.NON_ABSENT)
+      @JsonIgnoreProperties(ignoreUnknown = true)
+      record Modern(
+            @JsonProperty("resultType") String resultType,
+            @JsonProperty("tools") List<Tool> tools,
+            @JsonProperty("nextCursor") String nextCursor,
+            @JsonProperty("ttlMs") Long ttlMs,
+            @JsonProperty("cacheScope") String cacheScope) implements ListToolsResult {
+      }
    }
 
-   @JsonInclude(JsonInclude.Include.NON_ABSENT)
-   @JsonIgnoreProperties(ignoreUnknown = true)
-   public record CallToolResult(
-         @JsonProperty("content") List<Content> content,
-         @JsonProperty("isError") Boolean isError) {
+   /**
+    * Result of a {@code tools/call} invocation. Like {@link ListToolsResult}, two wire shapes coexist
+    * depending on the negotiated protocol version (Option B: one record per version):
+    * <ul>
+    *   <li>{@link Legacy} — protocol versions strictly before {@link #PROTOCOL_VERSION_STATELESS}: only the
+    *       unstructured {@code content} and the optional {@code isError} flag.</li>
+    *   <li>{@link Modern} — protocol versions {@code >= 2026-07-28}: adds the optional
+    *       {@code structuredContent} object and the base-{@code Result} {@code _meta} field.</li>
+    * </ul>
+    * The concrete shape is chosen by {@code McpProtocolDialect}, never by callers.
+    */
+   public sealed interface CallToolResult permits CallToolResult.Legacy, CallToolResult.Modern {
+      List<Content> content();
+      Boolean isError();
+
+      @JsonInclude(JsonInclude.Include.NON_ABSENT)
+      @JsonIgnoreProperties(ignoreUnknown = true)
+      record Legacy(
+            @JsonProperty("content") List<Content> content,
+            @JsonProperty("isError") Boolean isError) implements CallToolResult {
+      }
+
+      @JsonInclude(JsonInclude.Include.NON_ABSENT)
+      @JsonIgnoreProperties(ignoreUnknown = true)
+      record Modern(
+            @JsonProperty("resultType") String resultType,
+            @JsonProperty("content") List<Content> content,
+            @JsonProperty("isError") Boolean isError) implements CallToolResult {
+      }
    }
    // spotless:on
 
@@ -621,12 +822,9 @@ public class McpSchema {
    // spotless:on
 
 
-   // MCP 2026-07-28 version additions ---------------------------------
+   // MCP 2026-07-28 version ony additions ---------------------------------
 
    // spotless:off
-
-   // spotless:on
-
    /**
     * A single entry of {@link InputRequiredResult#inputRequests}. Per the MCP draft schema it carries
     * <b>only</b> the {@code method} and {@code params} of the request to perform (not a full JSON-RPC
@@ -678,5 +876,5 @@ public class McpSchema {
       }
       return new InputRequiredResult(RESULT_TYPE_INPUT_REQUIRED, inputRequests, requestState, null);
    }
-
+   // spotless:on
 }

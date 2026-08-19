@@ -22,6 +22,7 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * A configurable basic working cache for MCP operations.
@@ -54,6 +55,23 @@ public class WorkCache {
       String key = major + "_" + minor;
       logger.tracef("Looking for key '%s", key);
       return cache.getIfPresent(key);
+   }
+
+   /**
+    * Atomically get the cached value for the given key, or compute and cache it exactly once.
+    * <p>Unlike a {@link #get(String, String)}/{@link #set(String, String, Object)} pair, this method
+    * guarantees the {@code loader} runs at most once per key even under concurrent access: competing
+    * threads for the same missing key block and share the single computed value. This is essential for
+    * expensive one-time computations (e.g. parsing a large GraphQL schema) to avoid a thundering herd
+    * of concurrent recomputations that can exhaust the heap.
+    * @param major The major part of the cache key.
+    * @param minor The minor part of the cache key.
+    * @param loader The supplier used to compute the value on a cache miss.
+    * @return The cached or newly computed value.
+    */
+   public Object computeIfAbsent(String major, String minor, Supplier<Object> loader) {
+      String key = major + "_" + minor;
+      return cache.get(key, k -> loader.get());
    }
 
    public long size() {

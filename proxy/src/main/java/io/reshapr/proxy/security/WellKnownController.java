@@ -19,6 +19,7 @@ import io.reshapr.proxy.registry.ConfigurationEntry;
 import io.reshapr.proxy.registry.ExpositionEntry;
 import io.reshapr.proxy.registry.GatewayRegistry;
 import io.reshapr.proxy.registry.OAuth2ConfigurationEntry;
+import io.reshapr.proxy.util.WebUtils;
 
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.ws.rs.GET;
@@ -115,7 +116,7 @@ public class WellKnownController {
 
       if (configuration != null && configuration.oauth2Configuration() != null) {
          OAuth2ConfigurationEntry oauth2Config = configuration.oauth2Configuration();
-         String resource = "https://" + fqdns.getFirst() + resourcePath;
+         String resource = WebUtils.getHTTPScheme(fqdns.getFirst()) + fqdns.getFirst() + resourcePath;
 
          OAuth2ProtectedResourceMetadata metadata = new OAuth2ProtectedResourceMetadata(
                resource,

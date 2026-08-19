@@ -43,6 +43,8 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * A service to proxy HTTP requests to external backends.
@@ -55,9 +57,14 @@ public class ProxyService {
    /** Get a JBoss logging logger. */
    private final Logger logger = Logger.getLogger(getClass());
 
-   private static final HttpClient httpClient = HttpClient.newBuilder()
-         .connectTimeout(Duration.ofSeconds(3))
-         .version(HttpClient.Version.HTTP_1_1).build();
+   /** Number of client shards: half the cores, clamped to [2..8]. */
+   private static final int SHARD_COUNT = Math.clamp(Runtime.getRuntime().availableProcessors() / 2, 2, 8);
+
+   /** The sharded clients, each with its own selector thread, connection pool and VT executor. */
+   private static final HttpClient[] CLIENTS = buildClients();
+
+   /** Round-robin cursor for shard selection. */
+   private static final AtomicInteger CURSOR = new AtomicInteger();
 
    private static final List<String> RESTRICTED_HEADERS = List.of("host", "connection", "x-reshapr-key");
 
@@ -75,6 +82,18 @@ public class ProxyService {
    public ProxyService(SecretReferenceResolver secretResolver, UserSecretStore userSecretStore) {
       this.secretResolver = secretResolver;
       this.userSecretStore = userSecretStore;
+   }
+
+   private static HttpClient[] buildClients() {
+      HttpClient[] clients = new HttpClient[SHARD_COUNT];
+      for (int i = 0; i < SHARD_COUNT; i++) {
+         clients[i] = HttpClient.newBuilder()
+               .connectTimeout(Duration.ofSeconds(3))
+               .version(HttpClient.Version.HTTP_1_1)
+               .executor(Executors.newVirtualThreadPerTaskExecutor())
+               .build();
+      }
+      return clients;
    }
 
    /**
@@ -179,7 +198,9 @@ public class ProxyService {
       // Apply headers to request builder before calling backend.
       requestHeaders.forEach((key, values) -> values.forEach(value -> requestBuilder.header(key, value)));
 
-      return httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofByteArray());
+      // Round-robin shard selection: spreads I/O event processing over SHARD_COUNT selector threads.
+      HttpClient client = CLIENTS[Math.floorMod(CURSOR.getAndIncrement(), SHARD_COUNT)];
+      return client.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofByteArray());
    }
 
    private void manageSecurityHeaders(SecretEntry secret, Map<String, List<String>> headers) {

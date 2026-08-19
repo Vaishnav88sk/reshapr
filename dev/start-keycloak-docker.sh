@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Start Keycloak for local Reshapr OIDC dev (realm 3rdparty on port 8888).
+# Start Keycloak for local Reshapr OIDC dev (realms 3rdparty and backend on port 8888).
 # Single terminal: starts container, fixes sslRequired on master + 3rdparty, then follows logs.
 set -euo pipefail
 
 CONTAINER_NAME="${RESHAPR_KEYCLOAK_CONTAINER:-reshapr-keycloak-dev}"
-KEYCLOAK_IMAGE="${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.3.0}"
+KEYCLOAK_IMAGE="${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.6.0}"
 HOST_PORT="${KEYCLOAK_HOST_PORT:-8888}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,7 +22,8 @@ docker run -d --rm --name "${CONTAINER_NAME}" \
   -e KC_HOSTNAME_STRICT=false \
   -e KC_HTTP_ENABLED=true \
   "${KEYCLOAK_IMAGE}" \
-  start-dev --hostname "http://localhost:${HOST_PORT}" --import-realm --hostname-backchannel-dynamic true
+  start-dev --hostname "http://localhost:${HOST_PORT}" --import-realm --hostname-backchannel-dynamic true --features cimd
+# start-dev --hostname "https://unvibrating-uncondoned-jessia.ngrok-free.dev" --import-realm --hostname-backchannel-dynamic true --features cimd
 
 echo "Waiting for Keycloak to be ready ..."
 READY=0
@@ -42,12 +43,13 @@ if [ "${READY}" -ne 1 ]; then
   exit 1
 fi
 
-echo "Disabling SSL requirement on master and 3rdparty realms (local dev only) ..."
+echo "Disabling SSL requirement on master, 3rdparty and backend realms (local dev only) ..."
 docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh config credentials \
   --server "http://localhost:8080" --realm master --user admin --password admin
 
 docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh update realms/master -s sslRequired=NONE
 docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh update realms/3rdparty -s sslRequired=NONE
+docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh update realms/backend -s sslRequired=NONE
 
 echo "Ensuring master admin password (admin console login) ..."
 docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh set-password -r master --username admin --new-password admin --temporary=false
@@ -63,6 +65,19 @@ if [ -n "${LAURENT_ID}" ]; then
     -s email=laurent@example.com -s firstName=Laurent -s lastName=Test -s emailVerified=true
 else
   echo "Warning: user laurent not found in realm 3rdparty; skipping profile update." >&2
+fi
+
+echo "Configuring dev user backend-user (realm import does not set a usable password in Keycloak 26) ..."
+docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh set-password -r backend --username backend-user --new-password backend-user --temporary=false
+BACKEND_USER_ID="$(
+  docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh get users -r backend \
+    -q username=backend-user --fields id --format csv --noquotes 2>/dev/null | tail -1
+)"
+if [ -n "${BACKEND_USER_ID}" ]; then
+  docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh update "users/${BACKEND_USER_ID}" -r backend \
+    -s email=backend-user@example.com -s firstName=Backend -s lastName=User -s emailVerified=true
+else
+  echo "Warning: user backend-user not found in realm backend; skipping profile update." >&2
 fi
 
 echo ""

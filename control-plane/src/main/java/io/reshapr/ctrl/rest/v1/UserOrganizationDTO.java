@@ -27,5 +27,6 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
 public record UserOrganizationDTO(
       String name,
       String description,
-      String icon) {
+      String icon,
+      boolean isOwner) {
 }

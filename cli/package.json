@@ -1,6 +1,6 @@
 {
   "name": "@reshapr/reshapr-cli",
-  "version": "0.1.1-SNAPSHOT",
+  "version": "0.2.2-SNAPSHOT",
   "description": "CLI for reshapr.io - The MCP Gateway for AI-Native API Access!",
   "type": "module",
   "main": "src/cli.ts",
@@ -31,9 +31,9 @@
     "commander": "15.0.0",
     "get-port": "7.2.0",
     "inquirer": "14.0.2",
-    "js-yaml": "4.3.0",
+    "js-yaml": "5.2.2",
     "open": "11.0.0",
-    "yocto-spinner": "1.2.0"
+    "yocto-spinner": "1.2.2"
   },
   "devDependencies": {
     "@types/commander": "2.12.5",
@@ -41,7 +41,7 @@
     "@types/node": "24.0.13",
     "execa": "9.6.1",
     "typescript": "5.8.3",
-    "vitest": "4.1.9"
+    "vitest": "4.1.10"
   },
   "files": [
     "dist"

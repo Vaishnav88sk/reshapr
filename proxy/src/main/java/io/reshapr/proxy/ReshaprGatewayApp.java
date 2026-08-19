@@ -118,6 +118,8 @@ public class ReshaprGatewayApp {
 
    /** Application startup method. */
    void onStart(@Observes StartupEvent ev) {
+      validateConfiguration();
+
       if (logger.isInfoEnabled()) {
          logger.infof("reShapr Gateway Application ID: %s", gatewayId);
          logger.infof("reShapr Gateway Application labels: %s", labels);
@@ -144,6 +146,19 @@ public class ReshaprGatewayApp {
          logger.infof("Startup completed with %d expositions registered. Now listening for changes.", discoveryResponse.getExpositionsCount());
       } catch (Throwable t) {
          logger.error("Failed to fetch expositions during startup", t);
+      }
+   }
+
+   /**
+    * Validate the mandatory gateway configuration at startup. Fails fast with a clear error when
+    * {@code reshapr.gateway.fqdns} is missing or empty (e.g., not set via the Helm chart).
+    */
+   void validateConfiguration() {
+      boolean hasFqdn = fqdns != null && fqdns.stream().anyMatch(fqdn -> fqdn != null && !fqdn.isBlank());
+      if (!hasFqdn) {
+         String message = "Configuration error: reshapr.gateway.fqdns must be set to a non-empty value";
+         logger.error(message);
+         throw new IllegalStateException(message);
       }
    }
 

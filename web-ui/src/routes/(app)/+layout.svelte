@@ -34,6 +34,7 @@
     ChevronDownIcon,
     ComputerIcon,
     DashboardSquare02Icon,
+    GaugeIcon,
     Logout01Icon,
     McpServerIcon,
     Moon02Icon,
@@ -112,6 +113,7 @@
       adminOnly: true,
       items: [
         { href: '/admin/organizations', label: 'Organizations', icon: Building01Icon },
+        { href: '/admin/quotas', label: 'Quotas', icon: GaugeIcon },
       ]
     }
   ];
@@ -374,6 +376,16 @@
               <HugeiconsIcon icon={UserIcon} size={16} />
               <span>Account</span>
             </a>
+            {#if auth.isOwnerOfCurrentOrg}
+            <a
+              href="/organization"
+              onclick={() => userMenuOpen = false}
+              class="flex w-full items-center gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-accent transition-colors whitespace-nowrap"
+            >
+              <HugeiconsIcon icon={Building01Icon} size={16} />
+              <span>Organization Settings</span>
+            </a>
+            {/if}
             <!-- Theme toggle: cycles Light → Dark → System. Keep the menu open so
                  the user can see the change and keep cycling. -->
             <button

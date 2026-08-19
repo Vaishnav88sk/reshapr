@@ -2162,9 +2162,60 @@
   "verifiableCredentialsEnabled": false,
   "adminPermissionsEnabled": false,
   "clientProfiles": {
-    "profiles": []
+    "profiles": [
+      {
+        "name": "cimd-profile",
+        "description": "Profile that allows dynamic resolution of client metadata via CIMD",
+        "executors": [
+          {
+            "executor": "client-id-metadata-document",
+            "configuration": {
+              "cimd-allow-http-scheme": "true",
+              "cimd-allow-permitted-domains": [
+                "host.docker.internal",
+                "*.docker.internal",
+                "*.mcpjam.com",
+                "localhost",
+                "127.0.0.1"
+              ],
+              "cimd-restrict-same-domain": false,
+              "cimd-required-properties": [
+                null
+              ],
+              "only-allow-confidential-client": false
+            }
+          }
+        ]
+      }
+    ]
   },
   "clientPolicies": {
-    "policies": []
+    "policies": [
+      {
+        "name": "cimd-policy",
+        "description": "Policy that triggers the CIMD profile on client_id in the form of a URI",
+        "enabled": true,
+        "conditions": [
+          {
+            "condition": "client-id-uri",
+            "configuration": {
+              "is-negative-logic": false,
+              "client-id-uri-scheme": [
+                "http",
+                "https"
+              ],
+              "client-id-uri-allow-permitted-domains": [
+                "*.docker.internal",
+                "host.docker.internal",
+                "*.mcpjam.com"
+              ]
+            }
+          }
+        ],
+        "profiles": [
+          "cimd-profile"
+        ]
+      }
+    ]
   }
 }

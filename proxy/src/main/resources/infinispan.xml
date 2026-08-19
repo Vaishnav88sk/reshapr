@@ -38,24 +38,23 @@
 
       Discovery: replaces MPING with DNS_PING over a headless service.
 
-      Transport encryption (SYM_ENCRYPT): DISABLED by default and provisioned at deploy time
-      (see plan Step 15). It only matters for this multi-node stack (the default local "tcp" stack
-      is single-node on localhost, nothing to encrypt). Activating it REQUIRES a shared JCEKS
-      keystore, holding one AES secret key, mounted identically into every gateway replica; without
-      it the channel would fail to start. To enable, provide the keystore + passwords and uncomment
+      Transport encryption (SYM_ENCRYPT): It only matters for this multi-node stack (the default
+      local "tcp" stack is single-node on localhost, nothing to encrypt). Activating it REQUIRES a
+      shared JCEKS keystore, holding one AES secret key, mounted identically into every gateway replica;
+      without it the channel would fail to start. To enable, provide the keystore + passwords and uncomment
       the SYM_ENCRYPT protocol below.
     -->
     <stack name="reshapr-k8s" extends="tcp">
       <dns.DNS_PING dns_query="${reshapr.infinispan.dns-query:}"
                     stack.combine="REPLACE" stack.position="MPING"/>
-      <!--
+
       <SYM_ENCRYPT sym_algorithm="AES"
+                   keystore_type="JCEKS" 
                    keystore_name="${reshapr.infinispan.encrypt.keystore:reshapr-cluster.jceks}"
                    store_password="${reshapr.infinispan.encrypt.store-password:}"
                    key_password="${reshapr.infinispan.encrypt.key-password:}"
                    alias="${reshapr.infinispan.encrypt.alias:reshapr-cluster}"
                    stack.combine="INSERT_AFTER" stack.position="dns.DNS_PING"/>
-      -->
     </stack>
   </jgroups>
 

@@ -17,6 +17,8 @@ package io.reshapr.proxy.mcp;
 
 import io.reshapr.proxy.registry.ConfigurationEntry;
 
+import jakarta.annotation.Nullable;
+
 import java.util.List;
 
 /**
@@ -41,7 +43,8 @@ public interface McpResourceBuilder {
     * Read a specific resource by its name.
     * @param request The read resource request containing the resource name
     * @param configuration The MCP endpoint configuration entry if we need to access backend.
-    * @return The MCP Resource Contents object
+    * @return The MCP Resource Contents objects, or {@code null} if no resource matches the requested URI
     */
+   @Nullable
    List<McpSchema.ResourceContents> readResource(McpSchema.ReadResourceRequest request, ConfigurationEntry configuration);
 }

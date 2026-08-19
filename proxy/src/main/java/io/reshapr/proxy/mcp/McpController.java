@@ -15,8 +15,6 @@
  */
 package io.reshapr.proxy.mcp;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import io.opentelemetry.api.trace.Span;
 import io.reshapr.proxy.audit.AuditEvent;
 import io.reshapr.proxy.audit.AuditLogger;
 import io.reshapr.proxy.mcp.converters.McpToolConverter;
@@ -34,6 +32,7 @@ import io.reshapr.proxy.security.SecureEndpointFilter;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.instrumentation.annotations.AddingSpanAttributes;
 import io.opentelemetry.instrumentation.annotations.SpanAttribute;
 import io.smallrye.common.annotation.RunOnVirtualThread;
@@ -50,8 +49,10 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.TimeUnit;
 
@@ -64,6 +65,21 @@ public class McpController {
 
    /** Response header advertising the deterministic per-exposition endpoint for a legacy service call. */
    public static final String HEADER_PREFERRED_ENDPOINT = "X-Reshapr-Preferred-Endpoint";
+
+   /**
+    * Methods removed by the 2026-07-28 MCP revision. Under a modern (stateless) request these are rejected
+    * with HTTP 404 and JSON-RPC {@code -32601} ({@code METHOD_NOT_FOUND}), since the revision dropped them
+    * entirely: {@code initialize} / {@code ping} give way to {@code server/discover}, session-bound
+    * {@code logging/setLevel} and the {@code resources/subscribe} + {@code resources/unsubscribe} pair are
+    * gone with the sessionless model. Methods that survive into 2026 but are simply not implemented keep the
+    * ordinary in-band {@code -32601} on HTTP 200.
+    */
+   private static final Set<String> REMOVED_MODERN_METHODS = Set.of(
+         McpSchema.METHOD_INITIALIZE,
+         McpSchema.METHOD_PING,
+         McpSchema.METHOD_LOGGING_SET_LEVEL,
+         McpSchema.METHOD_RESOURCES_SUBSCRIBE,
+         McpSchema.METHOD_RESOURCES_UNSUBSCRIBE);
 
    private final GatewayRegistry gatewayRegistry;
    private final SessionStore sessionStore;
@@ -178,6 +194,13 @@ public class McpController {
          logger.debugf("Request headers: %s", headers.getRequestHeaders());
       }
 
+      // Enforce the modern (SEP-2243, >= 2026-07-28) pre-dispatch contract before any method resolution.
+      // A rejection surfaces the spec error ladder (-32020 -> -32022 -> -32601); legacy calls are untouched.
+      Response modernRejection = validateModernRequest(request, headers);
+      if (modernRejection != null) {
+         return modernRejection;
+      }
+
       // Resolve and validate the protocol mode from headers, except for the handshake/negotiation methods
       // (initialize and server/discover) which happen before any session or version pinning:
       //   - MCP-Session-Id present -> legacy mode (session-based).
@@ -215,19 +238,16 @@ public class McpController {
             resultRef.set(handleMcpRequest(exposition, request, headers));
          });
 
-         // Compose a Response based on result.
+         // Compose a Response based on result. The HTTP status is derived from the JSON-RPC error code (if
+         // any) via the modern transport mapping, so protocol-level errors surface with 4xx instead of a
+         // blanket 200; handler-produced errors (e.g. -32602) stay in-band on 200.
          McpHandlerResult result = resultRef.get();
 
          // Emit audit log if enabled for this configuration.
          emitAuditEvent(exposition, request, result, startNanos, serverRequest, userId);
 
-         try {
-            System.err.println("Response message: " + mapper.writerWithDefaultPrettyPrinter().writeValueAsString(result.message()));
-         } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
-         }
-
-         Response.ResponseBuilder responseBuilder = Response.ok(result.message());
+         Response.ResponseBuilder responseBuilder = Response.status(httpStatusForMessage(result.message()))
+               .entity(result.message());
          if (result.headers() != null) {
             result.headers().forEach((key, value) -> value.forEach(
                   headerValue -> responseBuilder.header(key, headerValue)
@@ -285,8 +305,197 @@ public class McpController {
    /** Return the MCP-Protocol-Version header value if present, or {@code null}. */
    @Nullable
    private String getProtocolVersionHeader(HttpHeaders headers) {
-      List<String> values = headers.getRequestHeader(McpSchema.HEADER_PROTOCOL_VERSION);
+      return getHeader(headers, McpSchema.HEADER_PROTOCOL_VERSION);
+   }
+
+   /** Return the first value of the given request header if present and non-empty, or {@code null}. */
+   @Nullable
+   private String getHeader(HttpHeaders headers, String name) {
+      List<String> values = headers.getRequestHeader(name);
       return (values != null && !values.isEmpty()) ? values.getFirst() : null;
+   }
+
+   /**
+    * Enforce the modern (SEP-2243, {@code >= 2026-07-28}) pre-dispatch contract for a stateless call, in the
+    * spec error-ladder order: {@code -32020} (mirror-header mismatch) &rarr; {@code -32022} (unsupported
+    * protocol version) &rarr; {@code -32601} (method removed by the revision). Returns the first rejection
+    * produced by that ladder, or {@code null} when the request may proceed to dispatch (including every
+    * legacy call, which matches none of the modern gates).
+    *
+    * Each rung keeps its own modern-mode detection because the gates legitimately differ (see the
+    * individual methods): the header contract requires a valid modern envelope, version negotiation keys off
+    * the envelope's mere presence so an <em>unsupported</em> version is still named, and removed-method
+    * rejection additionally accepts the {@code MCP-Protocol-Version} header as a fallback for envelope-less
+    * modern calls.
+    *
+    * @param request The JSON-RPC request to validate.
+    * @param headers The HTTP headers carrying the modern mirror/protocol headers.
+    * @return the first modern-contract rejection response, or {@code null} when the call may proceed.
+    */
+   @Nullable
+   private Response validateModernRequest(McpSchema.JSONRPCRequest request, HttpHeaders headers) {
+      Response headerMismatch = validateModernHeaders(request, headers);
+      if (headerMismatch != null) {
+         return headerMismatch;
+      }
+      Response unsupportedVersion = validateModernProtocolVersion(request);
+      if (unsupportedVersion != null) {
+         return unsupportedVersion;
+      }
+      return rejectRemovedModernMethod(request, headers);
+   }
+
+   /**
+    * Enforce the modern (SEP-2243, {@code >= 2026-07-28}) request mirror-header contract for a stateless
+    * call: the {@code Mcp-Method}, {@code Mcp-Name} and {@code MCP-Protocol-Version} headers MUST mirror
+    * the request body. A disagreement is rejected with HTTP 400 and JSON-RPC {@code -32020} before the
+    * request is dispatched.
+    *
+    * The contract applies only to modern (stateless) requests, detected by the negotiated protocol
+    * version carried in {@code params._meta}. A legacy call carries no modern envelope and none of these
+    * mirror headers, so it is left untouched (returns {@code null}).
+    *
+    * @param request The JSON-RPC request whose body the headers must mirror.
+    * @param headers The HTTP headers carrying the modern mirror headers.
+    * @return a 400 response describing the mismatch, or {@code null} when the headers agree (or the call is legacy).
+    */
+   @Nullable
+   private Response validateModernHeaders(McpSchema.JSONRPCRequest request, HttpHeaders headers) {
+      String envelopeVersion = getEnvelopeProtocolVersion(request);
+      if (envelopeVersion == null || !McpSchema.isAtLeast(envelopeVersion, McpSchema.PROTOCOL_VERSION_STATELESS)) {
+         // Not a modern/stateless call — the mirror-header contract does not apply.
+         return null;
+      }
+
+      // Mcp-Method MUST equal the JSON-RPC body method.
+      String methodHeader = getHeader(headers, McpSchema.HEADER_METHOD);
+      if (methodHeader != null && !methodHeader.equals(request.method())) {
+         return buildHeaderMismatchResponse(request, McpSchema.HEADER_METHOD, request.method(), methodHeader);
+      }
+
+      // Mcp-Name, when present, MUST equal the body target (params.name / params.uri).
+      String nameHeader = getHeader(headers, McpSchema.HEADER_NAME);
+      if (nameHeader != null) {
+         String target = getRequestTargetName(request);
+         if (!nameHeader.equals(target)) {
+            return buildHeaderMismatchResponse(request, McpSchema.HEADER_NAME, target, nameHeader);
+         }
+      }
+
+      // MCP-Protocol-Version, when present, MUST equal the envelope protocol version.
+      String versionHeader = getProtocolVersionHeader(headers);
+      if (versionHeader != null && !versionHeader.equals(envelopeVersion)) {
+         return buildHeaderMismatchResponse(request, McpSchema.HEADER_PROTOCOL_VERSION, envelopeVersion, versionHeader);
+      }
+
+      return null;
+   }
+
+   /** Build the HTTP 400 + JSON-RPC {@code -32020} response for a modern mirror-header mismatch. */
+   private Response buildHeaderMismatchResponse(McpSchema.JSONRPCRequest request, String header,
+         @Nullable String expected, String received) {
+      logger.warnf("Rejecting modern MCP call: header '%s'='%s' disagrees with request body value '%s'",
+            header, received, expected);
+      return buildErrorResponse(request, McpSchema.ErrorCodes.HEADER_MISMATCH,
+            "Header '" + header + "' does not match the request body",
+            Map.of("header", header, "expected", expected == null ? "" : expected, "received", received));
+   }
+
+   /**
+    * Reject a method removed by the 2026-07-28 revision when the request is modern (stateless): the removed
+    * methods (see {@link #REMOVED_MODERN_METHODS}) answer HTTP 404 with JSON-RPC {@code -32601}. A legacy
+    * call — where these methods are still valid — is left untouched (returns {@code null}).
+    *
+    * @param request The JSON-RPC request whose method may have been removed.
+    * @param headers The HTTP headers used, together with the envelope, to detect the modern mode.
+    * @return a 404 response for a removed method under a modern call, or {@code null} otherwise.
+    */
+   @Nullable
+   private Response rejectRemovedModernMethod(McpSchema.JSONRPCRequest request, HttpHeaders headers) {
+      if (!isModernRequest(request, headers) || !REMOVED_MODERN_METHODS.contains(request.method())) {
+         return null;
+      }
+      logger.warnf("Rejecting method '%s' removed by the 2026-07-28 MCP revision (modern/stateless mode)",
+            request.method());
+      return Response.status(Response.Status.NOT_FOUND)
+            .entity(buildJSONRPCError(request, McpSchema.ErrorCodes.METHOD_NOT_FOUND,
+                  "Method '" + request.method() + "' was removed in protocol " + McpSchema.PROTOCOL_VERSION_STATELESS,
+                  null))
+            .build();
+   }
+
+   /**
+    * Whether the request is a modern (stateless, {@code >= 2026-07-28}) call. Detected first from the
+    * negotiated protocol version carried in the modern envelope ({@code params._meta}), falling back to the
+    * {@code MCP-Protocol-Version} header for a modern request that carries no envelope (e.g. a bare
+    * {@code tools/list}). A legacy call carries neither and is reported as non-modern.
+    */
+   private boolean isModernRequest(McpSchema.JSONRPCRequest request, HttpHeaders headers) {
+      String envelopeVersion = getEnvelopeProtocolVersion(request);
+      if (envelopeVersion != null) {
+         return McpSchema.isAtLeast(envelopeVersion, McpSchema.PROTOCOL_VERSION_STATELESS);
+      }
+      String headerVersion = getProtocolVersionHeader(headers);
+      return headerVersion != null && McpSchema.isAtLeast(headerVersion, McpSchema.PROTOCOL_VERSION_STATELESS);
+   }
+
+   /**
+    * Reject a modern request whose envelope declares a protocol version the server does not support: HTTP
+    * 400 with JSON-RPC {@code -32022}, the error {@code data} naming the supported versions. A version an
+    * unknown revision might introduce is caught here even for the handshake methods ({@code server/discover},
+    * {@code initialize}), since the envelope carries the negotiated version on every modern call.
+    *
+    * <p>Detection keys off the presence of the modern envelope ({@code params._meta} protocol version) rather
+    * than {@link #isModernRequest}: an <em>unsupported</em> version is by definition not
+    * {@code >= 2026-07-28}, yet a modern client that framed the call with the envelope MUST still be told the
+    * version is unsupported. A legacy call carries no envelope and negotiates through {@code initialize}
+    * instead, so it is left untouched (returns {@code null}).</p>
+    *
+    * @param request The JSON-RPC request whose modern envelope may declare an unsupported version.
+    * @return a 400 response naming the supported versions, or {@code null} when the version is supported or the call is legacy.
+    */
+   @Nullable
+   private Response validateModernProtocolVersion(McpSchema.JSONRPCRequest request) {
+      String declaredVersion = getEnvelopeProtocolVersion(request);
+      if (declaredVersion == null || McpSchema.SUPPORTED_PROTOCOL_VERSIONS.contains(declaredVersion)) {
+         return null;
+      }
+      logger.warnf("Rejecting modern MCP call declaring unsupported protocol version '%s'", declaredVersion);
+      return buildErrorResponse(request, McpSchema.ErrorCodes.UNSUPPORTED_PROTOCOL_VERSION,
+            "Unsupported protocol version: " + declaredVersion,
+            Map.of("supported", McpSchema.SUPPORTED_PROTOCOL_VERSIONS, "requested", declaredVersion));
+   }
+
+   /**
+    * Read the modern envelope protocol version carried in {@code params._meta}
+    * (key {@link McpSchema#META_KEY_PROTOCOL_VERSION}), or {@code null} when the request carries no
+    * modern envelope (i.e. a legacy call).
+    */
+   @Nullable
+   private String getEnvelopeProtocolVersion(McpSchema.JSONRPCRequest request) {
+      if (!(request.params() instanceof Map<?, ?> paramsMap)) {
+         return null;
+      }
+      if (!(paramsMap.get("_meta") instanceof Map<?, ?> metaMap)) {
+         return null;
+      }
+      return metaMap.get(McpSchema.META_KEY_PROTOCOL_VERSION) instanceof String version ? version : null;
+   }
+
+   /**
+    * Read the body target the {@code Mcp-Name} header mirrors: {@code params.name} (tools/call,
+    * prompts/get) or, failing that, {@code params.uri} (resources/read). {@code null} when the request
+    * body names no target.
+    */
+   @Nullable
+   private String getRequestTargetName(McpSchema.JSONRPCRequest request) {
+      if (!(request.params() instanceof Map<?, ?> paramsMap)) {
+         return null;
+      }
+      if (paramsMap.get("name") instanceof String name) {
+         return name;
+      }
+      return paramsMap.get("uri") instanceof String uri ? uri : null;
    }
 
    /**
@@ -306,25 +515,31 @@ public class McpController {
             result = handleInitializeRequest(request, exposition);
 
          case McpSchema.METHOD_PROMPTS_LIST ->
-            result = handlePromptListRequest(request, exposition);
+            result = handlePromptListRequest(request, exposition,
+                  McpProtocolDialect.forVersion(resolveProtocolVersion(headers)));
 
          case McpSchema.METHOD_PROMPTS_GET ->
             result = handlePromptGetRequest(request, exposition);
 
          case McpSchema.METHOD_RESOURCES_LIST ->
-            result = handleResourceListRequest(request, exposition);
+            result = handleResourceListRequest(request, exposition,
+                  McpProtocolDialect.forVersion(resolveProtocolVersion(headers)));
 
          case McpSchema.METHOD_RESOURCES_TEMPLATES_LIST ->
-            result = handleResourceTemplateListRequest(request, exposition);
+            result = handleResourceTemplateListRequest(request, exposition,
+                  McpProtocolDialect.forVersion(resolveProtocolVersion(headers)));
 
          case McpSchema.METHOD_RESOURCES_READ ->
-            result = handleResourceReadRequest(request, exposition);
+            result = handleResourceReadRequest(request, exposition,
+                  McpProtocolDialect.forVersion(resolveProtocolVersion(headers)));
 
          case McpSchema.METHOD_TOOLS_LIST ->
-            result = handleToolsListRequest(request, exposition);
+            result = handleToolsListRequest(request, exposition,
+                  McpProtocolDialect.forVersion(resolveProtocolVersion(headers)));
 
          case McpSchema.METHOD_TOOLS_CALL ->
-            result = handleToolsCallRequest(request, headers.getRequestHeaders(), exposition);
+            result = handleToolsCallRequest(request, headers.getRequestHeaders(), exposition,
+                  McpProtocolDialect.forVersion(resolveProtocolVersion(headers)));
       }
 
       if (result == null) {
@@ -369,7 +584,8 @@ public class McpController {
             serverCapabilities,
             serverInfo,
             meta,
-            null);
+            60_000L,
+            "public");
 
       return toMcpHandlerResult(request, discoverResult);
    }
@@ -416,11 +632,21 @@ public class McpController {
    }
 
    /** Handle the MCP prompt/list request. */
-   private McpHandlerResult handlePromptListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
+   private McpHandlerResult handlePromptListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition,
+         McpProtocolDialect dialect) {
       // Build a MCP Prompt Builder based on available elements in registry.
       McpPromptBuilder builder = buildMcpPromptBuilder(exposition);
 
-      return toMcpHandlerResult(request, new McpSchema.ListPromptsResult(builder.listPrompts(), null));
+      // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
+      // client-cache hints are always provided here; they are honored only under a modern dialect and
+      // silently dropped in legacy mode.
+      // TODO: source ttlMs / cacheScope from the exposition configuration instead of these placeholders.
+      McpSchema.ListPromptsResult result = dialect.newListPromptsResult(builder.listPrompts())
+            .ttlMs(60_000L)
+            .cacheScope("public")
+            .build();
+
+      return toMcpHandlerResult(request, result);
    }
 
    /** Handle the MCP prompt/get request. */
@@ -438,23 +664,44 @@ public class McpController {
    }
 
    /** Handle the MCP resource/list request. */
-   private McpHandlerResult handleResourceListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
+   private McpHandlerResult handleResourceListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition,
+         McpProtocolDialect dialect) {
       // Build a MCP Resource Builder based on available elements in registry.
       McpResourceBuilder builder = buildMcpResourceBuilder(exposition);
 
-      return toMcpHandlerResult(request, new McpSchema.ListResourcesResult(builder.listResources(), null));
+      // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
+      // client-cache hints are always provided here; they are honored only under a modern dialect and
+      // silently dropped in legacy mode.
+      // TODO: source ttlMs / cacheScope from the exposition configuration instead of these placeholders.
+      McpSchema.ListResourcesResult result = dialect.newListResourcesResult(builder.listResources())
+            .ttlMs(60_000L)
+            .cacheScope("public")
+            .build();
+
+      return toMcpHandlerResult(request, result);
    }
 
    /** Handle the MCP resource/templates/list request. */
-   private McpHandlerResult handleResourceTemplateListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
+   private McpHandlerResult handleResourceTemplateListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition,
+         McpProtocolDialect dialect) {
       // Build a MCP Resource Builder based on available elements in registry.
       McpResourceBuilder builder = buildMcpResourceBuilder(exposition);
 
-      return toMcpHandlerResult(request, new McpSchema.ListResourceTemplatesResult(builder.listResourceTemplates(), null));
+      // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
+      // client-cache hints are always provided here; they are honored only under a modern dialect and
+      // silently dropped in legacy mode.
+      // TODO: source ttlMs / cacheScope from the exposition configuration instead of these placeholders.
+      McpSchema.ListResourceTemplatesResult result = dialect.newListResourceTemplatesResult(builder.listResourceTemplates())
+            .ttlMs(60_000L)
+            .cacheScope("public")
+            .build();
+
+      return toMcpHandlerResult(request, result);
    }
 
    /** Handle the MCP resource/read request. */
-   private McpHandlerResult handleResourceReadRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
+   private McpHandlerResult handleResourceReadRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition,
+         McpProtocolDialect dialect) {
       McpSchema.ReadResourceRequest resourceReadRequest = mapper.convertValue(request.params(),
             new TypeReference<McpSchema.ReadResourceRequest>() {
             });
@@ -465,11 +712,44 @@ public class McpController {
       // Build a MCP Resource Builder based on available elements in registry.
       McpResourceBuilder builder = buildMcpResourceBuilder(exposition);
 
-      return toMcpHandlerResult(request, new McpSchema.ReadResourceResult(builder.readResource(resourceReadRequest, configuration)));
+      List<McpSchema.ResourceContents> contents = builder.readResource(resourceReadRequest, configuration);
+      if (contents == null) {
+         // No resource matches the requested URI: return an in-band JSON-RPC error (HTTP 200) as
+         // mandated by the MCP spec conformance checks (invalid params).
+         return toMcpHandlerResult(request, McpSchema.ErrorCodes.INVALID_PARAMS,
+               "Resource not found: " + resourceReadRequest.uri(),
+               Map.of("uri", resourceReadRequest.uri()));
+      }
+
+      // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
+      // client-cache hints are always provided here; they are honored only under a modern dialect and
+      // silently dropped in legacy mode.
+      // TODO: source ttlMs / cacheScope from the exposition configuration instead of these placeholders.
+      McpSchema.ReadResourceResult result = dialect.newReadResourceResult(contents)
+            .ttlMs(60_000L)
+            .cacheScope("public")
+            .build();
+
+      return toMcpHandlerResult(request, result);
+   }
+
+   /**
+    * Resolve the protocol version negotiated for this call: the pinned version carried by the legacy
+    * session when present, otherwise the {@code MCP-Protocol-Version} header sent in stateless mode.
+    * Returns {@code null} when neither is available (dialect resolution then falls back to legacy).
+    */
+   @Nullable
+   private String resolveProtocolVersion(HttpHeaders headers) {
+      SessionInfo sessionInfo = getSessionInfo(headers);
+      if (sessionInfo != null && sessionInfo.getProtocolVersion() != null) {
+         return sessionInfo.getProtocolVersion();
+      }
+      return getProtocolVersionHeader(headers);
    }
 
    /** Handle the MCP tools/list request. */
-   private McpHandlerResult handleToolsListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition) {
+   private McpHandlerResult handleToolsListRequest(McpSchema.JSONRPCRequest request, ExpositionEntry exposition,
+         McpProtocolDialect dialect) {
       ServiceEntry service = exposition.service();
       // Get configuration plan from exposition.
       ConfigurationEntry configuration = exposition.configuration();
@@ -484,24 +764,41 @@ public class McpController {
                   converter.getToolMetadata(gatewayRegistry, service, operation)))
             .toList();
 
-      return toMcpHandlerResult(request, new McpSchema.ListToolsResult(tools, null));
+      // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
+      // client-cache hints are always provided here; they are honored only under a modern dialect and
+      // silently dropped in legacy mode.
+      // TODO: source ttlMs / cacheScope from the exposition configuration instead of these placeholders.
+      McpSchema.ListToolsResult result = dialect.newListToolsResult(tools)
+            .ttlMs(60_000L)
+            .cacheScope("public")
+            .build();
+
+      return toMcpHandlerResult(request, result);
    }
 
    /** Handle the MCP tools/call request. */
    private McpHandlerResult handleToolsCallRequest(McpSchema.JSONRPCRequest request, Map<String, List<String>> headers,
-         ExpositionEntry exposition) {
-      McpSchema.SimpleRequest toolRequest = mapper.convertValue(request.params(),
-            new TypeReference<McpSchema.SimpleRequest>() {
-            });
+         ExpositionEntry exposition, McpProtocolDialect dialect) {
+      String toolName = null;
+      Map<String, Object> arguments = null;
+      if (request.params() instanceof Map<?, ?> paramsMap) {
+         toolName = paramsMap.get("name").toString();
+         if (paramsMap.get("arguments") instanceof Map<?, ?> args) {
+            // Shallow defensive copy: converters may add/remove top-level entries.
+            arguments = new HashMap<>((Map<String, Object>) args);
+         }
+      }
 
       // Delegate the whole tool call resolution and invocation to the executor.
-      ToolCallExecutor.ToolCallOutcome outcome = toolCallExecutor.execute(exposition, toolRequest.name(),
-            toolRequest.arguments(), headers);
+      ToolCallExecutor.ToolCallOutcome outcome = toolCallExecutor.execute(exposition, toolName, arguments, headers);
 
       return switch (outcome) {
          case ToolCallExecutor.Success success ->
-               toMcpHandlerResult(request, new McpSchema.CallToolResult(
-                     List.of(new McpSchema.TextContent(success.content())), success.isFault()));
+               // Delegate the version-specific result shaping to the negotiated protocol dialect.
+               toMcpHandlerResult(request, dialect.newCallToolResult(
+                     List.<McpSchema.Content>of(new McpSchema.TextContent(success.content())))
+                           .isError(success.isFault())
+                           .build());
          case ToolCallExecutor.ElicitationRequired elicitationRequired ->
                buildElicitationResult(request, elicitationRequired);
          case ToolCallExecutor.Failure failure ->
@@ -554,6 +851,38 @@ public class McpController {
          new McpSchema.JSONRPCResponse.JSONRPCError(code, message, data));
    }
 
+   /**
+    * The HTTP status the modern transport surfaces a JSON-RPC error code with. Protocol-level ladder errors
+    * ({@code -32020} header mismatch, {@code -32021} missing client capability, {@code -32022} unsupported
+    * version) map to {@code 400}; every other code — including handler-produced ones such as {@code -32602}
+    * (invalid params) — stays in-band on {@code 200}. Methods removed by the 2026 revision are a separate
+    * {@code 404} path (see {@link #rejectRemovedModernMethod}) because a generic {@code -32601} for a
+    * merely-unimplemented method must stay {@code 200}.
+    */
+   private static Response.Status httpStatusForErrorCode(int code) {
+      return switch (code) {
+         case McpSchema.ErrorCodes.HEADER_MISMATCH,
+              McpSchema.ErrorCodes.MISSING_CLIENT_CAPABILITY,
+              McpSchema.ErrorCodes.UNSUPPORTED_PROTOCOL_VERSION -> Response.Status.BAD_REQUEST;
+         default -> Response.Status.OK;
+      };
+   }
+
+   /** The HTTP status for a composed handler message: derived from its JSON-RPC error code, else {@code 200}. */
+   private static Response.Status httpStatusForMessage(McpSchema.JSONRPCMessage message) {
+      if (message instanceof McpSchema.JSONRPCResponse response && response.error() != null) {
+         return httpStatusForErrorCode(response.error().code());
+      }
+      return Response.Status.OK;
+   }
+
+   /** Build an HTTP response for a JSON-RPC error, deriving the status from the error code (modern mapping). */
+   private Response buildErrorResponse(McpSchema.JSONRPCRequest request, int code, String message, Object data) {
+      return Response.status(httpStatusForErrorCode(code))
+            .entity(buildJSONRPCError(request, code, message, data))
+            .build();
+   }
+
    private McpPromptBuilder buildMcpPromptBuilder(ExpositionEntry exposition) {
       return new ReshaprPromptsMcpPromptBuilder(exposition.service(),
             exposition.attachedArtifacts(), workCache, mapper);
@@ -594,7 +923,6 @@ public class McpController {
       // scheduled after that point causes intermittent IllegalStateException and silent audit loss.
       String method = request.method();
       Object requestId = request.id();
-      Object requestParams = request.params();
       String serviceName = service.name();
       String serviceVersion = service.version();
       String organizationId = service.organizationId();
@@ -602,8 +930,14 @@ public class McpController {
       SessionInfo sessionInfo = getSessionInfo(serverRequest);
       String sessionId = sessionInfo != null ? sessionInfo.getId() : null;
 
+      final McpSchema.JSONRPCRequest finalRequest = request;
+
       // Execute audit event sending asynchronously.
       Thread.startVirtualThread(() -> {
+         // Extract the target name with a direct cast on the already-deserialized params map
+         // — no deep Jackson re-conversion on the virtual thread.
+         String targetName = getRequestTargetName(finalRequest);
+
          // Determine outcome and error code from the result.
          String outcome = AuditEvent.OUTCOME_SUCCESS;
          Integer errorCode = null;
@@ -618,26 +952,17 @@ public class McpController {
             }
          }
 
-         // Compute response content size.
+         // Estimate the response content size from the CallToolResult text
+         // content already in hand instead of re-serializing the whole result with Jackson.
          long responseSize = 0;
          if (result.isJSONRPCResponse() && result.message() instanceof McpSchema.JSONRPCResponse response
-               && response.result() != null) {
-            try {
-               responseSize = mapper.writeValueAsString(response.result()).length();
-            } catch (Exception _) {
-               // Serialization failed, keep 0.
-            }
-         }
-
-         // Extract target name from request params for tools/call and prompts/get.
-         String targetName = null;
-         if (requestParams != null) {
-            try {
-               McpSchema.SimpleRequest simpleRequest = mapper.convertValue(requestParams,
-                     new TypeReference<McpSchema.SimpleRequest>() {});
-               targetName = simpleRequest.name();
-            } catch (Exception _) {
-               // Not a SimpleRequest, ignore — targetName stays null.
+               && response.result() instanceof McpSchema.CallToolResult callToolResult) {
+            if (callToolResult.content() != null) {
+               for (McpSchema.Content content : callToolResult.content()) {
+                  if (content instanceof McpSchema.TextContent textContent && textContent.text() != null) {
+                     responseSize += textContent.text().length();
+                  }
+               }
             }
          }
 

@@ -1,0 +1,8 @@
+# maven-shade-plugin build artifact
+dependency-reduced-pom.xml
+
+# e2e benchmark outputs (k6 summaries, memory samples, logs)
+results-e2e-rest/
+results-e2e-graphql/
+results-e2e-grpc/
+results-*.json

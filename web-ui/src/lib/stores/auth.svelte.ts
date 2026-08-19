@@ -32,6 +32,9 @@ function createAuthStore() {
   const isAdmin = $derived(user?.org === 'reshapr');
   const currentOrg = $derived(user?.org ?? '');
   const hasMultipleOrgs = $derived(profile? profile.organizations.length > 1 : false);
+  const isOwnerOfCurrentOrg = $derived(
+    profile?.organizations.find(o => o.name === currentOrg)?.isOwner ?? false
+  );
 
   /** Compute user initials from username (first 2 chars uppercased). */
   const initials = $derived(
@@ -49,6 +52,7 @@ function createAuthStore() {
     get organizations() { return profile?.organizations; },
     get currentOrg() { return currentOrg; },
     get hasMultipleOrgs() { return hasMultipleOrgs; },
+    get isOwnerOfCurrentOrg() { return isOwnerOfCurrentOrg; },
     get initials() { return initials; },
 
     setUser(profile: User | null) {

@@ -750,6 +750,95 @@ paths:
           description: User with this name is unknown
       security:
         - jwt-bearer: []
+  /v1/organizations/{organizationName}/members:
+    get:
+      operationId: getOrganizationMembers
+      summary: Get the members of an organization
+      description: Returns the list of members belonging to the specified organization. Only the organization owner is allowed to view members.
+      parameters:
+        - name: organizationName
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The name of the organization
+      responses:
+        "200":
+          description: The list of organization members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Member'
+        "403":
+          description: Only the owner can view members
+        "404":
+          description: Organization not found
+      security:
+        - jwt-bearer: []
+    post:
+      operationId: addOrganizationMember
+      summary: Add a member to an organization
+      description: Adds a user (identified by email) as a member of the specified organization. Only the organization owner is allowed to add members.
+      parameters:
+        - name: organizationName
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The name of the organization
+      requestBody:
+        description: The member to add
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemberRequest'
+        required: true
+      responses:
+        "200":
+          description: User added as a member
+          content:
+            application/json:
+              schema:
+                type: string
+        "400":
+          description: The email address does not match any existing user account
+        "403":
+          description: Only the owner can add members
+        "404":
+          description: Organization not found
+      security:
+        - jwt-bearer: []
+  /v1/organizations/{organizationName}/members/{email}:
+    delete:
+      operationId: removeOrganizationMember
+      summary: Remove a member from an organization
+      description: Removes a user (identified by email) from the specified organization. Only the organization owner is allowed to remove members. The owner cannot be removed.
+      parameters:
+        - name: organizationName
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The name of the organization
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The email of the member to remove
+      responses:
+        "204":
+          description: Member successfully removed
+        "400":
+          description: Cannot remove the owner of the organization
+        "403":
+          description: Only the owner can remove members
+        "404":
+          description: Organization or user not found
+      security:
+        - jwt-bearer: []
 components:
   schemas:
     Artifact:
@@ -1450,6 +1539,36 @@ components:
         icon:
           type: string
           description: The icon of the organization
+    Member:
+      description: A member of an organization
+      type: object
+      required:
+        - username
+        - email
+      properties:
+        username:
+          type: string
+          description: The username of the member
+        email:
+          type: string
+          format: email
+          description: The email address of the member
+        firstname:
+          type: string
+          description: The first name of the member
+        lastname:
+          type: string
+          description: The last name of the member
+    MemberRequest:
+      description: Request payload for adding a member to an organization
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          description: The email address of the user to add as a member
   securitySchemes:
     jwt-bearer:
       scheme: bearer
