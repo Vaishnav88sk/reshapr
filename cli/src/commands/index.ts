@@ -30,3 +30,4 @@ export { statusCommand } from './status.js';
 export { stopCommand } from './stop.js';
 export { artifactCommand } from './artifact.js';
 export { switchOrgCommand } from './switch-org.js';
+export { adminCommand } from './admin/index.js';

@@ -17,7 +17,7 @@
 
 import { program } from 'commander';
 import * as yaml from 'js-yaml';
-import { loginCommand, infoCommand, logoutCommand, importCommand, attachCommand, quotasCommand, runCommand, statusCommand, stopCommand, switchOrgCommand } from './commands/index.js';
+import { loginCommand, infoCommand, logoutCommand, importCommand, attachCommand, quotasCommand, runCommand, statusCommand, stopCommand, switchOrgCommand, adminCommand } from './commands/index.js';
 import { ConfigUtil } from './utils/config.js';
 import { Logger } from './utils/logger.js';
 import { Context } from './utils/context.js';
@@ -31,7 +31,8 @@ program
   .hook('preAction', (thisCommand, actionCommand) => {
     ConfigUtil.readConfig();
     const noAuthCommands = ['login', 'logout', 'run', 'status', 'stop'];
-    if (!noAuthCommands.includes(actionCommand.name())) {
+    const isAdminCommand = belongsToCommand(actionCommand, 'admin');
+    if (!noAuthCommands.includes(actionCommand.name()) && !isAdminCommand) {
       if (!ConfigUtil.config.token) {
         Logger.warn(`You are not logged in. Please login first using the \`${CLI_NAME} login\` command.`);
         process.exit(1);
@@ -82,6 +83,17 @@ function convertToYaml(data: any): string {
   return yaml.dump(data);
 }
 
+function belongsToCommand(command: typeof program, name: string): boolean {
+  let current = command.parent;
+  while (current) {
+    if (current.name() === name) {
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
+}
+
 
 process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);
@@ -105,5 +117,6 @@ program.addCommand(runCommand);
 program.addCommand(statusCommand);
 program.addCommand(stopCommand);
 program.addCommand(switchOrgCommand);
+program.addCommand(adminCommand);
 
 program.parse(process.argv);
