@@ -50,6 +50,7 @@ docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh config credentials \
 docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh update realms/master -s sslRequired=NONE
 docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh update realms/3rdparty -s sslRequired=NONE
 docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh update realms/backend -s sslRequired=NONE
+docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh update realms/guardrails -s sslRequired=NONE
 
 echo "Ensuring master admin password (admin console login) ..."
 docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh set-password -r master --username admin --new-password admin --temporary=false
@@ -80,12 +81,20 @@ else
   echo "Warning: user backend-user not found in realm backend; skipping profile update." >&2
 fi
 
+echo "Configuring dev users in realm guardrails (idp guard-access / default-organization tests) ..."
+for u in allowed-user denied-user claim-user org-claim-user fallback-user; do
+  docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh set-password -r guardrails --username "${u}" --new-password "${u}" --temporary=false || true
+done
+
 echo ""
 echo "Keycloak ready:"
 echo "  Admin console: http://localhost:${HOST_PORT}/admin"
 echo "    Login realm: master (default) — user: admin / password: admin"
 echo "    Then switch realm (top-left) to '3rdparty' → Users → Create user"
 echo "  Reshapr OIDC:  http://localhost:5555  (test user laurent / laurent)"
+echo "  Guardrails realm (for reshapr.authentication.idp.guard-access / default-organization tests):"
+echo "    URL:   http://localhost:${HOST_PORT}/realms/guardrails"
+echo "    Users: allowed-user, denied-user, claim-user, org-claim-user, fallback-user (password == username)"
 echo "  Stop:          docker stop ${CONTAINER_NAME}"
 echo ""
 echo "Following logs (Ctrl+C stops tail only; container keeps running until docker stop):"

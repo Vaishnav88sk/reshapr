@@ -92,6 +92,24 @@ public class OnboardingService {
    }
 
    @Transactional
+   public User createUserAndAttachToOrganization(UserInfo userInfo, String organizationName) throws EntityAlreadyExistException, DependencyNotFoundException {
+      logger.infof("Creating user %s and attaching to existing organization %s", userInfo.username(), organizationName);
+
+      Organization organization = organizationRepository.findByName(organizationName);
+      if (organization == null) {
+         logger.warnf("Organization with name %s not found", organizationName);
+         throw new DependencyNotFoundException("Organization " + organizationName + " not found");
+      }
+
+      User user = createUser(userInfo);
+      user.organizations = new ArrayList<>();
+      user.organizations.add(organization);
+      user.defaultOrganization = organization;
+      userRepository.persistAndFlush(user);
+      return user;
+   }
+
+   @Transactional
    public Organization createOrganization(String username, OrganizationInfo organizationInfo) throws DependencyNotFoundException, EntityAlreadyExistException {
       logger.infof("Creating organization %s for user %s", organizationInfo.name(), username);
 

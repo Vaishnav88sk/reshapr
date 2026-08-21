@@ -215,22 +215,56 @@ public class AuthenticationController {
          JsonNode jwtPayloadNode = objectMapper.readTree(jwtPayload);
          String username = jwtPayloadNode.get("preferred_username").asText();
 
+         // Enforce optional access guard (group / claim) before doing anything else.
+         if (!isAccessAllowed(jwtPayloadNode)) {
+            logger.warnf("Access denied for user '%s' by IDP guard-access configuration", username);
+            return Response.status(Response.Status.FORBIDDEN).entity("Access denied by IDP guard-access policy").build();
+         }
+
          // Check user already exists in database.
          user = userRepository.findByUsername(username);
          if (user == null) {
-            // Redirect to onboarding page if user does not exist in database, to allow creating his organization.
-            NewCookie cookie = new NewCookie.Builder(RESHAPR_ONBOARDING_COOKIE)
-                  .value(accessToken.split("\\.")[1])
-                  .path("/")
-                  .sameSite(NewCookie.SameSite.STRICT)
-                  .expiry(new Date(System.currentTimeMillis() + Duration.ofMinutes(15).toMillis()))
-                  .httpOnly(true)
-                  .secure(true)
-                  .build();
+            // See if we can skip onboarding by attaching the user to an existing or default organization resolved
+            // from JWT claims (claim > groupPrefix > fixed value).
+            String defaultOrgName = resolveDefaultOrganizationFromClaims(jwtPayloadNode);
+            if (defaultOrgName != null) {
+               Organization defaultOrg = organizationRepository.findByName(defaultOrgName);
+               if (defaultOrg != null) {
+                  try {
+                     // Now we need extra user information from the JWT.
+                     String email = jwtPayloadNode.path("email").asText(null);
+                     String firstname = jwtPayloadNode.path("given_name").asText(null);
+                     String lastname = jwtPayloadNode.path("family_name").asText(null);
 
-            logger.infof("User '%s' does not exist in database, rendering the onboarding page", username);
-            TemplateInstance page = Templates.onboardingForm(username, redirectUri);
-            return Response.ok(page.render()).cookie(cookie).build();
+                     user = onboardingService.createUserAndAttachToOrganization(
+                           new OnboardingService.UserInfo(username, email, null, firstname, lastname),
+                           defaultOrgName);
+                     logger.infof("User '%s' attached to default organization '%s' (onboarding skipped)", username, defaultOrgName);
+                  } catch (EntityAlreadyExistException | DependencyNotFoundException e) {
+                     logger.warnf(e, "Failed to attach user '%s' to organization '%s', falling back to onboarding", username, defaultOrgName);
+                     user = null;
+                  }
+               } else {
+                  logger.warnf("Resolved default organization '%s' does not exist, falling back to onboarding", defaultOrgName);
+               }
+            }
+
+            if (user == null) {
+               // Either no default organization settings or attach fails...
+               // Redirect to onboarding page if user does not exist in database, to allow creating his organization.
+               NewCookie cookie = new NewCookie.Builder(RESHAPR_ONBOARDING_COOKIE)
+                     .value(accessToken.split("\\.")[1])
+                     .path("/")
+                     .sameSite(NewCookie.SameSite.STRICT)
+                     .expiry(new Date(System.currentTimeMillis() + Duration.ofMinutes(15).toMillis()))
+                     .httpOnly(true)
+                     .secure(true)
+                     .build();
+
+               logger.infof("User '%s' does not exist in database, rendering the onboarding page", username);
+               TemplateInstance page = Templates.onboardingForm(username, redirectUri);
+               return Response.ok(page.render()).cookie(cookie).build();
+            }
          }
       } catch (Exception e) {
          logger.errorf(e, "Failed to decode access_token: %s", accessToken);
@@ -469,5 +503,107 @@ public class AuthenticationController {
       logger.infof("Authentication successful for user: %s (org: %s)", user.username, defaultOrg.name);
       
       return token;
+   }
+
+   /**
+    * Enforce the optional {@code reshapr.authentication.idp.guard-access.*} policy.
+    * If both a group and a claim expression are configured, both must match (AND). If none are configured, access is allowed.
+    * The group check uses the standard JWT {@code groups} array claim.
+    * The claim check parses the {@code name=value} configuration and compares against the token claim value (as text).
+    */
+   private boolean isAccessAllowed(JsonNode jwtPayloadNode) {
+      var guard = oidcIdentityProviderConfig.guardAccess();
+      if (guard == null) {
+         return true;
+      }
+
+      // Check if a specific group is required to access the application.
+      if (guard.group().isPresent()) {
+         String requiredGroup = guard.group().get();
+         if (!jwtHasGroup(jwtPayloadNode, requiredGroup)) {
+            logger.debugf("JWT groups claim does not contain required group '%s'", requiredGroup);
+            return false;
+         }
+      }
+      // Check if a specific claim is required to access the application.
+      if (guard.claim().isPresent()) {
+         String expr = guard.claim().get();
+         int eq = expr.indexOf('=');
+         if (eq <= 0) {
+            logger.warnf("Invalid guard-access.claim expression '%s': expected 'name=value'", expr);
+            return false;
+         }
+         String claimName = expr.substring(0, eq).trim();
+         String expectedValue = expr.substring(eq + 1).trim();
+         JsonNode node = jwtPayloadNode.get(claimName);
+         if (node == null || node.isNull() || !expectedValue.equals(node.asText())) {
+            logger.debugf("JWT claim '%s' does not match expected value '%s'", claimName, expectedValue);
+            return false;
+         }
+      }
+      return true;
+   }
+
+   /**
+    * Resolve the target organization name for a new user from JWT claims, based on {@code reshapr.authentication.idp.default-organization.*}.
+    * Resolution order: explicit claim > group prefix > fixed value. Returns {@code null} when no rule applies.
+    */
+   private String resolveDefaultOrganizationFromClaims(JsonNode jwtPayloadNode) {
+      var defaultOrg = oidcIdentityProviderConfig.defaultOrganization();
+      if (defaultOrg == null) {
+         return null;
+      }
+
+      // Check if a specific claim is configured to resolve the default organization.
+      if (defaultOrg.claim().isPresent()) {
+         JsonNode node = jwtPayloadNode.get(defaultOrg.claim().get());
+         if (node != null && !node.isNull()) {
+            String value = node.asText(null);
+            if (value != null && !value.isBlank()) {
+               return value;
+            }
+         }
+      }
+      // Check if a group prefix is configured to resolve the default organization.
+      if (defaultOrg.groupPrefix().isPresent()) {
+         String prefix = defaultOrg.groupPrefix().get();
+         JsonNode groupsNode = jwtPayloadNode.get("groups");
+         if (groupsNode != null && groupsNode.isArray()) {
+            for (JsonNode g : groupsNode) {
+               String group = g.asText();
+               if (group != null && group.startsWith(prefix)) {
+                  String remainder = group.substring(prefix.length());
+                  if (!remainder.isEmpty() && (remainder.charAt(0) == '-' || remainder.charAt(0) == '/' || remainder.charAt(0) == ':')) {
+                     remainder = remainder.substring(1);
+                  }
+                  if (!remainder.isBlank()) {
+                     return remainder;
+                  }
+               }
+            }
+         }
+      }
+      // Return a fixed value if configured.
+      if (defaultOrg.value().isPresent()) {
+         String value = defaultOrg.value().get();
+         if (!value.isBlank()) {
+            return value;
+         }
+      }
+      return null;
+   }
+
+   private boolean jwtHasGroup(JsonNode jwtPayloadNode, String requiredGroup) {
+      JsonNode groupsNode = jwtPayloadNode.get("groups");
+      if (groupsNode != null && groupsNode.isArray()) {
+         for (JsonNode g : groupsNode) {
+            String value = g.asText();
+            // Keycloak may prefix realm groups with '/'; accept both forms.
+            if (requiredGroup.equals(value) || ("/" + requiredGroup).equals(value)) {
+               return true;
+            }
+         }
+      }
+      return false;
    }
 }
