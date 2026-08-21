@@ -17,6 +17,7 @@ package io.reshapr.ctrl.config;
 
 import io.smallrye.config.ConfigMapping;
 
+import java.util.List;
 import java.util.Optional;
 
 @ConfigMapping(prefix = "reshapr.authentication.idp")
@@ -26,6 +27,9 @@ public interface AuthenticationIdentityProviderConfig {
    String tokenUrl();
    String clientId();
    String clientSecret();
+
+   /** Additional OAuth2 scopes to request on top of the built-in {@code openid profile email}. */
+   Optional<List<String>> scopes();
 
    /** Access guard configuration: further restrict which IDP users can access Reshapr. */
    GuardAccess guardAccess();

@@ -162,7 +162,7 @@ public class AuthenticationController {
       oidcEndpoint += "?client_id=" + oidcIdentityProviderConfig.clientId();
       oidcEndpoint += "&redirect_uri=" + URLEncoder.encode(ctrlPlaneRedirectUri, StandardCharsets.UTF_8);
       oidcEndpoint += "&state=" + clientData;
-      oidcEndpoint += "&scope=openid%20profile%20email";
+      oidcEndpoint += "&scope=" + URLEncoder.encode(buildScopeParam(), StandardCharsets.UTF_8);
       oidcEndpoint += "&response_type=code";
 
       logger.debugf("Redirecting to OIDC authentication provider: '%s'", oidcIdentityProviderConfig.url());
@@ -481,6 +481,25 @@ public class AuthenticationController {
       return token;
    }
 
+   /**
+    * Build the {@code scope} query parameter for the initial OIDC authorization request.
+    * Always includes {@code openid profile email} and appends any additional scopes declared
+    * via {@code reshapr.authentication.idp.scopes}. Blanks and built-in scopes are ignored.
+    */
+   String buildScopeParam() {
+      StringBuilder sb = new StringBuilder("openid profile email");
+      oidcIdentityProviderConfig.scopes().ifPresent(extra -> {
+         for (String scope : extra) {
+            if (scope == null) continue;
+            String trimmed = scope.trim();
+            if (trimmed.isEmpty()) continue;
+            if ("openid".equals(trimmed) || "profile".equals(trimmed) || "email".equals(trimmed)) continue;
+            sb.append(' ').append(trimmed);
+         }
+      });
+      return sb.toString();
+   }
+
    private Organization resolveDefaultOrganization(User user) {
       if (user.defaultOrganization != null) {
          return user.defaultOrganization;
@@ -511,7 +530,7 @@ public class AuthenticationController {
     * The group check uses the standard JWT {@code groups} array claim.
     * The claim check parses the {@code name=value} configuration and compares against the token claim value (as text).
     */
-   private boolean isAccessAllowed(JsonNode jwtPayloadNode) {
+   boolean isAccessAllowed(JsonNode jwtPayloadNode) {
       var guard = oidcIdentityProviderConfig.guardAccess();
       if (guard == null) {
          return true;
@@ -548,7 +567,7 @@ public class AuthenticationController {
     * Resolve the target organization name for a new user from JWT claims, based on {@code reshapr.authentication.idp.default-organization.*}.
     * Resolution order: explicit claim > group prefix > fixed value. Returns {@code null} when no rule applies.
     */
-   private String resolveDefaultOrganizationFromClaims(JsonNode jwtPayloadNode) {
+   String resolveDefaultOrganizationFromClaims(JsonNode jwtPayloadNode) {
       var defaultOrg = oidcIdentityProviderConfig.defaultOrganization();
       if (defaultOrg == null) {
          return null;
