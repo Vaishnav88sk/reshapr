@@ -221,6 +221,30 @@ paths:
           description: Organization with this name already exist
       security:
         - admin-api-key: []
+  /admin/organizations/{organizationName}:
+    delete:
+      operationId: deleteOrganization
+      summary: Delete an organization and cascade the removal of all its dependent data
+      description: |
+        Delete the target organization together with everything it owns.
+        Gateways currently serving the organization expositions are notified so
+        they stop routing traffic to them.
+      parameters:
+        - name: organizationName
+          in: path
+          description: The unique name of the organization to delete
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Organization has been deleted
+        "403":
+          description: The organization is protected and cannot be deleted (e.g. the `reshapr` root organization)
+        "404":
+          description: No organization with this name exists
+      security:
+        - admin-api-key: []
   /admin/organizations/{organizationName}/owner:
     put:
       operationId: updateOrganizationOwner
