@@ -212,6 +212,9 @@
 	let duplicateNewName = $state('');
 	let duplicateBusy = $state(false);
 	let duplicateError = $state<string | null>(null);
+	let duplicateSuccess = $state(false);
+	let duplicatedApiKey = $state<string | null>(null);
+	let duplicatedInitialToken = $state<string | null>(null);
 
 	function onDelete(row: PlanRow) {
 		deleteTarget = row;
@@ -222,6 +225,9 @@
 		duplicateTarget = row;
 		duplicateNewName = `${row.name} (Copy)`;
 		duplicateError = null;
+		duplicateSuccess = false;
+		duplicatedApiKey = null;
+		duplicatedInitialToken = null;
 		duplicateOpen = true;
 	}
 
@@ -239,9 +245,16 @@
 		duplicateBusy = true;
 		duplicateError = null;
 		try {
-			await apiClient().duplicateConfigurationPlan(row.id, duplicateNewName.trim());
-			duplicateOpen = false;
+			const res = await apiClient().duplicateConfigurationPlan(row.id, duplicateNewName.trim()) as any;
 			await load();
+			
+			if (res.apiKey || res.initialAccessToken) {
+				duplicatedApiKey = res.apiKey || null;
+				duplicatedInitialToken = res.initialAccessToken || null;
+				duplicateSuccess = true;
+			} else {
+				duplicateOpen = false;
+			}
 		} catch (err) {
 			duplicateError = err instanceof ApiError ? err.message : String(err);
 		} finally {
@@ -409,42 +422,73 @@
 	</p>
 </ConfirmDialog>
 
-<Dialog.Root bind:open={duplicateOpen}>
+<Dialog.Root bind:open={duplicateOpen} onOpenChange={(open) => { if (!open) { duplicateSuccess = false; duplicatedApiKey = null; duplicatedInitialToken = null; } }}>
 	<Dialog.Content>
-		<Dialog.Header>
-			<Dialog.Title>Duplicate configuration plan</Dialog.Title>
-			<Dialog.Description>
-				Create a copy of "{duplicateTarget?.name}". A new API key will be generated if applicable.
-			</Dialog.Description>
-		</Dialog.Header>
-		{#if duplicateError}
-			<ApiErrorAlert message={duplicateError} />
-		{/if}
-		<form onsubmit={confirmDuplicatePlan} class="flex flex-col gap-4 py-2">
-			<div class="flex flex-col gap-2">
-				<Label for="duplicate-name">New plan name</Label>
-				<Input
-					id="duplicate-name"
-					bind:value={duplicateNewName}
-					placeholder="My duplicated plan"
-					disabled={duplicateBusy}
-					required
-				/>
+		{#if duplicateSuccess}
+			<Dialog.Header>
+				<Dialog.Title>Configuration plan duplicated</Dialog.Title>
+				<Dialog.Description>
+					The plan "{duplicateNewName}" has been created successfully.
+				</Dialog.Description>
+			</Dialog.Header>
+			<div class="flex flex-col gap-4 py-2">
+				<p class="text-sm text-muted-foreground">
+					Please copy the generated keys below. You will not be able to see them again!
+				</p>
+				{#if duplicatedApiKey}
+					<div class="flex flex-col gap-1">
+						<Label>API Key</Label>
+						<Input readonly value={duplicatedApiKey} />
+					</div>
+				{/if}
+				{#if duplicatedInitialToken}
+					<div class="flex flex-col gap-1">
+						<Label>Initial Access Token</Label>
+						<Input readonly value={duplicatedInitialToken} />
+					</div>
+				{/if}
 			</div>
 			<Dialog.Footer>
-				<Button
-					type="button"
-					variant="outline"
-					disabled={duplicateBusy}
-					onclick={() => (duplicateOpen = false)}
-				>
-					Cancel
-				</Button>
-				<Button type="submit" disabled={duplicateBusy || !duplicateNewName.trim()}>
-					{duplicateBusy ? 'Duplicating…' : 'Duplicate'}
+				<Button type="button" onclick={() => (duplicateOpen = false)}>
+					Close
 				</Button>
 			</Dialog.Footer>
-		</form>
+		{:else}
+			<Dialog.Header>
+				<Dialog.Title>Duplicate configuration plan</Dialog.Title>
+				<Dialog.Description>
+					Create a copy of "{duplicateTarget?.name}". A new API key will be generated if applicable.
+				</Dialog.Description>
+			</Dialog.Header>
+			{#if duplicateError}
+				<ApiErrorAlert message={duplicateError} />
+			{/if}
+			<form onsubmit={confirmDuplicatePlan} class="flex flex-col gap-4 py-2">
+				<div class="flex flex-col gap-2">
+					<Label for="duplicate-name">New plan name</Label>
+					<Input
+						id="duplicate-name"
+						bind:value={duplicateNewName}
+						placeholder="My duplicated plan"
+						disabled={duplicateBusy}
+						required
+					/>
+				</div>
+				<Dialog.Footer>
+					<Button
+						type="button"
+						variant="outline"
+						disabled={duplicateBusy}
+						onclick={() => (duplicateOpen = false)}
+					>
+						Cancel
+					</Button>
+					<Button type="submit" disabled={duplicateBusy || !duplicateNewName.trim()}>
+						{duplicateBusy ? 'Duplicating…' : 'Duplicate'}
+					</Button>
+				</Dialog.Footer>
+			</form>
+		{/if}
 	</Dialog.Content>
 </Dialog.Root>
 
