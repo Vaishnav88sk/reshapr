@@ -43,7 +43,10 @@ public interface Mappers {
    @Mapping(target = "excludedOperations", source = "excludedOperationsList")
    @Mapping(target = "includedOperations", source = "includedOperationsList")
    @Mapping(target = "backendTimeout", expression = "java(configuration.hasBackendTimeout() ? configuration.getBackendTimeout() : null)")
+   @Mapping(target = "cachingConfiguration", expression = "java(configuration.hasCachingConfiguration() ? toCachingConfigurationEntry(configuration.getCachingConfiguration()) : null)")
    public ConfigurationEntry toConfigurationEntry(Configuration configuration);
+
+   public ConfigurationEntry.CachingConfigurationEntry toCachingConfigurationEntry(io.reshapr.discovery.exposition.v1.CachingConfiguration cachingConfiguration);
 
    @Mapping(target = "authorizationServers", source = "authorizationServersList")
    @Mapping(target = "scopes", source = "scopesList")

@@ -50,6 +50,7 @@ public class ConfigurationPlanDTO {
     // Indicates whether to use the internal identity provider for OAuth2 authentication.
     protected String initialAccessToken;
     protected boolean audit;
+    protected CachingConfigurationDTO cachingConfiguration;
 
    public String getId() {
       return id;
@@ -170,4 +171,14 @@ public class ConfigurationPlanDTO {
     public void setAudit(boolean audit) {
        this.audit = audit;
     }
+
+    public CachingConfigurationDTO getCachingConfiguration() {
+       return cachingConfiguration;
+    }
+
+    public void setCachingConfiguration(CachingConfigurationDTO cachingConfiguration) {
+       this.cachingConfiguration = cachingConfiguration;
+    }
+
+    public record CachingConfigurationDTO(Long ttlMs, String cacheScope) {}
 }

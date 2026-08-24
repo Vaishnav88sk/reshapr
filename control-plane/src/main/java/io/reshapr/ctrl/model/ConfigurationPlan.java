@@ -95,6 +95,10 @@ public class ConfigurationPlan extends TenantAwareEntity {
    @Column(name = "audit")
    public boolean audit;
 
+   @Type(JsonType.class)
+   @Column(columnDefinition = "JSONB", name = "caching_configuration")
+   public CachingConfiguration cachingConfiguration;
+
    @ManyToOne(fetch = EAGER)
    @JoinColumn(name = "backend_secret_id")
    public Secret backendSecret;
@@ -103,6 +107,12 @@ public class ConfigurationPlan extends TenantAwareEntity {
          List<String> authorizationServers,
          String jwksUri,
          List<String> scopes
+   ) {
+   }
+
+   public record CachingConfiguration(
+         Long ttlMs,
+         String cacheScope
    ) {
    }
 }

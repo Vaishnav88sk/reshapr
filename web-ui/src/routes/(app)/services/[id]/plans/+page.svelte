@@ -329,7 +329,7 @@
 									{/snippet}
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align="end">
-									<DropdownMenuItem>
+									<DropdownMenuItem class="cursor-pointer">
 										{#snippet child({ props })}
 											<a href="/services/{ctx.id}/plans/{p.id}" class="px-4" {...props}>
 												<HugeiconsIcon icon={PencilEdit02Icon} size={16} />
@@ -338,7 +338,7 @@
 										{/snippet}
 									</DropdownMenuItem>
 									<DropdownMenuItem
-										class="text-destructive focus:text-destructive"
+										class="text-destructive focus:text-destructive cursor-pointer"
 										onSelect={() => void onDelete(p)}
 									>
 										<HugeiconsIcon icon={Delete02Icon} size={16} />

@@ -76,6 +76,8 @@
 	let description = $state('');
 	let backendEndpoint = $state('');
 	let backendTimeout = $state('');
+	let mcpTtlMs = $state('');
+	let mcpCacheScope = $state<{ value: string; label: string } | undefined>(undefined);
 	let audit = $state(false);
 	let backendSecretId = $state('');
 
@@ -285,6 +287,10 @@
 		backendEndpoint = typeof plan.backendEndpoint === 'string' ? plan.backendEndpoint : '';
 		backendTimeout =
 			plan.backendTimeout != null && plan.backendTimeout !== '' ? String(plan.backendTimeout) : '';
+		mcpTtlMs = plan.cachingConfiguration?.ttlMs != null ? String(plan.cachingConfiguration.ttlMs) : '';
+		mcpCacheScope = plan.cachingConfiguration?.cacheScope
+			? { value: plan.cachingConfiguration.cacheScope, label: plan.cachingConfiguration.cacheScope }
+			: undefined;
 		audit = plan.audit === true;
 		backendSecretId = typeof plan.backendSecretId === 'string' ? plan.backendSecretId : '';
 
@@ -399,6 +405,15 @@
 		const timeout = backendTimeout.trim();
 		if (timeout && !Number.isNaN(Number(timeout))) body.backendTimeout = Number(timeout);
 		else delete body.backendTimeout;
+
+		const ttl = mcpTtlMs.trim();
+		if ((ttl && !Number.isNaN(Number(ttl))) || mcpCacheScope?.value) {
+			body.cachingConfiguration = {};
+			if (ttl && !Number.isNaN(Number(ttl))) body.cachingConfiguration.ttlMs = Number(ttl);
+			if (mcpCacheScope?.value) body.cachingConfiguration.cacheScope = mcpCacheScope.value;
+		} else {
+			delete body.cachingConfiguration;
+		}
 
 		body.audit = audit;
 
@@ -622,6 +637,36 @@
 						placeholder="Default"
 						disabled={loading}
 					/>
+				</div>
+			</div>
+			<div class="grid gap-4 sm:grid-cols-2 border-t pt-4">
+				<div class="space-y-2">
+					<Label for="mcpTtlMs">MCP TTL (ms)</Label>
+					<div class="text-xs text-muted-foreground">Cache hint for MCP clients. Leave blank for proxy default.</div>
+					<Input
+						id="mcpTtlMs"
+						bind:value={mcpTtlMs}
+						inputmode="numeric"
+						placeholder="Default (60000)"
+						disabled={loading}
+					/>
+				</div>
+				<div class="space-y-2">
+					<Label for="mcpCacheScope">MCP Cache Scope</Label>
+					<div class="text-xs text-muted-foreground">Cache scope for MCP clients.</div>
+					<Select.Root
+						type="single"
+						value={mcpCacheScope?.value}
+						onValueChange={(v) => (mcpCacheScope = v ? { value: v, label: v } : undefined)}
+					>
+						<Select.Trigger class="w-full" disabled={loading}>
+							{mcpCacheScope?.label ?? 'Default (public)'}
+						</Select.Trigger>
+						<Select.Content>
+							<Select.Item value="public">public</Select.Item>
+							<Select.Item value="private">private</Select.Item>
+						</Select.Content>
+					</Select.Root>
 				</div>
 			</div>
 			<div class="flex flex-wrap items-center gap-6">

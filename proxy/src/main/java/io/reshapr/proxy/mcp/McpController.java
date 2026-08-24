@@ -640,10 +640,13 @@ public class McpController {
       // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
       // client-cache hints are always provided here; they are honored only under a modern dialect and
       // silently dropped in legacy mode.
-      // TODO: source ttlMs / cacheScope from the exposition configuration instead of these placeholders.
+      ConfigurationEntry configuration = exposition.configuration();
+      Long ttlMs = configuration.cachingConfiguration() != null && configuration.cachingConfiguration().ttlMs() != null ? configuration.cachingConfiguration().ttlMs() : 60_000L;
+      String cacheScope = configuration.cachingConfiguration() != null && configuration.cachingConfiguration().cacheScope() != null ? configuration.cachingConfiguration().cacheScope() : "public";
+
       McpSchema.ListPromptsResult result = dialect.newListPromptsResult(builder.listPrompts())
-            .ttlMs(60_000L)
-            .cacheScope("public")
+            .ttlMs(ttlMs)
+            .cacheScope(cacheScope)
             .build();
 
       return toMcpHandlerResult(request, result);
@@ -672,10 +675,13 @@ public class McpController {
       // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
       // client-cache hints are always provided here; they are honored only under a modern dialect and
       // silently dropped in legacy mode.
-      // TODO: source ttlMs / cacheScope from the exposition configuration instead of these placeholders.
+      ConfigurationEntry configuration = exposition.configuration();
+      Long ttlMs = configuration.cachingConfiguration() != null && configuration.cachingConfiguration().ttlMs() != null ? configuration.cachingConfiguration().ttlMs() : 60_000L;
+      String cacheScope = configuration.cachingConfiguration() != null && configuration.cachingConfiguration().cacheScope() != null ? configuration.cachingConfiguration().cacheScope() : "public";
+
       McpSchema.ListResourcesResult result = dialect.newListResourcesResult(builder.listResources())
-            .ttlMs(60_000L)
-            .cacheScope("public")
+            .ttlMs(ttlMs)
+            .cacheScope(cacheScope)
             .build();
 
       return toMcpHandlerResult(request, result);
@@ -690,10 +696,13 @@ public class McpController {
       // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
       // client-cache hints are always provided here; they are honored only under a modern dialect and
       // silently dropped in legacy mode.
-      // TODO: source ttlMs / cacheScope from the exposition configuration instead of these placeholders.
+      ConfigurationEntry config = exposition.configuration();
+      Long ttlMs = config.cachingConfiguration() != null && config.cachingConfiguration().ttlMs() != null ? config.cachingConfiguration().ttlMs() : 60_000L;
+      String cacheScope = config.cachingConfiguration() != null && config.cachingConfiguration().cacheScope() != null ? config.cachingConfiguration().cacheScope() : "public";
+
       McpSchema.ListResourceTemplatesResult result = dialect.newListResourceTemplatesResult(builder.listResourceTemplates())
-            .ttlMs(60_000L)
-            .cacheScope("public")
+            .ttlMs(ttlMs)
+            .cacheScope(cacheScope)
             .build();
 
       return toMcpHandlerResult(request, result);
@@ -724,10 +733,12 @@ public class McpController {
       // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
       // client-cache hints are always provided here; they are honored only under a modern dialect and
       // silently dropped in legacy mode.
-      // TODO: source ttlMs / cacheScope from the exposition configuration instead of these placeholders.
+      Long ttlMs = configuration.cachingConfiguration() != null && configuration.cachingConfiguration().ttlMs() != null ? configuration.cachingConfiguration().ttlMs() : 60_000L;
+      String cacheScope = configuration.cachingConfiguration() != null && configuration.cachingConfiguration().cacheScope() != null ? configuration.cachingConfiguration().cacheScope() : "public";
+
       McpSchema.ReadResourceResult result = dialect.newReadResourceResult(contents)
-            .ttlMs(60_000L)
-            .cacheScope("public")
+            .ttlMs(ttlMs)
+            .cacheScope(cacheScope)
             .build();
 
       return toMcpHandlerResult(request, result);
@@ -767,10 +778,12 @@ public class McpController {
       // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
       // client-cache hints are always provided here; they are honored only under a modern dialect and
       // silently dropped in legacy mode.
-      // TODO: source ttlMs / cacheScope from the exposition configuration instead of these placeholders.
+      Long ttlMs = configuration.cachingConfiguration() != null && configuration.cachingConfiguration().ttlMs() != null ? configuration.cachingConfiguration().ttlMs() : 60_000L;
+      String cacheScope = configuration.cachingConfiguration() != null && configuration.cachingConfiguration().cacheScope() != null ? configuration.cachingConfiguration().cacheScope() : "public";
+
       McpSchema.ListToolsResult result = dialect.newListToolsResult(tools)
-            .ttlMs(60_000L)
-            .cacheScope("public")
+            .ttlMs(ttlMs)
+            .cacheScope(cacheScope)
             .build();
 
       return toMcpHandlerResult(request, result);
