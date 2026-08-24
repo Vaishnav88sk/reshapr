@@ -22,6 +22,7 @@ import io.reshapr.ctrl.repository.UserRepository;
 import io.reshapr.ctrl.security.AdminAuthenticated;
 import io.reshapr.ctrl.service.DependencyNotFoundException;
 import io.reshapr.ctrl.service.EntityAlreadyExistException;
+import io.reshapr.ctrl.service.OffboardingService;
 import io.reshapr.ctrl.service.OnboardingService;
 
 import io.quarkus.panache.common.Sort;
@@ -29,6 +30,7 @@ import io.quarkus.panache.common.Page;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
@@ -52,17 +54,23 @@ public class OrganizationResource {
    private final Logger logger = Logger.getLogger(getClass());
 
    private final OnboardingService onboardingService;
+   private final OffboardingService offboardingService;
    private final UserRepository userRepository;
    private final OrganizationRepository organizationRepository;
 
    /**
     * Build an OrganizationResource with required dependencies.
     * @param onboardingService The OnboardingService to handle organization creation logic.
+    * @param offboardingService The service performing cascading organization deletion.
     * @param organizationRepository The Organization repository
     * @param userRepository The User repository
     */
-   public OrganizationResource(OnboardingService onboardingService, OrganizationRepository organizationRepository, UserRepository userRepository) {
+   public OrganizationResource(OnboardingService onboardingService,
+                               OffboardingService offboardingService,
+                               OrganizationRepository organizationRepository,
+                               UserRepository userRepository) {
       this.onboardingService = onboardingService;
+      this.offboardingService = offboardingService;
       this.organizationRepository = organizationRepository;
       this.userRepository = userRepository;
    }
@@ -133,5 +141,20 @@ public class OrganizationResource {
       organizationRepository.persistAndFlush(organization);
 
       return Response.ok(new FullOrganizationDTO(organizationName, organization.description, organization.icon, username)).build();
+   }
+
+   @DELETE
+   @Path("/{organizationName}")
+   public Response deleteOrganization(@PathParam("organizationName") String organizationName) {
+      try {
+         offboardingService.deleteOrganization(organizationName);
+      } catch (IllegalStateException e) {
+         logger.warnf("Refusing to delete organization '%s': %s", organizationName, e.getMessage());
+         return Response.status(Response.Status.FORBIDDEN).entity(e.getMessage()).build();
+      } catch (DependencyNotFoundException e) {
+         logger.warnf("Organization with name '%s' not found", organizationName);
+         return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+      }
+      return Response.noContent().build();
    }
 }

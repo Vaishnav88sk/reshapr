@@ -104,6 +104,32 @@ export async function adminRequest<T>(
   }
 }
 
+export async function adminDelete(
+  path: string,
+  options: AdminConnectionOptions
+): Promise<void> {
+  const connection = resolveAdminConnection(options);
+  let response: Response;
+  try {
+    response = await fetch(`${connection.server}/api/admin/${path}`, {
+      method: 'DELETE',
+      headers: {
+        'x-reshapr-api-key': connection.adminApiKey
+      }
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new AdminCommandError(`Unable to reach the control-plane server: ${message}`);
+  }
+
+  if (!response.ok) {
+    const details = (await response.text()).trim().slice(0, 500);
+    throw new AdminCommandError(
+      `Admin request failed (${response.status} ${response.statusText})${details ? `: ${details}` : ''}`
+    );
+  }
+}
+
 export function parseStringArray(value: string, optionName: string): string[] {
   let parsed: unknown;
   try {

@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 import { Command } from 'commander';
+import inquirer from 'inquirer';
 import { Context } from '../../utils/context.js';
 import { Logger } from '../../utils/logger.js';
 import { adminOptions, runAdminAction } from './shared.js';
-import { adminRequest } from './utils.js';
+import { adminDelete, adminRequest } from './utils.js';
 
 interface Organization {
   name: string;
@@ -51,6 +52,30 @@ export function createAdminOrganizationCommand(): Command {
       );
       Context.put('organization', organization);
       Logger.success(`Organization '${name}' created successfully.`);
+    }));
+
+  organizationCommand.command('delete <name>')
+    .description('Delete an organization and cascade the removal of all its dependent data')
+    .option('-f, --force', 'Skip the interactive confirmation prompt')
+    .action(async (name: string, options, command) => runAdminAction(async () => {
+      if (!options.force) {
+        const answer = await inquirer.prompt({
+          type: 'confirm',
+          name: 'confirm',
+          message: `This will permanently delete the organization '${name}' along with all its expositions, services, configuration plans, artifacts, secrets, gateways, gateway groups, quotas, API tokens and user memberships. Proceed?`,
+          default: false
+        });
+        if (!answer.confirm) {
+          Logger.info('Deletion cancelled.');
+          return;
+        }
+      }
+
+      await adminDelete(
+        `organizations/${encodeURIComponent(name)}`,
+        adminOptions(command)
+      );
+      Logger.success(`Organization '${name}' deleted successfully.`);
     }));
 
   return organizationCommand;

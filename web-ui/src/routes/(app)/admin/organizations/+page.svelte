@@ -33,11 +33,12 @@
   } from '$lib/components/ui/dropdown-menu/index.js';
   import { HugeiconsIcon } from "@hugeicons/svelte";
   import {
-    Building01Icon, MoreVerticalIcon, UserGroupIcon, UserIcon, Crown
+    Building01Icon, MoreVerticalIcon, UserGroupIcon, UserIcon, Crown, Delete02Icon
   } from '@hugeicons/core-free-icons';
   import { Badge } from "$lib/components/ui/badge";
   import UsersTab from './UsersTab.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
   // ── Types ──────────────────────────────────────────────────
   interface Organization {
@@ -101,6 +102,29 @@
       ? allUsers
       : allUsers.filter(u => u.username.toLowerCase().includes(ownerUsername.toLowerCase()))
   );
+
+  // ── Delete Organization dialog state ──────────────────────
+  let deleteDialogOpen = $state(false);
+  let deleteTargetOrg = $state<Organization | null>(null);
+
+  function openDeleteDialog(org: Organization) {
+    deleteTargetOrg = org;
+    deleteDialogOpen = true;
+  }
+
+  async function handleDeleteOrganization() {
+    if (!deleteTargetOrg) return;
+    const target = deleteTargetOrg;
+    const res = await fetch(`/api/admin/organizations/${encodeURIComponent(target.name)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `Failed to delete organization (${res.status} ${res.statusText}).`);
+    }
+    deleteTargetOrg = null;
+    await fetchOrganizations();
+  }
 
   // ── UsersTab component ref ────────────────────────────────
   let usersTabRef: ReturnType<typeof UsersTab> | undefined = $state();
@@ -388,6 +412,15 @@
                           <HugeiconsIcon icon={Crown} size={16} />
                           Assign owner
                         </DropdownMenuItem>
+                        {#if org.name !== 'reshapr'}
+                          <DropdownMenuItem
+                            class="whitespace-nowrap px-4 text-destructive focus:text-destructive"
+                            onclick={() => openDeleteDialog(org)}
+                          >
+                            <HugeiconsIcon icon={Delete02Icon} size={16} />
+                            Delete organization
+                          </DropdownMenuItem>
+                        {/if}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -581,3 +614,28 @@
     </form>
   </SheetContent>
 </Sheet>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Delete Organization confirmation dialog                    -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<ConfirmDialog
+  bind:open={deleteDialogOpen}
+  title="Delete organization"
+  description={deleteTargetOrg
+    ? `Permanently delete the organization "${deleteTargetOrg.name}"? This action cannot be undone.`
+    : ''}
+  confirmLabel="Delete organization"
+  confirmingLabel="Deleting…"
+  onConfirm={handleDeleteOrganization}
+>
+  <div class="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+    <p class="font-medium">All the following data will be removed:</p>
+    <ul class="mt-2 list-disc space-y-1 pl-5">
+      <li>All expositions (Gateways will be notified to drop them)</li>
+      <li>All services, configuration plans, artifacts and secrets</li>
+      <li>All gateway groups and their gateway registrations</li>
+      <li>All API tokens, quotas and shared resources</li>
+      <li>All user memberships to this organization</li>
+    </ul>
+  </div>
+</ConfirmDialog>

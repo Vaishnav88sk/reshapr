@@ -20,6 +20,34 @@ Admin commands use the server saved by `reshapr login`. Override it when needed:
 reshapr admin --server http://localhost:5555 <command>
 ```
 
+## Organizations
+
+Create new organization:
+
+```shell
+reshapr admin -organization create alpha \ 
+  --description 'New alpha organization'
+```
+
+Delete an organization and cascade the removal of everything it owns
+(services, artifacts, configuration plans, expositions, secrets, gateways,
+gateway groups, quotas, API tokens, shared resources and user memberships).
+Gateways currently serving the organization expositions are notified so they
+stop routing traffic to them.
+
+```shell
+reshapr admin organization delete alpha
+```
+
+Add `-f, --force` to skip the interactive confirmation prompt (useful in
+scripts or CI):
+
+```shell
+reshapr admin organization delete alpha --force
+```
+
+The built-in `reshapr` root organization is protected and cannot be deleted.
+
 ## Memberships
 
 Replace all organization memberships assigned to a user:
