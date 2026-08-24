@@ -31,6 +31,9 @@ import java.util.Map;
 @Table(name = "gateway_groups")
 public class GatewayGroup extends BaseEntity {
 
+   /** Id of the default gateway group provisioned by Flyway (see V1.0.1__data.sql). */
+   public static final String DEFAULT_GATEWAY_GROUP_ID = "1";
+
    public String name;
 
    @Column(name = "organization_id", nullable = false)

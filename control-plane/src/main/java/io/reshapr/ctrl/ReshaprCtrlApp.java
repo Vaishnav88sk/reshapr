@@ -16,10 +16,12 @@
 package io.reshapr.ctrl;
 
 import io.reshapr.ctrl.model.ApiToken;
+import io.reshapr.ctrl.model.GatewayGroup;
 import io.reshapr.ctrl.model.Organization;
 import io.reshapr.ctrl.model.User;
 import io.reshapr.ctrl.model.UserStatus;
 import io.reshapr.ctrl.repository.ApiTokenRepository;
+import io.reshapr.ctrl.repository.GatewayGroupRepository;
 import io.reshapr.ctrl.repository.OrganizationRepository;
 import io.reshapr.ctrl.repository.UserRepository;
 import io.reshapr.ctrl.security.ReshaprTenantContext;
@@ -36,6 +38,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static io.reshapr.ctrl.security.ReshaprTenantResolver.ROOT_TENANT_ID;
@@ -53,6 +56,7 @@ public class ReshaprCtrlApp {
    private final UserRepository userRepository;
    private final OrganizationRepository organizationRepository;
    private final ApiTokenRepository apiTokenRepository;
+   private final GatewayGroupRepository gatewayGroupRepository;
 
    @ConfigProperty(name = "reshapr.admin.name")
    Optional<String> adminName;
@@ -66,6 +70,9 @@ public class ReshaprCtrlApp {
    @ConfigProperty(name = "reshapr.default-gateway-tokens")
    Optional<List<String>> defaultGatewayTokens;
 
+   @ConfigProperty(name = "reshapr.default-gateway-labels")
+   Optional<Map<String, String>> defaultGatewayLabels;
+
    /**
     * Build a ReshaprCtrlApp with required dependencies.
     * @param userRepository The User repository
@@ -73,10 +80,11 @@ public class ReshaprCtrlApp {
     * @param apiTokenRepository The API token repository
     */
    public ReshaprCtrlApp(UserRepository userRepository, OrganizationRepository organizationRepository,
-                         ApiTokenRepository apiTokenRepository) {
+                         ApiTokenRepository apiTokenRepository, GatewayGroupRepository gatewayGroupRepository) {
       this.userRepository = userRepository;
       this.organizationRepository = organizationRepository;
       this.apiTokenRepository = apiTokenRepository;
+      this.gatewayGroupRepository = gatewayGroupRepository;
    }
 
    /** Application startup method. */
@@ -89,7 +97,7 @@ public class ReshaprCtrlApp {
       ReshaprTenantContext.setCurrentTenant(ROOT_TENANT_ID);
 
       User admin = initializeAdminAccount();
-      initializeDefaultGatewayTokens(admin);
+      initializeDefaultGatewayProperties(admin);
 
       logger.info("reShapr Control Plane startup complete.");
    }
@@ -134,8 +142,8 @@ public class ReshaprCtrlApp {
       return null;
    }
 
-   /** Initialize default gateway tokens if configured. */
-   private void initializeDefaultGatewayTokens(User admin) {
+   /** Initialize default gateway properties if configured. */
+   private void initializeDefaultGatewayProperties(User admin) {
       if (defaultGatewayTokens != null && defaultGatewayTokens.isPresent()) {
          logger.info("Default gateway tokens are configured. Initializing them...");
          DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -166,6 +174,17 @@ public class ReshaprCtrlApp {
          }
       } else {
          logger.warn("Default gateway tokens are not configured. Please set 'reshapr.default-gateway-tokens' " +
+               "in the configuration to initialize them.");
+      }
+
+      if (defaultGatewayLabels != null && defaultGatewayLabels.isPresent()) {
+         logger.info("Default gateway group labels are configured. Updating them...");
+
+         GatewayGroup defaultGatewayGroup = gatewayGroupRepository.findById(GatewayGroup.DEFAULT_GATEWAY_GROUP_ID);
+         defaultGatewayGroup.labels = defaultGatewayLabels.get();
+         gatewayGroupRepository.persist(defaultGatewayGroup);
+      } else {
+         logger.warn("Default gateway group labels are not configured. Please set 'reshapr.default-gateway-labels' " +
                "in the configuration to initialize them.");
       }
    }

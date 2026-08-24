@@ -23,7 +23,8 @@ import { formatExpositionEndpoints, buildExpositionSlug } from "../utils/format.
 import { Context } from "../utils/context.js";
 import { CLI_LABEL } from '../constants.js';
 
-const DEFAULT_GATEWAY_GROUP_ID: string = '1'; // Default Gateway Group ID, can be changed later
+// Kept in sync with GatewayGroup.DEFAULT_GATEWAY_GROUP_ID (control-plane) — provisioned by Flyway V1.0.0.
+const DEFAULT_GATEWAY_GROUP_ID: string = '1';
 const DEFAULT_PLAN_NAME: string = 'default'; // Name of the configuration plan created by `import --be`
 
 export const importCommand = new Command('import')

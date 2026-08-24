@@ -44,6 +44,7 @@
 	let { open = $bindable(false) }: { open?: boolean } = $props();
 
 	// The default gateway group used by the "Expose now" shortcut.
+	// Kept in sync with GatewayGroup.DEFAULT_GATEWAY_GROUP_ID (control-plane) — provisioned by Flyway V1.0.0.
 	const DEFAULT_GATEWAY_GROUP_ID = '1';
 
 	// Plan name aligned with the CLI convention.

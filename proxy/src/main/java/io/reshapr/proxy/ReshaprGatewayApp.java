@@ -165,7 +165,6 @@ public class ReshaprGatewayApp {
    /** Application shutdown method. */
    void onShutdown(@Observes ShutdownEvent ev) {
       logger.info("reShapr Gateway Application is shutting down...");
-      logger.info("reShapr Gateway Application is shutting down...");
       if (expositionChangesSubscription != null) {
          expositionChangesSubscription.cancel();
          logger.info("Cancelled exposition changes subscription.");
