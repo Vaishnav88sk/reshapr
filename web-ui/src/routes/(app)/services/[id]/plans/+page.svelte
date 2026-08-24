@@ -144,8 +144,8 @@
 	}
 
 	function opsSummary(row: PlanRow): string {
-		if (row.includedOps > 0) return `${row.includedOps} included`;
-		if (row.excludedOps > 0) return `${row.excludedOps} excluded`;
+		if (row.includedOps > 0) return `${row.includedOps} operations included`;
+		if (row.excludedOps > 0) return `${row.excludedOps} operations excluded`;
 		return 'All operations';
 	}
 
