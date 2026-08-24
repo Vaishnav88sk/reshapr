@@ -39,6 +39,9 @@
       error = 'Authentication failed: no token received.';
     } else if (urlError === 'invalid_token') {
       error = 'Authentication failed: invalid token received.';
+    } else if (urlError === 'access_denied') {
+      error =
+        'Your account is not allowed to access reShapr. Please contact your administrator to request access.';
     }
 
     // If already authenticated, redirect to app.
@@ -104,12 +107,18 @@
       {:else if oidcEnabled}
         <!-- OIDC / SSO login -->
         <div class="space-y-4">
+          {#if error}
+            <div
+              role="alert"
+              class="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+            >
+              <p class="font-medium">Access denied</p>
+              <p class="mt-1 text-destructive/90">{error}</p>
+            </div>
+          {/if}
           <Button class="w-full" onclick={handleOidcLogin}>
             Login with SSO
           </Button>
-          {#if error}
-            <p class="text-sm text-destructive text-center">{error}</p>
-          {/if}
         </div>
       {:else}
         <!-- Username / Password login -->

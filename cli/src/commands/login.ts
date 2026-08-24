@@ -169,6 +169,35 @@ export const loginCommand = new Command('login')
       const parsedUrl = url.parse(req.url || '', true);
       const query = parsedUrl.query;
 
+      // The control plane may redirect back with ?error=... (e.g. access_denied
+      // when the IDP guard-access policy blocks the user). Surface it nicely.
+      if (query.error && (query.error as string).length > 0) {
+        const errorCode = query.error as string;
+        const {title, message, terminalMessage} = describeAuthenticationError(errorCode);
+
+        Logger.error(terminalMessage);
+
+        res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`
+          <html>
+            <head><meta charset="utf-8"></head>
+            <body style="font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f8fafc;">
+              <div style="text-align: center; max-width: 480px; padding: 0 1.5rem;">
+                <h1 style="color: #dc2626;">&#10007; ${title}</h1>
+                <p style="color: #475569;">${message}</p>
+                <p style="color: #94a3b8; margin-top: 1.5rem; font-size: 0.9rem;">You can close this window and return to your terminal.</p>
+              </div>
+            </body>
+          </html>
+        `);
+
+        setTimeout(() => {
+          server.close();
+          process.exit(1);
+        }, 500);
+        return;
+      }
+
       if (query.token && (query.token as string).length > 0) {
         token = query.token as string;
 
@@ -266,4 +295,33 @@ export const loginCommand = new Command('login')
 
     // Opens the URL in the default browser.
     await open(loginUrl, { wait: false });
+  }
+
+  function describeAuthenticationError(errorCode: string): { title: string; message: string; terminalMessage: string } {
+    switch (errorCode) {
+      case 'access_denied':
+        return {
+          title: 'Access denied',
+          message: 'Your account is not allowed to access reShapr. Please contact your administrator to request access.',
+          terminalMessage: 'Login failed: your account is not allowed to access reShapr. Please contact your administrator to request access.'
+        };
+      case 'missing_token':
+        return {
+          title: 'Login failed',
+          message: 'No token received from the authentication server. Please try again.',
+          terminalMessage: 'Login failed: no token received from the authentication server.'
+        };
+      case 'invalid_token':
+        return {
+          title: 'Login failed',
+          message: 'The token received from the authentication server is invalid. Please try again.',
+          terminalMessage: 'Login failed: the token received from the authentication server is invalid.'
+        };
+      default:
+        return {
+          title: 'Login failed',
+          message: `Authentication returned an error: ${errorCode}.`,
+          terminalMessage: `Login failed: ${errorCode}.`
+        };
+    }
   }

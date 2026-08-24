@@ -31,6 +31,13 @@ import type { RequestHandler } from './$types.js';
  * 4. Redirects the browser to the app root (/).
  */
 export const GET: RequestHandler = async ({ url, cookies }) => {
+  // If the control plane redirected back with an ?error= (e.g. access_denied from
+  // the guard-access policy), forward it to the login page so it can be displayed.
+  const forwardedError = url.searchParams.get('error');
+  if (forwardedError) {
+    return redirect(302, `/login?error=${encodeURIComponent(forwardedError)}`);
+  }
+
   const token = url.searchParams.get('token');
 
   if (!token) {

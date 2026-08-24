@@ -218,7 +218,8 @@ public class AuthenticationController {
          // Enforce optional access guard (group / claim) before doing anything else.
          if (!isAccessAllowed(jwtPayloadNode)) {
             logger.warnf("Access denied for user '%s' by IDP guard-access configuration", username);
-            return Response.status(Response.Status.FORBIDDEN).entity("Access denied by IDP guard-access policy").build();
+            String errorRedirectUri = redirectUri + (redirectUri.contains("?") ? "&" : "?") + "error=access_denied";
+            return Response.seeOther(URI.create(errorRedirectUri)).build();
          }
 
          // Check user already exists in database.
