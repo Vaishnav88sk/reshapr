@@ -30,7 +30,7 @@
 	import { Switch } from '$lib/components/ui/switch/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { ApiIcon, CloudServerIcon, Copy01Icon, Link01Icon, McpServerIcon, Tick02Icon, RefreshIcon } from '@hugeicons/core-free-icons';
+	import { ApiIcon, CloudServerIcon, Configuration01Icon, Copy01Icon, Link01Icon, McpServerIcon, Tick02Icon, RefreshIcon } from '@hugeicons/core-free-icons';
 
 	const QUOTA_METRIC = 'exposition.count';
 
@@ -39,6 +39,7 @@
 		name: string | null;
 		serviceName: string;
 		service: string;
+		plan: string | null;
 		backend: string;
 		endpoints: string;
 		endpointUrls: string[];
@@ -74,6 +75,13 @@
 		if (!configurationPlan || typeof configurationPlan !== 'object') return '—';
 		const c = configurationPlan as Record<string, unknown>;
 		return typeof c.backendEndpoint === 'string' ? c.backendEndpoint : '—';
+	}
+
+	function planLabel(configurationPlan: unknown): string | null {
+		if (!configurationPlan || typeof configurationPlan !== 'object') return null;
+		const c = configurationPlan as Record<string, unknown>;
+		const name = typeof c.name === 'string' ? c.name.trim() : '';
+		return name || null;
 	}
 
 	function endpointsLabel(raw: Record<string, unknown>): string {
@@ -157,6 +165,7 @@
 			name: typeof o.name === 'string' && o.name.trim() ? o.name.trim() : null,
 			serviceName: serviceName(o.service),
 			service: serviceLabel(o.service),
+			plan: planLabel(o.configurationPlan),
 			backend: backendUrl(o.configurationPlan),
 			endpoints: endpointsLabel(o),
 			endpointUrls: buildEndpointUrls(o),
@@ -326,6 +335,23 @@
 								{x.service}
 							</p>
 						</div>
+
+						<!-- Configuration plan -->
+						{#if x.plan}
+							<div class="flex items-start gap-2">
+								<HugeiconsIcon
+									icon={Configuration01Icon}
+									size={16}
+									class="text-muted-foreground mt-0.5 shrink-0"
+								/>
+								<p
+									class="min-w-0 flex-1 truncate rounded px-1.5 py-0.5"
+									title={x.plan}
+								>
+									{x.plan}
+								</p>
+							</div>
+						{/if}
 
 						<!-- Backend endpoint -->
 						<div class="flex items-start gap-2">
