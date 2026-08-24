@@ -129,6 +129,57 @@ public class ConfigurationPlanManagerService {
    }
 
    /**
+    * Duplicates an existing configuration plan.
+    * @param sourceId the ID of the configuration plan to duplicate
+    * @param newName the name of the new configuration plan
+    * @return the newly created configuration plan
+    * @throws IllegalArgumentException if the source configuration plan is not found
+    */
+   @Transactional
+   public ConfigurationPlan duplicateConfigurationPlan(String sourceId, String newName) {
+      logger.debugf("Duplicating configuration plan with id %s to new name '%s'", sourceId, newName);
+      ConfigurationPlan sourcePlan = configurationPlanRepository.findById(sourceId);
+      if (sourcePlan == null) {
+         logger.errorf("Source configuration plan with id %s not found", sourceId);
+         throw new IllegalArgumentException("Source configuration plan with id " + sourceId + " not found");
+      }
+
+      ConfigurationPlan newPlan = new ConfigurationPlan();
+      newPlan.name = newName;
+      newPlan.description = sourcePlan.description;
+      newPlan.service = sourcePlan.service;
+      newPlan.backendEndpoint = sourcePlan.backendEndpoint;
+      newPlan.backendTimeout = sourcePlan.backendTimeout;
+      newPlan.includedOperations = sourcePlan.includedOperations != null ? new java.util.ArrayList<>(sourcePlan.includedOperations) : null;
+      newPlan.excludedOperations = sourcePlan.excludedOperations != null ? new java.util.ArrayList<>(sourcePlan.excludedOperations) : null;
+      newPlan.includedArtifacts = sourcePlan.includedArtifacts != null ? new java.util.ArrayList<>(sourcePlan.includedArtifacts) : null;
+      newPlan.audit = sourcePlan.audit;
+      newPlan.backendSecret = sourcePlan.backendSecret;
+
+      // Duplicate OAuth2 configuration if present
+      if (sourcePlan.oauth2Configuration != null) {
+         newPlan.oauth2Configuration = new ConfigurationPlan.OAuth2Configuration(
+               sourcePlan.oauth2Configuration.authorizationServers() != null ? new java.util.ArrayList<>(sourcePlan.oauth2Configuration.authorizationServers()) : null,
+               sourcePlan.oauth2Configuration.jwksUri(),
+               sourcePlan.oauth2Configuration.scopes() != null ? new java.util.ArrayList<>(sourcePlan.oauth2Configuration.scopes()) : null
+         );
+      }
+
+      // Automatically generate new API key and/or initial access token if the source had them
+      if (sourcePlan.apiKey != null) {
+         logger.debugf("Generating new API token for duplicated configuration plan %s", newPlan.name);
+         newPlan.apiKey = UUID.randomUUID().toString();
+      }
+      if (sourcePlan.initialAccessToken != null) {
+         logger.debugf("Generating new initial access token for duplicated configuration plan %s", newPlan.name);
+         newPlan.initialAccessToken = UUID.randomUUID().toString();
+      }
+
+      configurationPlanRepository.persistAndFlush(newPlan);
+      return newPlan;
+   }
+
+   /**
     * Updates an existing configuration plan.
     * @param configurationPlan the configuration plan to update with fresh values
     * @param backendSecretId the ID of the backend secret to associate with the configuration plan, can be null

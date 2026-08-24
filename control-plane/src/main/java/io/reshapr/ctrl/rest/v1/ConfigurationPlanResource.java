@@ -94,6 +94,36 @@ public class ConfigurationPlanResource {
       return Response.status(Response.Status.CREATED).entity(result).build();
    }
 
+   @POST
+   @Authenticated
+   @Path("/{id}/duplicate")
+   @Produces(MediaType.APPLICATION_JSON)
+   public Response duplicateConfigurationPlan(@PathParam("id") String id, @QueryParam("name") String newName) {
+      logger.infof("Duplicating configuration plan with id '%s' to new name '%s'", id, newName);
+
+      if (newName == null || newName.trim().isEmpty()) {
+         return Response.status(Response.Status.BAD_REQUEST).entity("New name must be provided").build();
+      }
+
+      ConfigurationPlan newPlan;
+      try {
+         newPlan = managerService.duplicateConfigurationPlan(id, newName);
+      } catch (IllegalArgumentException e) {
+         logger.errorf("Failed to duplicate configuration plan: %s", e.getMessage());
+         return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+      }
+
+      // On creation, be sure to show the API key if it was requested. It will not be shown again after this.
+      ConfigurationPlanDTO result = v1Mappers.toResource(newPlan);
+      if (newPlan.apiKey != null) {
+         result.apiKey = newPlan.apiKey;
+      }
+      if (newPlan.initialAccessToken != null) {
+         result.initialAccessToken = newPlan.initialAccessToken;
+      }
+      return Response.status(Response.Status.CREATED).entity(result).build();
+   }
+
    @GET
    @Authenticated
    @Path("/{id}")
