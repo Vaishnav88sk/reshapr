@@ -43,6 +43,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Collections;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -134,10 +135,22 @@ public class ProxyService {
       }
 
       long startMs = System.currentTimeMillis();
+      BackendResponse response = doCallBackendAndHandleErrors(requestHeaders, requestBuilder, externalUrl, timeoutMs, configuration);
+      long elapsedMs = System.currentTimeMillis() - startMs;
+
+      return withServiceTimeHeader(response, elapsedMs);
+   }
+
+   private BackendResponse withServiceTimeHeader(BackendResponse response, long elapsedMs) {
+      Map<String, List<String>> finalHeaders = new HashMap<>(response.headers() != null ? response.headers() : Map.of());
+      finalHeaders.put(HeadersUtil.UPSTREAM_SERVICE_TIME, List.of(String.valueOf(elapsedMs)));
+      return new BackendResponse(response.status(), response.content(), Collections.unmodifiableMap(finalHeaders));
+   }
+
+   private BackendResponse doCallBackendAndHandleErrors(Map<String, List<String>> requestHeaders, HttpRequest.Builder requestBuilder, URI externalUrl, long timeoutMs, ConfigurationEntry configuration) {
       try {
          // Call the backend.
          HttpResponse<byte[]> response = doCallBackend(requestHeaders, requestBuilder, externalUrl.toString());
-         long elapsedMs = System.currentTimeMillis() - startMs;
 
          if (logger.isDebugEnabled()) {
             logger.debugf("Proxy returned: '%s'", response.statusCode());
@@ -151,40 +164,32 @@ public class ProxyService {
             evictElicitedSecret(configuration.backendSecret());
          }
 
-         Map<String, List<String>> responseHeaders = new HashMap<>(response.headers().map());
-         responseHeaders.put("x-reshapr-upstream-service-time", List.of(String.valueOf(elapsedMs)));
-
          // If authorization failed with empty body, explanations may be in the WWW-Authenticate header.
          if (response.statusCode() == 401 && response.body().length == 0 && response.headers().firstValue("www-authenticate").isPresent()) {
             return new BackendResponse(response.statusCode(),
                   response.headers().allValues("www-authenticate").toString().getBytes(StandardCharsets.UTF_8),
-                  responseHeaders);
+                  response.headers().map());
          }
 
          // Return the response as is.
-         return new BackendResponse(response.statusCode(), response.body(), responseHeaders);
+         return new BackendResponse(response.statusCode(), response.body(), response.headers().map());
       } catch (HttpTimeoutException e) {
-         long elapsedMs = System.currentTimeMillis() - startMs;
          logger.errorf("Proxy timed out after %dms calling: '%s'", timeoutMs, externalUrl);
-         return new BackendResponse(504, ("Backend timed out after " + timeoutMs + "ms").getBytes(StandardCharsets.UTF_8), Map.of("x-reshapr-upstream-service-time", List.of(String.valueOf(elapsedMs))));
+         return new BackendResponse(504, ("Backend timed out after " + timeoutMs + "ms").getBytes(StandardCharsets.UTF_8), Map.of());
       } catch (ConnectException e) {
-         long elapsedMs = System.currentTimeMillis() - startMs;
          logger.errorf("Proxy connection refused by backend '%s': %s", externalUrl, e.getMessage());
-         return new BackendResponse(503, "Service Unavailable: backend refused the connection".getBytes(StandardCharsets.UTF_8), Map.of("x-reshapr-upstream-service-time", List.of(String.valueOf(elapsedMs))));
+         return new BackendResponse(503, "Service Unavailable: backend refused the connection".getBytes(StandardCharsets.UTF_8), Map.of());
       } catch (IOException e) {
-         long elapsedMs = System.currentTimeMillis() - startMs;
          logger.errorf("Proxy I/O error calling backend '%s': %s", externalUrl, e.getMessage());
-         return new BackendResponse(502, "Bad Gateway: unexpected network error".getBytes(StandardCharsets.UTF_8), Map.of("x-reshapr-upstream-service-time", List.of(String.valueOf(elapsedMs))));
+         return new BackendResponse(502, "Bad Gateway: unexpected network error".getBytes(StandardCharsets.UTF_8), Map.of());
       } catch (InterruptedException e) {
-         long elapsedMs = System.currentTimeMillis() - startMs;
          Thread.currentThread().interrupt();
          logger.errorf("Proxy call to backend '%s' was interrupted", externalUrl);
-         return new BackendResponse(500, "Internal Server Error: request was interrupted".getBytes(StandardCharsets.UTF_8), Map.of("x-reshapr-upstream-service-time", List.of(String.valueOf(elapsedMs))));
+         return new BackendResponse(500, "Internal Server Error: request was interrupted".getBytes(StandardCharsets.UTF_8), Map.of());
       } catch (Exception e) {
-         long elapsedMs = System.currentTimeMillis() - startMs;
          String message = e.getMessage() != null ? e.getMessage() : "Unknown error";
          logger.errorf("Proxy raised unexpected error calling backend '%s': %s", externalUrl, message);
-         return new BackendResponse(500, ("Internal Server Error: " + message).getBytes(StandardCharsets.UTF_8), Map.of("x-reshapr-upstream-service-time", List.of(String.valueOf(elapsedMs))));
+         return new BackendResponse(500, ("Internal Server Error: " + message).getBytes(StandardCharsets.UTF_8), Map.of());
       }
    }
 
