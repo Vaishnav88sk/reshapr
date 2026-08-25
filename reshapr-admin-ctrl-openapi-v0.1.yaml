@@ -59,6 +59,31 @@ paths:
       security:
         - admin-api-key: [ ]
 
+  /admin/users/{username}:
+    delete:
+      operationId: deleteUser
+      summary: Delete a user and cascade the removal of its organization memberships
+      description: |
+        Delete the target user together with all its organization
+        memberships. Organizations that were owned by this user are kept but their
+        `owner` reference is cleared so an admin can later reassign them.
+      parameters:
+        - name: username
+          in: path
+          description: The unique username of the user to delete
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: User has been deleted
+        "403":
+          description: The user is protected and cannot be deleted (e.g. the owner of the `reshapr` root organization)
+        "404":
+          description: No user with this username exists
+      security:
+        - admin-api-key: []
+
   /admin/users/{username}/organization:
     post:
       requestBody:

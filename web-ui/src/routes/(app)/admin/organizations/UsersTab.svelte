@@ -27,9 +27,13 @@
   import {
     Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter, SheetClose
   } from '$lib/components/ui/sheet/index.js';
+  import {
+    DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
+  } from '$lib/components/ui/dropdown-menu/index.js';
   import OrganizationBadge from '$lib/components/OrganizationBadge.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import { HugeiconsIcon } from "@hugeicons/svelte";
-  import { Building01Icon, CheckmarkCircle01Icon } from '@hugeicons/core-free-icons';
+  import { Building01Icon, CheckmarkCircle01Icon, Delete02Icon, MoreVerticalIcon } from '@hugeicons/core-free-icons';
 
 
   // ── Types ──────────────────────────────────────────────────
@@ -265,6 +269,32 @@
   function skipAssignOrgs() {
     userDrawerOpen = false;
   }
+
+  // ── Delete User dialog state ──────────────────────────────
+  let deleteDialogOpen = $state(false);
+  let deleteTargetUser = $state<User | null>(null);
+  const protectedUsernames = $derived(new Set(
+    allOrganizations.filter(o => o.name === 'reshapr' && o.ownerUsername).map(o => o.ownerUsername as string)
+  ));
+
+  function openDeleteDialog(user: User) {
+    deleteTargetUser = user;
+    deleteDialogOpen = true;
+  }
+
+  async function handleDeleteUser() {
+    if (!deleteTargetUser) return;
+    const target = deleteTargetUser;
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(target.username)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `Failed to delete user (${res.status} ${res.statusText}).`);
+    }
+    deleteTargetUser = null;
+    await fetchUsers();
+  }
 </script>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
@@ -293,6 +323,7 @@
           <TableHead>First name</TableHead>
           <TableHead>Last name</TableHead>
           <TableHead>Default Organization</TableHead>
+          <TableHead class="w-25">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -307,6 +338,28 @@
                 <OrganizationBadge organizationName={user.defaultOrganizationName} />
               {:else}
                 —
+              {/if}
+            </TableCell>
+            <TableCell>
+              {#if !protectedUsernames.has(user.username)}
+                <DropdownMenu>
+                  <DropdownMenuTrigger>
+                    {#snippet child({ props })}
+                      <Button variant="ghost" size="icon" {...props}>
+                        <HugeiconsIcon icon={MoreVerticalIcon} size={16} />
+                      </Button>
+                    {/snippet}
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      class="whitespace-nowrap px-4 text-destructive focus:text-destructive"
+                      onclick={() => openDeleteDialog(user)}
+                    >
+                      <HugeiconsIcon icon={Delete02Icon} size={16} />
+                      Delete user
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               {/if}
             </TableCell>
           </TableRow>
@@ -530,3 +583,25 @@
   </SheetContent>
 </Sheet>
 
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Delete User confirmation dialog                            -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<ConfirmDialog
+  bind:open={deleteDialogOpen}
+  title="Delete user"
+  description={deleteTargetUser
+    ? `Permanently delete the user "${deleteTargetUser.username}"? This action cannot be undone.`
+    : ''}
+  confirmLabel="Delete user"
+  confirmingLabel="Deleting…"
+  onConfirm={handleDeleteUser}
+>
+  <div class="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+    <p class="font-medium">The following will happen:</p>
+    <ul class="mt-2 list-disc space-y-1 pl-5">
+      <li>All organization memberships of this user will be removed</li>
+      <li>Organizations owned by this user will remain but become unowned — assign a new owner afterwards</li>
+    </ul>
+  </div>
+</ConfirmDialog>

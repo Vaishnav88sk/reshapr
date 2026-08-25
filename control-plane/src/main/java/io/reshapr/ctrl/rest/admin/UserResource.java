@@ -22,6 +22,7 @@ import io.reshapr.ctrl.repository.UserRepository;
 import io.reshapr.ctrl.security.AdminAuthenticated;
 import io.reshapr.ctrl.service.DependencyNotFoundException;
 import io.reshapr.ctrl.service.EntityAlreadyExistException;
+import io.reshapr.ctrl.service.OffboardingService;
 import io.reshapr.ctrl.service.OnboardingService;
 
 import io.quarkus.panache.common.Page;
@@ -29,6 +30,7 @@ import io.quarkus.panache.common.Sort;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
@@ -50,17 +52,21 @@ public class UserResource {
    private final Logger logger = Logger.getLogger(getClass());
 
    private final OnboardingService onboardingService;
+   private final OffboardingService offboardingService;
    private final UserRepository userRepository;
    private final OrganizationRepository organizationRepository;
 
    /**
     * Build a UserResource with required dependencies.
     * @param onboardingService The OnboardingService to handle user and organization creation logic.
+    * @param offboardingService The OffboardingService to handle user cascading deletion.
     * @param userRepository The User repository
     * @param organizationRepository The Organization repository
     */
-   public UserResource(OnboardingService onboardingService, UserRepository userRepository, OrganizationRepository organizationRepository) {
+   public UserResource(OnboardingService onboardingService, OffboardingService offboardingService,
+                       UserRepository userRepository, OrganizationRepository organizationRepository) {
       this.onboardingService = onboardingService;
+      this.offboardingService = offboardingService;
       this.userRepository = userRepository;
       this.organizationRepository = organizationRepository;
    }
@@ -194,5 +200,20 @@ public class UserResource {
       userRepository.persistAndFlush(user);
 
       return Response.ok(organisationIds).build();
+   }
+
+   @DELETE
+   @Path("/{username}")
+   public Response deleteUser(@PathParam("username") String username) {
+      try {
+         offboardingService.deleteUser(username);
+      } catch (IllegalStateException e) {
+         logger.warnf("Refusing to delete user '%s': %s", username, e.getMessage());
+         return Response.status(Response.Status.FORBIDDEN).entity(e.getMessage()).build();
+      } catch (DependencyNotFoundException e) {
+         logger.warnf("User with username '%s' not found", username);
+         return Response.status(Response.Status.NOT_FOUND).entity(e.getMessage()).build();
+      }
+      return Response.noContent().build();
    }
 }

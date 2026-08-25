@@ -29,11 +29,9 @@ reshapr admin -organization create alpha \
   --description 'New alpha organization'
 ```
 
-Delete an organization and cascade the removal of everything it owns
-(services, artifacts, configuration plans, expositions, secrets, gateways,
-gateway groups, quotas, API tokens, shared resources and user memberships).
-Gateways currently serving the organization expositions are notified so they
-stop routing traffic to them.
+Delete an organization and cascade the removal of everything it owns  (services, artifacts, configuration plans, 
+expositions, secrets, gateways, gateway groups, quotas, API tokens, shared resources and user memberships).
+Gateways currently serving the organization expositions are notified so they stop routing traffic to them.
 
 ```shell
 reshapr admin organization delete alpha
@@ -47,6 +45,30 @@ reshapr admin organization delete alpha --force
 ```
 
 The built-in `reshapr` root organization is protected and cannot be deleted.
+
+## Users
+
+Create a user:
+
+```shell
+reshapr admin user create jdoe --email jdoe@example.com --password s3cret
+```
+
+Delete a user and cascade the removal of its organization memberships. Organizations previously owned by 
+this user remain but become unowned — assign a new owner afterwards.
+
+```shell
+reshapr admin user delete jdoe
+```
+
+Add `-f, --force` to skip the interactive confirmation prompt:
+
+```shell
+reshapr admin user delete jdoe --force
+```
+
+The user owning the `reshapr` root organization is protected and cannot be
+deleted.
 
 ## Memberships
 
@@ -77,7 +99,7 @@ limit.
 
 ## Service accounts
 
-Create a Kubernetes service account valid for all organizations:
+Declare a Kubernetes service account valid for all organizations:
 
 ```shell
 reshapr admin service-account create reshapr-system-operator \

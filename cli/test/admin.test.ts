@@ -125,6 +125,26 @@ describe('admin commands', () => {
     expect(Context.get('quotas')).toEqual(quotas);
   });
 
+  it('deletes a user using the --force flag to skip the confirmation prompt', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+
+    await createAdminCommand().parseAsync([
+      '--admin-api-key', 'key',
+      'user', 'delete', 'j doe',
+      '--force'
+    ], { from: 'user' });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://saved.example/api/admin/users/j%20doe',
+      expect.objectContaining({
+        method: 'DELETE',
+        headers: {
+          'x-reshapr-api-key': 'key'
+        }
+      })
+    );
+  });
+
   it('deletes an organization using the --force flag to skip the confirmation prompt', async () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
 

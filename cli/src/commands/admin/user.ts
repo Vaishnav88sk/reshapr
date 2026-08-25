@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 import { Command } from 'commander';
+import inquirer from 'inquirer';
 import { Context } from '../../utils/context.js';
 import { Logger } from '../../utils/logger.js';
 import { adminOptions, runAdminAction } from './shared.js';
-import { adminRequest } from './utils.js';
+import { adminDelete, adminRequest } from './utils.js';
 
 interface User {
   username: string;
@@ -50,6 +51,30 @@ export function createAdminUserCommand(): Command {
       );
       Context.put('user', user);
       Logger.success(`User '${username}' created successfully.`);
+    }));
+
+  userCommand.command('delete <username>')
+    .description('Delete a user and cascade the removal of its memberships')
+    .option('-f, --force', 'Skip the interactive confirmation prompt')
+    .action(async (username: string, options, command) => runAdminAction(async () => {
+      if (!options.force) {
+        const answer = await inquirer.prompt({
+          type: 'confirm',
+          name: 'confirm',
+          message: `This will permanently delete the user '${username}' along with its API tokens and organization memberships. Organizations owned by this user will remain but become unowned. Proceed?`,
+          default: false
+        });
+        if (!answer.confirm) {
+          Logger.info('Deletion cancelled.');
+          return;
+        }
+      }
+
+      await adminDelete(
+        `users/${encodeURIComponent(username)}`,
+        adminOptions(command)
+      );
+      Logger.success(`User '${username}' deleted successfully.`);
     }));
 
   return userCommand;

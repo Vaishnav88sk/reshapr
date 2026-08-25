@@ -38,16 +38,18 @@ import org.jboss.logging.Logger;
 import java.util.List;
 
 /**
- * A Service responsible for offboarding organizations: the counterpart of
+ * A Service responsible for offboarding organizations and users: the counterpart of
  * {@link OnboardingService}. It cascades the removal of an organization together with all its
  * dependent data (services and their artifacts / configuration plans / expositions, secrets,
- * gateways, gateway groups, quotas, API tokens, shared resources and user memberships).
+ * gateways, gateway groups, quotas, API tokens, shared resources and user memberships), and the
+ * removal of a user together with its API tokens and memberships.
  *
  * <p>Exposition removal is delegated to {@link ServiceManagerService#deleteService(String)} which
  * itself relies on {@link ConfigurationPlanManagerService} and {@link ExpositionManagerService},
  * so cluster-wide deletion events are broadcast to listening Gateways before rows are dropped.</p>
  *
- * <p>The {@code reshapr} root organization cannot be deleted.</p>
+ * <p>The {@code reshapr} root organization cannot be deleted, and its owner user is protected
+ * from deletion as well.</p>
  * @author laurent
  */
 @ApplicationScoped
@@ -154,5 +156,56 @@ public class OffboardingService {
       }
 
       logger.infof("Organization '%s' offboarded successfully", organizationName);
+   }
+
+   /**
+    * Delete the user with the given username, cascading the removal of its API tokens and
+    * memberships. The organizations the user owned are kept but their {@code owner} reference is
+    * cleared so an admin can later reassign them.
+    *
+    * <p>Users that own the {@code reshapr} root organization cannot be deleted to avoid locking
+    * out the admin bootstrap account.</p>
+    * @param username the username of the user to delete
+    * @throws IllegalStateException if the user is the owner of the {@code reshapr} root org
+    * @throws DependencyNotFoundException if no user with that username exists
+    */
+   @Transactional
+   public void deleteUser(String username) throws DependencyNotFoundException {
+      logger.infof("Offboarding user '%s' (with cascade)", username);
+
+      User user = userRepository.findByUsername(username);
+      if (user == null) {
+         throw new DependencyNotFoundException("User " + username + " not found");
+      }
+
+      Organization reshaprOrg = organizationRepository.findByName(ReshaprTenantResolver.ROOT_TENANT_ID);
+      if (reshaprOrg != null && reshaprOrg.owner != null && username.equals(reshaprOrg.owner.username)) {
+         throw new IllegalStateException(
+               "User '" + username + "' owns the 'reshapr' root organization and cannot be deleted");
+      }
+
+      // Switch the tenant context to root so we can list/manage entities across organizations
+      // (api tokens live outside the tenant filter but organization ownership does not).
+      String previousTenant = ReshaprTenantContext.getCurrentTenant();
+      ReshaprTenantContext.setCurrentTenant(ReshaprTenantResolver.ROOT_TENANT_ID);
+      try {
+         // 1) Clear ownership references pointing at this user: the organizations remain but
+         //    become unowned; an admin will reassign them later.
+         List<Organization> ownedOrganizations = organizationRepository.list("owner.username", username);
+         for (Organization organization : ownedOrganizations) {
+            logger.debugf("Clearing owner of organization '%s' previously owned by '%s'",
+                  organization.name, username);
+            organization.owner = null;
+         }
+
+         // 2) Purge memberships through the User.organizations owning side and delete the user.
+         user.organizations.clear();
+         user.defaultOrganization = null;
+         userRepository.delete(user);
+      } finally {
+         ReshaprTenantContext.setCurrentTenant(previousTenant);
+      }
+
+      logger.infof("User '%s' offboarded successfully", username);
    }
 }
