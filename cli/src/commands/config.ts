@@ -359,6 +359,39 @@ configCommand.command('delete <id>')
     Logger.success(`Configuration plan ${id} deleted successfully.`);
   });
 
+/** Duplicate configuration plan by ID */
+configCommand.command('duplicate <id>')
+  .description('Duplicate configuration plan by ID')
+  .requiredOption('-n, --name <newName>', 'Name for the duplicated configuration plan')
+  .option('-o, --output <format>', 'Output format (json, yaml)')
+  .action(async (id, options) => {
+    const response = await fetch(`${ConfigUtil.config.server}/api/v1/configurationPlans/${id}/duplicate?name=${encodeURIComponent(options.name)}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${ConfigUtil.config.token}`
+      }
+    });
+
+    if (!response.ok) {
+      Logger.error('Duplicating configuration plan failed: ' + response.statusText);
+      process.exit(1);
+    }
+
+    const config = await response.json();
+    Logger.success(`Configuration plan '${config.name}' duplicated successfully with ID: ${config.id}`);
+    Context.put('configurationPlan', config);
+
+    if (config.apiKey) {
+      Logger.warn(`The API Key to access future expositions is: ${config.apiKey}`);
+      Logger.warn('Make sure to store it securely, as it will not be shown again.');
+    }
+    
+    if (config.initialAccessToken) {
+      Logger.warn(`The initial access token for OAuth2 clients is: ${config.initialAccessToken}`);
+      Logger.warn('Make sure to store it securely, as it will not be shown again.');
+    }
+  });
+
 
 async function manageInclusionsAndExclusions(options: any) {
   if (options.filter) {
