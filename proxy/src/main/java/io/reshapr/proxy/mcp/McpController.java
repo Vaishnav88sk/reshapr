@@ -229,11 +229,8 @@ public class McpController {
       try {
          // Scope the call with call + session info for those who need it.
          MethodHandlingInfo handlingInfo = new MethodHandlingInfo(
-               serverRequest.remoteAddress().host(),
-               getSessionInfo(headers),
-               userId,
-               issuer,
-               service.organizationId());
+               serverRequest.remoteAddress().host(), getSessionInfo(headers),
+               userId, issuer, service.organizationId());
          ScopedValue.where(MethodHandlingContext.METHOD_HANDLING_INFO, handlingInfo).run(() -> {
             resultRef.set(handleMcpRequest(exposition, request, headers));
          });
@@ -562,6 +559,24 @@ public class McpController {
       public boolean isJSONRPCResponse() {
          return message instanceof McpSchema.JSONRPCResponse;
       }
+      /**
+       * Return a copy of this result carrying the given extra headers (merged over the existing ones,
+       * incoming values winning). An empty/null map returns {@code this} unchanged; when this result
+       * has no headers of its own, the incoming map is adopted as-is to avoid a needless copy.
+       */
+      public McpHandlerResult withHeaders(@Nullable Map<String, List<String>> extra) {
+         if (extra == null || extra.isEmpty()) {
+            return this;
+         }
+         if (headers == null || headers.isEmpty()) {
+            return new McpHandlerResult(message, extra);
+         }
+         // Both sides non-empty: merge with a pre-sized HashMap (order is semantically irrelevant for HTTP).
+         Map<String, List<String>> merged = new HashMap<>(headers.size() + extra.size(), 1.0f);
+         merged.putAll(headers);
+         merged.putAll(extra);
+         return new McpHandlerResult(message, merged);
+      }
    }
 
    /** Handle the MCP server/discover request. */
@@ -794,11 +809,14 @@ public class McpController {
 
       return switch (outcome) {
          case ToolCallExecutor.Success success ->
-               // Delegate the version-specific result shaping to the negotiated protocol dialect.
+               // Delegate the version-specific result shaping to the negotiated protocol dialect,
+               // then surface the aggregated response attributes (e.g. X-Reshapr-Upstream-Service-Time)
+               // as HTTP headers on the outgoing MCP response.
                toMcpHandlerResult(request, dialect.newCallToolResult(
                      List.<McpSchema.Content>of(new McpSchema.TextContent(success.content())))
                            .isError(success.isFault())
-                           .build());
+                           .build())
+                     .withHeaders(success.attrs().toHttpHeaders());
          case ToolCallExecutor.ElicitationRequired elicitationRequired ->
                buildElicitationResult(request, elicitationRequired);
          case ToolCallExecutor.Failure failure ->

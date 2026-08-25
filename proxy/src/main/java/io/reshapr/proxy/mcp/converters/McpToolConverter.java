@@ -17,6 +17,7 @@ package io.reshapr.proxy.mcp.converters;
 
 import io.reshapr.proxy.mcp.McpSchema;
 import io.reshapr.proxy.mcp.DeclaredTool;
+import io.reshapr.proxy.mcp.ResponseAttributes;
 import io.reshapr.proxy.proxy.BackendResponse;
 import io.reshapr.proxy.proxy.ContentUtil;
 import io.reshapr.proxy.registry.ConfigurationEntry;
@@ -125,14 +126,23 @@ public abstract class McpToolConverter {
    }
 
    /**
-    * Response record holding content and fault indicator.
+    * Response record holding content, fault indicator and response-level attributes.
+    * The {@code attrs} carrier surfaces backend-provided response metadata (e.g. the
+    * {@code X-Reshapr-Upstream-Service-Time} header) up to the MCP response layer.
     * @param content the response content
     * @param isFault indicates whether response is a fault
+    * @param attrs   response-level attributes propagated up to the MCP HTTP response
     */
    public record Response(
          String content,
-         boolean isFault
-   ) {}
+         boolean isFault,
+         ResponseAttributes attrs
+   ) {
+      /** Backward-compatible constructor building a response with no attributes. */
+      public Response(String content, boolean isFault) {
+         this(content, isFault, ResponseAttributes.empty());
+      }
+   }
 
    /** Prepare the Http headers by sanitizing them. */
    protected Map<String, List<String>> sanitizeHttpHeaders(Map<String, List<String>> headers) {

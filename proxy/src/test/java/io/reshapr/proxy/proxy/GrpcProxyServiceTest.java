@@ -44,9 +44,7 @@ import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit test for {@link GrpcProxyService#callBackend} focused on the Protobuf → JSON response
@@ -106,9 +104,8 @@ class GrpcProxyServiceTest {
 
          // gRPC success maps to Status.Code.OK.value() == 0 (not HTTP 200).
          assertEquals(0, response.status(), "expected gRPC OK status code");
-         org.junit.jupiter.api.Assertions.assertTrue(response.headers().containsKey("x-reshapr-upstream-service-time"));
-         long elapsed = Long.parseLong(response.headers().get("x-reshapr-upstream-service-time").get(0));
-         org.junit.jupiter.api.Assertions.assertTrue(elapsed >= 0, "Elapsed time should be at least 0ms, but was: " + elapsed);
+         long elapsed = response.upstreamServiceTimeMs();
+         assertTrue(elapsed >= 0, "Elapsed time should be at least 0ms, but was: " + elapsed);
 
          String json = new String(response.content(), StandardCharsets.UTF_8);
 

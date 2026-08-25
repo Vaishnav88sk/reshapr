@@ -251,14 +251,16 @@ public class ReshaprCustomToolsMcpToolConverter extends McpToolConverter {
 
       try {
          String result = runner.run(script, request.arguments(), builtins, parentDepth + 1);
-         return new Response(result, false);
+         // Aggregate response attributes across all backends reached by the script (e.g. MAX of
+         // X-Reshapr-Upstream-Service-Time when the script fans out to several tools).
+         return new Response(result, false, builtins.accumulatedAttrs());
       } catch (CustomToolScriptRunner.CustomToolScriptException e) {
          // A thrown error (or rs.fail) becomes an MCP tool error, surfacing the script-provided content.
          logger.warnf("Script custom tool '%s' failed: %s", operation.name(), e.getMessage());
-         return new Response(e.errorContent(), true);
+         return new Response(e.errorContent(), true, builtins.accumulatedAttrs());
       } catch (Exception e) {
          logger.errorf(e, "Exception while running script custom tool '%s'", operation.name());
-         return new Response("Script execution failed", true);
+         return new Response("Script execution failed", true, builtins.accumulatedAttrs());
       }
    }
 

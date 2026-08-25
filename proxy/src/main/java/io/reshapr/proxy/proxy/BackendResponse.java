@@ -18,9 +18,25 @@ package io.reshapr.proxy.proxy;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * The response of a backend call, as returned by {@link ProxyService} or {@link GrpcProxyService}.
+ * @param status                The response status (HTTP status code for REST/GraphQL, gRPC status
+ *                              code for gRPC).
+ * @param content               The response body.
+ * @param headers               The response headers as returned by the backend, unmodified.
+ * @param upstreamServiceTimeMs The wall-clock time in milliseconds spent calling the upstream
+ *                              backend (measured by the proxy). A negative value means the metric
+ *                              was not captured (e.g. synthetic error response).
+ */
 public record BackendResponse(
       int status,
       byte[] content,
-      Map<String, List<String>> headers
+      Map<String, List<String>> headers,
+      long upstreamServiceTimeMs
 ) {
+   /** Backward-compatible constructor for callers that don't measure upstream time. */
+   public BackendResponse(int status, byte[] content, Map<String, List<String>> headers) {
+      this(status, content, headers, -1L);
+   }
 }
+

@@ -19,6 +19,7 @@ import io.reshapr.proxy.context.MethodHandlingContext;
 import io.reshapr.proxy.context.MethodHandlingInfo;
 import io.reshapr.proxy.mcp.DeclaredTool;
 import io.reshapr.proxy.mcp.McpSchema;
+import io.reshapr.proxy.mcp.ResponseAttributes;
 import io.reshapr.proxy.mcp.ToolCallExecutor;
 import io.reshapr.proxy.registry.ExpositionEntry;
 import io.reshapr.proxy.registry.GatewayRegistry;
@@ -83,6 +84,14 @@ public final class ReshaprToolsBuiltins {
 
    private final AtomicInteger callCounter = new AtomicInteger(0);
    private final ObjectMapper mapper = new ObjectMapper();
+
+   /**
+    * Aggregated response attributes across every tool call made by the script. Each successful
+    * (or failing) sub-call contributes via {@link ResponseAttributes#merge(ResponseAttributes)},
+    * applying the header-specific merge policy (e.g. MAX for upstream service time). The carrier
+    * itself is thread-safe, which matters for asynchronous {@code callToolAsync}/{@code awaitPromises}.
+    */
+   private final ResponseAttributes accumulatedAttrs = ResponseAttributes.empty();
 
    /**
     * Build a ReshaprToolsBuiltins bound to a script execution context.
@@ -222,11 +231,23 @@ public final class ReshaprToolsBuiltins {
          outcome = toolCallExecutor.execute(targetService, tool, args, headers);
       }
       return switch (outcome) {
-         case ToolCallExecutor.Success success -> successJson(success.content(), success.isFault());
+         case ToolCallExecutor.Success success -> {
+            accumulatedAttrs.merge(success.attrs());
+            yield successJson(success.content(), success.isFault());
+         }
          case ToolCallExecutor.Failure failure -> errorJson(failure.code(), failure.message());
          case ToolCallExecutor.ElicitationRequired ignored -> errorJson(McpSchema.ErrorCodes.URL_ELICITATION_REQUIRED,
                "Tool '" + tool + "' requires backend secret elicitation that was not resolved before running the script");
       };
+   }
+
+   /**
+    * The response attributes accumulated across all tool calls made by the script. Used by
+    * {@link io.reshapr.proxy.mcp.converters.ReshaprCustomToolsMcpToolConverter} to propagate
+    * aggregated backend metadata (e.g. worst upstream service time) up to the MCP response.
+    */
+   public ResponseAttributes accumulatedAttrs() {
+      return accumulatedAttrs;
    }
 
    /** Resolve the target service for a cross-service coordinate, restricted to the same organization. */

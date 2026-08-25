@@ -129,8 +129,12 @@ public class ToolCallExecutor {
    public sealed interface ToolCallOutcome permits Success, ElicitationRequired, Failure {
    }
 
-   /** A successful tool call holding the (possibly filtered) response content. */
-   public record Success(String content, boolean isFault) implements ToolCallOutcome {
+   /** A successful tool call holding the (possibly filtered) response content and the response attributes. */
+   public record Success(String content, boolean isFault, ResponseAttributes attrs) implements ToolCallOutcome {
+      /** Backward-compatible constructor building a success with no attributes. */
+      public Success(String content, boolean isFault) {
+         this(content, isFault, ResponseAttributes.empty());
+      }
    }
 
    /**
@@ -210,7 +214,7 @@ public class ToolCallExecutor {
          content = filterApplier.applyFilter(toolName, content);
       }
 
-      return new Success(content, response.isFault());
+      return new Success(content, response.isFault(), response.attrs());
    }
 
    /**

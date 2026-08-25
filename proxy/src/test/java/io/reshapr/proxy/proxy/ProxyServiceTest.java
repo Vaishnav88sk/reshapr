@@ -16,19 +16,28 @@
 
 package io.reshapr.proxy.proxy;
 
+import io.reshapr.proxy.context.MethodHandlingContext;
+import io.reshapr.proxy.context.MethodHandlingInfo;
 import io.reshapr.proxy.registry.ConfigurationEntry;
-import org.junit.jupiter.api.Test;
 
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 
+/**
+ * A test case for {@link ProxyService}.
+ */
 class ProxyServiceTest {
 
    @Test
@@ -72,14 +81,14 @@ class ProxyServiceTest {
 
    @Test
    void shouldAddUpstreamServiceTimeHeaderOnSuccess() {
-      java.net.http.HttpResponse<byte[]> mockHttpResponse = org.mockito.Mockito.mock(java.net.http.HttpResponse.class);
-      org.mockito.Mockito.when(mockHttpResponse.statusCode()).thenReturn(200);
-      org.mockito.Mockito.when(mockHttpResponse.body()).thenReturn("{}".getBytes());
-      org.mockito.Mockito.when(mockHttpResponse.headers()).thenReturn(java.net.http.HttpHeaders.of(java.util.Map.of(), (k, v) -> true));
+      HttpResponse<byte[]> mockHttpResponse = Mockito.mock(HttpResponse.class);
+      Mockito.when(mockHttpResponse.statusCode()).thenReturn(200);
+      Mockito.when(mockHttpResponse.body()).thenReturn("{}".getBytes());
+      Mockito.when(mockHttpResponse.headers()).thenReturn(HttpHeaders.of(Map.of(), (k, v) -> true));
 
       ProxyService proxyService = new ProxyService(null, null) {
          @Override
-         protected java.net.http.HttpResponse<byte[]> doCallBackend(java.util.Map<String, java.util.List<String>> requestHeaders, java.net.http.HttpRequest.Builder requestBuilder,
+         protected HttpResponse<byte[]> doCallBackend(Map<String, List<String>> requestHeaders, HttpRequest.Builder requestBuilder,
                                                       String backendEndpoint) {
             try {
                Thread.sleep(50); // simulate network delay
@@ -91,15 +100,13 @@ class ProxyServiceTest {
 
       ConfigurationEntry config = new ConfigurationEntry("id", "test", "http://example.com", null, List.of(), List.of(), null, null, null);
       
-      io.reshapr.proxy.context.MethodHandlingInfo info = new io.reshapr.proxy.context.MethodHandlingInfo("127.0.0.1", null, null, null, null);
-      java.lang.ScopedValue.where(io.reshapr.proxy.context.MethodHandlingContext.METHOD_HANDLING_INFO, info).run(() -> {
+      MethodHandlingInfo info = new MethodHandlingInfo("127.0.0.1", null, null, null, null);
+      ScopedValue.where(MethodHandlingContext.METHOD_HANDLING_INFO, info).run(() -> {
          BackendResponse response = proxyService.callBackend(config, URI.create("http://example.com"), "GET", java.util.Map.of(), null);
          
          assertEquals(200, response.status());
-         org.junit.jupiter.api.Assertions.assertTrue(response.headers().containsKey("x-reshapr-upstream-service-time"));
-         
-         long elapsed = Long.parseLong(response.headers().get("x-reshapr-upstream-service-time").get(0));
-         org.junit.jupiter.api.Assertions.assertTrue(elapsed >= 50, "Elapsed time should be at least 50ms, but was: " + elapsed);
+         long elapsed = response.upstreamServiceTimeMs();
+         assertTrue(elapsed >= 50, "Elapsed time should be at least 50ms, but was: " + elapsed);
       });
    }
 
@@ -107,27 +114,25 @@ class ProxyServiceTest {
    void shouldAddUpstreamServiceTimeHeaderOnException() {
       ProxyService proxyService = new ProxyService(null, null) {
          @Override
-         protected java.net.http.HttpResponse<byte[]> doCallBackend(java.util.Map<String, java.util.List<String>> requestHeaders, java.net.http.HttpRequest.Builder requestBuilder,
-                                                      String backendEndpoint) throws java.io.IOException {
+         protected HttpResponse<byte[]> doCallBackend(Map<String, List<String>> requestHeaders, HttpRequest.Builder requestBuilder,
+                                                      String backendEndpoint) throws IOException {
             try {
                Thread.sleep(50); // simulate network delay before failure
             } catch (InterruptedException e) { }
-            throw new java.io.IOException("Connection reset");
+            throw new IOException("Connection reset");
          }
       };
       proxyService.defaultBackendTimeout = 3000L;
 
       ConfigurationEntry config = new ConfigurationEntry("id", "test", "http://example.com", null, List.of(), List.of(), null, null, null);
       
-      io.reshapr.proxy.context.MethodHandlingInfo info = new io.reshapr.proxy.context.MethodHandlingInfo("127.0.0.1", null, null, null, null);
-      java.lang.ScopedValue.where(io.reshapr.proxy.context.MethodHandlingContext.METHOD_HANDLING_INFO, info).run(() -> {
+      MethodHandlingInfo info = new MethodHandlingInfo("127.0.0.1", null, null, null, null);
+      ScopedValue.where(MethodHandlingContext.METHOD_HANDLING_INFO, info).run(() -> {
          BackendResponse response = proxyService.callBackend(config, URI.create("http://example.com"), "GET", java.util.Map.of(), null);
          
          assertEquals(502, response.status());
-         org.junit.jupiter.api.Assertions.assertTrue(response.headers().containsKey("x-reshapr-upstream-service-time"));
-         
-         long elapsed = Long.parseLong(response.headers().get("x-reshapr-upstream-service-time").get(0));
-         org.junit.jupiter.api.Assertions.assertTrue(elapsed >= 50, "Elapsed time should be at least 50ms, but was: " + elapsed);
+         long elapsed = response.upstreamServiceTimeMs();
+         assertTrue(elapsed >= 50, "Elapsed time should be at least 50ms, but was: " + elapsed);
       });
    }
 }

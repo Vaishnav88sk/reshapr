@@ -18,6 +18,7 @@ package io.reshapr.proxy.mcp.converters;
 import io.reshapr.json.JsonNodeConverter;
 import io.reshapr.json.ObjectMapperFactory;
 import io.reshapr.proxy.mcp.McpSchema;
+import io.reshapr.proxy.mcp.ResponseAttributes;
 import io.reshapr.proxy.mcp.WorkCache;
 import io.reshapr.proxy.proxy.BackendResponse;
 import io.reshapr.proxy.proxy.ProxyService;
@@ -198,21 +199,22 @@ public class OpenAPIMcpToolConverter extends McpToolConverter {
                operation.method(), headers, body);
 
          // Build a MCP Response from the result.
-         return new Response(extractResponseContent(backResponse), backResponse.status() >= 400);
-      } catch (Exception e) {
-         logger.error("Exception while processing the MCP call invocation", e);
-      }
-      return null;
+         return new Response(extractResponseContent(backResponse), backResponse.status() >= 400,
+               ResponseAttributes.fromBackend(backResponse));
+     } catch (Exception e) {
+        logger.error("Exception while processing the MCP call invocation", e);
+     }
+     return null;
    }
 
    @Override
    public Uni<Response> getCallResponseUni(OperationEntry operation, McpSchema.SimpleRequest request, Map<String, List<String>> headers) {
-      return null;
+     return null;
    }
 
    /** Get the root schema node for the OpenAPI artifact. */
    private JsonNode getSchemaNode() throws Exception {
-      String major = artifact.id();
+     String major = artifact.id();
       String minor = CACHE_KEYS_PREFIX + "schema";
       Object value = workCache.get(major, minor);
       if (value instanceof JsonNode schemaNode) {

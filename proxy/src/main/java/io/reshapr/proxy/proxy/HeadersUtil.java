@@ -34,8 +34,9 @@ public class HeadersUtil {
 
    public static final String FORWARDED = "Forwarded";
    public static final String X_FORWARDED_FOR = "X-Forwarded-For";
-   public static final String UPSTREAM_SERVICE_TIME = "x-reshapr-upstream-service-time";
    private static final String FORWARDED_FOR = "for=";
+
+   public static final String UPSTREAM_SERVICE_TIME = "X-Reshapr-Upstream-Service-Time";
 
    private static final TextMapPropagator OTEL_PROPAGATOR =
          TextMapPropagator.composite(W3CTraceContextPropagator.getInstance(),

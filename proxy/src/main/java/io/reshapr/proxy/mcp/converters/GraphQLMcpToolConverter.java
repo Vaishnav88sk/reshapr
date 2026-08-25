@@ -16,6 +16,7 @@
 package io.reshapr.proxy.mcp.converters;
 
 import io.reshapr.proxy.mcp.McpSchema;
+import io.reshapr.proxy.mcp.ResponseAttributes;
 import io.reshapr.proxy.mcp.WorkCache;
 import io.reshapr.proxy.proxy.BackendResponse;
 import io.reshapr.proxy.proxy.ProxyService;
@@ -142,11 +143,12 @@ public class GraphQLMcpToolConverter extends McpToolConverter {
                "POST", headers, body);
 
          // Build a MCP Response from the result.
-         return new Response(extractResponseContent(backResponse), backResponse.status() >= 400);
-      } catch (Exception e) {
-         logger.error("Exception while processing the MCP call invocation", e);
-      }
-      return null;
+         return new Response(extractResponseContent(backResponse), backResponse.status() >= 400,
+               ResponseAttributes.fromBackend(backResponse));
+     } catch (Exception e) {
+        logger.error("Exception while processing the MCP call invocation", e);
+     }
+     return null;
    }
 
    @Override
