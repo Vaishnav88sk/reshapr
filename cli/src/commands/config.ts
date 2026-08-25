@@ -138,6 +138,8 @@ configCommand.command('create <name>')
   .option('--ia, --includedArtifacts [<artifact1>, <artifact2>]', 'Include only these attached artifact names in the plan (JSON array). Empty/absent means all the attached artifacts of the service apply.')
   .option('--apiKey', 'Generate an API key for this configuration plan to secure the MCP endpoint')
   .option('--audit', 'Enable audit logging for this configuration plan')
+  .option('--ct, --cacheTtl <cacheTtlMs>', 'Cache TTL in milliseconds', '30000')
+  .option('--cs, --cacheScope <cacheScope>', 'Cache scope (e.g. public, private)', 'public')
   .option('-o, --output <format>', 'Output format (json, yaml)')
   .action(async (name, options) => {
     if (!options.serviceId) {
@@ -165,6 +167,10 @@ configCommand.command('create <name>')
         includedArtifacts: options.includedArtifacts ? getArrayOfStrings(options.includedArtifacts, 'includedArtifacts') : undefined,
         apiKey: (options.apiKey ? 'generate-me' : undefined),
         initialAccessToken: (options.internalOAuth2 ? 'generate-me' : undefined),
+        cachingConfiguration: {
+          ttlMs: parseInt(options.cacheTtl, 10),
+          cacheScope: options.cacheScope
+        },
         audit: options.audit || false
       })
     });
@@ -206,6 +212,8 @@ configCommand.command('create-oauth <name>')
   .requiredOption('--oju, --oauth2jwksUri <jwksUri>', 'The JWKS URI to validate OAuth2 tokens')
   .option('--osc, --oauth2Scopes [<scope1>, <scope2>]', 'A list of OAuth2 scopes to enforce presence in the access token')
   .option('--audit', 'Enable audit logging for this configuration plan')
+  .option('--ct, --cacheTtl <cacheTtlMs>', 'Cache TTL in milliseconds', '30000')
+  .option('--cs, --cacheScope <cacheScope>', 'Cache scope (e.g. public, private)', 'public')
   .option('-o, --output <format>', 'Output format (json, yaml)')
   .action(async (name, options) => {
     if (!options.serviceId) {
@@ -238,6 +246,10 @@ configCommand.command('create-oauth <name>')
         excludedOperations: options.excludedOps || undefined,
         includedArtifacts: options.includedArtifacts ? getArrayOfStrings(options.includedArtifacts, 'includedArtifacts') : undefined,
         oauth2Configuration: options.oauth2Configuration,
+        cachingConfiguration: {
+          ttlMs: parseInt(options.cacheTtl, 10),
+          cacheScope: options.cacheScope
+        },
         audit: options.audit || false
       })
     });
