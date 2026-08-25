@@ -121,6 +121,10 @@ export function apiClient() {
       }),
     deleteConfigurationPlan: (id: string) =>
       empty(`/api/v1/configurationPlans/${id}`, { method: 'DELETE' }),
+    duplicateConfigurationPlan: (id: string, name: string) =>
+      json<unknown>(`/api/v1/configurationPlans/${id}/duplicate?name=${encodeURIComponent(name)}`, {
+        method: 'POST'
+      }),
     renewApiKey: (id: string) =>
       json<unknown>(`/api/v1/configurationPlans/${id}/renewApiKey`, { method: 'PUT' }),
 

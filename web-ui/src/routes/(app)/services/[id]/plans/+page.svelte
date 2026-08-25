@@ -31,10 +31,13 @@
 	} from '$lib/components/ui/dropdown-menu/index.js';
 	import { cn } from '$lib/utils.js';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { MoreVerticalIcon, PencilEdit02Icon, Delete02Icon, RefreshIcon } from '@hugeicons/core-free-icons';
+	import { MoreVerticalIcon, PencilEdit02Icon, Delete02Icon, RefreshIcon, Copy01Icon } from '@hugeicons/core-free-icons';
 	import UserLockIcon from '@lucide/svelte/icons/user-lock';
 	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
 	import MessageSquareLockIcon from '@lucide/svelte/icons/message-square-lock';
+	import * as Dialog from '$lib/components/ui/dialog/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
+	import { Label } from '$lib/components/ui/label/index.js';
 
 	const ctx = getContext<ServiceContextValue>(SERVICE_CONTEXT_KEY);
 
@@ -204,9 +207,28 @@
 	let deleteTarget = $state<PlanRow | null>(null);
 	let deleteOpen = $state(false);
 
+	let duplicateTarget = $state<PlanRow | null>(null);
+	let duplicateOpen = $state(false);
+	let duplicateNewName = $state('');
+	let duplicateBusy = $state(false);
+	let duplicateError = $state<string | null>(null);
+	let duplicateSuccess = $state(false);
+	let duplicatedApiKey = $state<string | null>(null);
+	let duplicatedInitialToken = $state<string | null>(null);
+
 	function onDelete(row: PlanRow) {
 		deleteTarget = row;
 		deleteOpen = true;
+	}
+
+	function onDuplicate(row: PlanRow) {
+		duplicateTarget = row;
+		duplicateNewName = `${row.name} (Copy)`;
+		duplicateError = null;
+		duplicateSuccess = false;
+		duplicatedApiKey = null;
+		duplicatedInitialToken = null;
+		duplicateOpen = true;
 	}
 
 	async function confirmDeletePlan() {
@@ -214,6 +236,30 @@
 		if (!row) return;
 		await apiClient().deleteConfigurationPlan(row.id);
 		await load();
+	}
+
+	async function confirmDuplicatePlan(e: Event) {
+		e.preventDefault();
+		const row = duplicateTarget;
+		if (!row || !duplicateNewName.trim()) return;
+		duplicateBusy = true;
+		duplicateError = null;
+		try {
+			const res = await apiClient().duplicateConfigurationPlan(row.id, duplicateNewName.trim()) as any;
+			await load();
+			
+			if (res.apiKey || res.initialAccessToken) {
+				duplicatedApiKey = res.apiKey || null;
+				duplicatedInitialToken = res.initialAccessToken || null;
+				duplicateSuccess = true;
+			} else {
+				duplicateOpen = false;
+			}
+		} catch (err) {
+			duplicateError = err instanceof ApiError ? err.message : String(err);
+		} finally {
+			duplicateBusy = false;
+		}
 	}
 </script>
 
@@ -329,7 +375,7 @@
 									{/snippet}
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align="end">
-									<DropdownMenuItem>
+									<DropdownMenuItem class="cursor-pointer">
 										{#snippet child({ props })}
 											<a href="/services/{ctx.id}/plans/{p.id}" class="px-4" {...props}>
 												<HugeiconsIcon icon={PencilEdit02Icon} size={16} />
@@ -338,7 +384,14 @@
 										{/snippet}
 									</DropdownMenuItem>
 									<DropdownMenuItem
-										class="text-destructive focus:text-destructive"
+										class="cursor-pointer"
+										onSelect={() => void onDuplicate(p)}
+									>
+										<HugeiconsIcon icon={Copy01Icon} size={16} />
+										Duplicate
+									</DropdownMenuItem>
+									<DropdownMenuItem
+										class="text-destructive focus:text-destructive cursor-pointer"
 										onSelect={() => void onDelete(p)}
 									>
 										<HugeiconsIcon icon={Delete02Icon} size={16} />
@@ -368,3 +421,74 @@
 		will lose access until another plan is configured.
 	</p>
 </ConfirmDialog>
+
+<Dialog.Root bind:open={duplicateOpen} onOpenChange={(open) => { if (!open) { duplicateSuccess = false; duplicatedApiKey = null; duplicatedInitialToken = null; } }}>
+	<Dialog.Content>
+		{#if duplicateSuccess}
+			<Dialog.Header>
+				<Dialog.Title>Configuration plan duplicated</Dialog.Title>
+				<Dialog.Description>
+					The plan "{duplicateNewName}" has been created successfully.
+				</Dialog.Description>
+			</Dialog.Header>
+			<div class="flex flex-col gap-4 py-2">
+				<p class="text-sm text-muted-foreground">
+					Please copy the generated keys below. You will not be able to see them again!
+				</p>
+				{#if duplicatedApiKey}
+					<div class="flex flex-col gap-1">
+						<Label>API Key</Label>
+						<Input readonly value={duplicatedApiKey} />
+					</div>
+				{/if}
+				{#if duplicatedInitialToken}
+					<div class="flex flex-col gap-1">
+						<Label>Initial Access Token</Label>
+						<Input readonly value={duplicatedInitialToken} />
+					</div>
+				{/if}
+			</div>
+			<Dialog.Footer>
+				<Button type="button" onclick={() => (duplicateOpen = false)}>
+					Close
+				</Button>
+			</Dialog.Footer>
+		{:else}
+			<Dialog.Header>
+				<Dialog.Title>Duplicate configuration plan</Dialog.Title>
+				<Dialog.Description>
+					Create a copy of "{duplicateTarget?.name}". A new API key will be generated if applicable.
+				</Dialog.Description>
+			</Dialog.Header>
+			{#if duplicateError}
+				<ApiErrorAlert message={duplicateError} />
+			{/if}
+			<form onsubmit={confirmDuplicatePlan} class="flex flex-col gap-4 py-2">
+				<div class="flex flex-col gap-2">
+					<Label for="duplicate-name">New plan name</Label>
+					<Input
+						id="duplicate-name"
+						bind:value={duplicateNewName}
+						placeholder="My duplicated plan"
+						disabled={duplicateBusy}
+						required
+					/>
+				</div>
+				<Dialog.Footer>
+					<Button
+						type="button"
+						variant="outline"
+						disabled={duplicateBusy}
+						onclick={() => (duplicateOpen = false)}
+					>
+						Cancel
+					</Button>
+					<Button type="submit" disabled={duplicateBusy || !duplicateNewName.trim()}>
+						{duplicateBusy ? 'Duplicating…' : 'Duplicate'}
+					</Button>
+				</Dialog.Footer>
+			</form>
+		{/if}
+	</Dialog.Content>
+</Dialog.Root>
+
