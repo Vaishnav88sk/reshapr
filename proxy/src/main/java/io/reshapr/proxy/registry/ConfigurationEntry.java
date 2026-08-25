@@ -31,13 +31,14 @@ public record ConfigurationEntry(
       String apiKey,
       OAuth2ConfigurationEntry oauth2Configuration,
       SecretEntry backendSecret,
-      boolean audit) {
+      boolean audit,
+      CachingConfigurationEntry cachingConfiguration) {
 
 
    public ConfigurationEntry(String id, String name, String backendEndpoint, Long backendTimeout,
                              List<String> excludedOperations, List<String> includedOperations,
                              String apiKey, OAuth2ConfigurationEntry oauth2Configuration, SecretEntry backendSecret) {
-      this(id, name, backendEndpoint, backendTimeout, excludedOperations, includedOperations, apiKey, oauth2Configuration, backendSecret, false);
+      this(id, name, backendEndpoint, backendTimeout, excludedOperations, includedOperations, apiKey, oauth2Configuration, backendSecret, false, null);
    }
 
    @Override
@@ -49,5 +50,28 @@ public record ConfigurationEntry(
 
    private String apiKeyString() {
       return (apiKey != null ? "*******" : "null");
+   }
+
+   /**
+    * Caching directives forwarded from the ConfigurationPlan to MCP responses.
+    * Both fields are optional; when null the proxy falls back to the defaults.
+    *
+    * @param ttlMs      Time-to-live in milliseconds.
+    * @param cacheScope Cache scope (e.g. "public" or "private").
+    */
+   public record CachingConfigurationEntry(Long ttlMs, String cacheScope) {
+
+      public static final long DEFAULT_TTL_MS = 30_000L;
+      public static final String DEFAULT_CACHE_SCOPE = "public";
+
+      /** Returns {@code ttlMs} if set, otherwise the default (30 000 ms). */
+      public long effectiveTtlMs() {
+         return ttlMs != null ? ttlMs : DEFAULT_TTL_MS;
+      }
+
+      /** Returns {@code cacheScope} if set, otherwise the default ("public"). */
+      public String effectiveCacheScope() {
+         return cacheScope != null ? cacheScope : DEFAULT_CACHE_SCOPE;
+      }
    }
 }
