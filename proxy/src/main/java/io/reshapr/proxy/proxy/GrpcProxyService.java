@@ -61,6 +61,8 @@ import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -204,6 +206,21 @@ public class GrpcProxyService {
       }
 
       // Now we can call the gRPC service using the channel and method descriptor.
+      byte[] responseBytes = null;
+      long startMs = System.currentTimeMillis();
+      BackendResponse response = doCallBackendAndHandleErrors(channel, md, callOptions, headers, requestBytes, configuration);
+      long elapsedMs = System.currentTimeMillis() - startMs;
+
+      return withServiceTimeHeader(response, elapsedMs);
+   }
+
+   private BackendResponse withServiceTimeHeader(BackendResponse response, long elapsedMs) {
+      Map<String, List<String>> finalHeaders = new HashMap<>(response.headers() != null ? response.headers() : Map.of());
+      finalHeaders.put(HeadersUtil.UPSTREAM_SERVICE_TIME, List.of(String.valueOf(elapsedMs)));
+      return new BackendResponse(response.status(), response.content(), java.util.Collections.unmodifiableMap(finalHeaders));
+   }
+
+   private BackendResponse doCallBackendAndHandleErrors(Channel channel, Descriptors.MethodDescriptor md, CallOptions callOptions, Map<String, List<String>> headers, byte[] requestBytes, ConfigurationEntry configuration) throws java.io.IOException {
       byte[] responseBytes = null;
       try {
          String methodName = md.getService().getFullName() + "/" + md.getName();

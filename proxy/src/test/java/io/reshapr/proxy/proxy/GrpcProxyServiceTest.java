@@ -106,6 +106,9 @@ class GrpcProxyServiceTest {
 
          // gRPC success maps to Status.Code.OK.value() == 0 (not HTTP 200).
          assertEquals(0, response.status(), "expected gRPC OK status code");
+         org.junit.jupiter.api.Assertions.assertTrue(response.headers().containsKey("x-reshapr-upstream-service-time"));
+         long elapsed = Long.parseLong(response.headers().get("x-reshapr-upstream-service-time").get(0));
+         org.junit.jupiter.api.Assertions.assertTrue(elapsed >= 0, "Elapsed time should be at least 0ms, but was: " + elapsed);
 
          String json = new String(response.content(), StandardCharsets.UTF_8);
 

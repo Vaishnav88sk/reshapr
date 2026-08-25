@@ -43,6 +43,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Collections;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -133,6 +134,20 @@ public class ProxyService {
          logger.tracef("Proxy request body: '%s'", body);
       }
 
+      long startMs = System.currentTimeMillis();
+      BackendResponse response = doCallBackendAndHandleErrors(requestHeaders, requestBuilder, externalUrl, timeoutMs, configuration);
+      long elapsedMs = System.currentTimeMillis() - startMs;
+
+      return withServiceTimeHeader(response, elapsedMs);
+   }
+
+   private BackendResponse withServiceTimeHeader(BackendResponse response, long elapsedMs) {
+      Map<String, List<String>> finalHeaders = new HashMap<>(response.headers() != null ? response.headers() : Map.of());
+      finalHeaders.put(HeadersUtil.UPSTREAM_SERVICE_TIME, List.of(String.valueOf(elapsedMs)));
+      return new BackendResponse(response.status(), response.content(), Collections.unmodifiableMap(finalHeaders));
+   }
+
+   private BackendResponse doCallBackendAndHandleErrors(Map<String, List<String>> requestHeaders, HttpRequest.Builder requestBuilder, URI externalUrl, long timeoutMs, ConfigurationEntry configuration) {
       try {
          // Call the backend.
          HttpResponse<byte[]> response = doCallBackend(requestHeaders, requestBuilder, externalUrl.toString());
