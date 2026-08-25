@@ -31,7 +31,7 @@
 	} from '$lib/components/ui/dropdown-menu/index.js';
 	import { cn } from '$lib/utils.js';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
-	import { MoreVerticalIcon, PencilEdit02Icon, Delete02Icon, RefreshIcon, Copy01Icon } from '@hugeicons/core-free-icons';
+	import { MoreVerticalIcon, PencilEdit02Icon, Delete02Icon, RefreshIcon, Copy01Icon, Tick02Icon } from '@hugeicons/core-free-icons';
 	import UserLockIcon from '@lucide/svelte/icons/user-lock';
 	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
 	import MessageSquareLockIcon from '@lucide/svelte/icons/message-square-lock';
@@ -215,6 +215,20 @@
 	let duplicateSuccess = $state(false);
 	let duplicatedApiKey = $state<string | null>(null);
 	let duplicatedInitialToken = $state<string | null>(null);
+	let copiedField = $state<'apiKey' | 'initialToken' | null>(null);
+
+	async function copyValue(field: 'apiKey' | 'initialToken', value: string | null) {
+		if (!value) return;
+		try {
+			await navigator.clipboard.writeText(value);
+			copiedField = field;
+			setTimeout(() => {
+				if (copiedField === field) copiedField = null;
+			}, 1500);
+		} catch {
+			// clipboard denied, ignore
+		}
+	}
 
 	function onDelete(row: PlanRow) {
 		deleteTarget = row;
@@ -422,7 +436,7 @@
 	</p>
 </ConfirmDialog>
 
-<Dialog.Root bind:open={duplicateOpen} onOpenChange={(open) => { if (!open) { duplicateSuccess = false; duplicatedApiKey = null; duplicatedInitialToken = null; } }}>
+<Dialog.Root bind:open={duplicateOpen} onOpenChange={(open) => { if (!open) { duplicateSuccess = false; duplicatedApiKey = null; duplicatedInitialToken = null; copiedField = null; } }}>
 	<Dialog.Content>
 		{#if duplicateSuccess}
 			<Dialog.Header>
@@ -432,19 +446,64 @@
 				</Dialog.Description>
 			</Dialog.Header>
 			<div class="flex flex-col gap-4 py-2">
-				<p class="text-sm text-muted-foreground">
-					Please copy the generated keys below. You will not be able to see them again!
-				</p>
 				{#if duplicatedApiKey}
-					<div class="flex flex-col gap-1">
-						<Label>API Key</Label>
-						<Input readonly value={duplicatedApiKey} />
+					<div class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+						<div class="flex items-start justify-between gap-3">
+							<div class="min-w-0">
+								<p class="text-sm font-semibold text-amber-700 dark:text-amber-400">
+									Copy your API key now
+								</p>
+								<p class="text-muted-foreground mt-0.5 text-xs">
+									This is the only time the API key value will be shown.
+								</p>
+								<code class="mt-2 block font-mono text-xs break-all">{duplicatedApiKey}</code>
+							</div>
+							<div class="flex shrink-0 items-center gap-1">
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={() => void copyValue('apiKey', duplicatedApiKey)}
+								>
+									{#if copiedField === 'apiKey'}
+										<HugeiconsIcon icon={Tick02Icon} size={16} />
+										Copied
+									{:else}
+										<HugeiconsIcon icon={Copy01Icon} size={16} />
+										Copy
+									{/if}
+								</Button>
+							</div>
+						</div>
 					</div>
 				{/if}
 				{#if duplicatedInitialToken}
-					<div class="flex flex-col gap-1">
-						<Label>Initial Access Token</Label>
-						<Input readonly value={duplicatedInitialToken} />
+					<div class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+						<div class="flex items-start justify-between gap-3">
+							<div class="min-w-0">
+								<p class="text-sm font-semibold text-amber-700 dark:text-amber-400">
+									Copy your initial access token now
+								</p>
+								<p class="text-muted-foreground mt-0.5 text-xs">
+									This is the only time the initial access token value will be shown.
+								</p>
+								<code class="mt-2 block font-mono text-xs break-all">{duplicatedInitialToken}</code>
+							</div>
+							<div class="flex shrink-0 items-center gap-1">
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={() => void copyValue('initialToken', duplicatedInitialToken)}
+								>
+									{#if copiedField === 'initialToken'}
+										<HugeiconsIcon icon={Tick02Icon} size={16} />
+										Copied
+									{:else}
+										<HugeiconsIcon icon={Copy01Icon} size={16} />
+										Copy
+									{/if}
+								</Button>
+							</div>
+						</div>
 					</div>
 				{/if}
 			</div>

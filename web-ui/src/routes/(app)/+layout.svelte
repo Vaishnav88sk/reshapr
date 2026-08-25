@@ -125,9 +125,6 @@
     if (href === '/services') {
       return path === '/services' || path.startsWith('/services/');
     }
-    if (href === '/plans') {
-      return path === '/plans' || path.startsWith('/plans/');
-    }
     return path === href || path.startsWith(href + '/');
   }
 
