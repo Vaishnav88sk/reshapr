@@ -79,6 +79,10 @@
 	let audit = $state(false);
 	let backendSecretId = $state('');
 
+	// ── Caching configuration (MCP >= 2026-07-28) ───────────────────────────────
+	let cachingTtlMs = $state('');
+	let cachingScope = $state<'public' | 'private' | ''>('');
+
 	/** 'include' exposes only the selected operations, 'exclude' hides the selected ones. */
 	let opsMode = $state<'include' | 'exclude'>('include');
 	let selectedOps = $state<string[]>([]);
@@ -288,6 +292,11 @@
 		audit = plan.audit === true;
 		backendSecretId = typeof plan.backendSecretId === 'string' ? plan.backendSecretId : '';
 
+		// Caching configuration
+		const cc = plan.cachingConfiguration as Record<string, unknown> | null | undefined;
+		cachingTtlMs = cc?.ttlMs != null ? String(cc.ttlMs) : '';
+		cachingScope = cc?.cacheScope === 'private' ? 'private' : cc?.cacheScope === 'public' ? 'public' : '';
+
 		const included = Array.isArray(plan.includedOperations)
 			? plan.includedOperations.map(String).filter(Boolean)
 			: [];
@@ -401,6 +410,17 @@
 		else delete body.backendTimeout;
 
 		body.audit = audit;
+
+		// Caching configuration — send only when at least one field is set; null to clear.
+		const ttlNum = cachingTtlMs.trim();
+		if (ttlNum || cachingScope) {
+			body.cachingConfiguration = {
+				...(ttlNum && !Number.isNaN(Number(ttlNum)) ? { ttlMs: Number(ttlNum) } : {}),
+				...(cachingScope ? { cacheScope: cachingScope } : {})
+			};
+		} else {
+			body.cachingConfiguration = null;
+		}
 
 		delete body.includedOperations;
 		delete body.excludedOperations;
@@ -629,6 +649,40 @@
 					<Checkbox checked={audit} disabled={loading} onCheckedChange={(v) => (audit = v === true)} />
 					<span>Enable audit log</span>
 				</label>
+			</div>
+
+			<!-- ── Caching configuration ─────────────────────────────────────── -->
+			<div class="border-t pt-4">
+				<p class="mb-3 text-sm font-medium">Caching configuration</p>
+				<p class="mb-4 text-xs text-muted-foreground">
+					Client-side cache hints sent on MCP list/read responses (protocol ≥ 2026-07-28).
+					Leave blank to use the defaults (30 000 ms, public).
+				</p>
+				<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+					<div class="space-y-2">
+						<Label for="cachingTtlMs">Cache TTL (ms)</Label>
+						<Input
+							id="cachingTtlMs"
+							bind:value={cachingTtlMs}
+							inputmode="numeric"
+							placeholder="Default: 30000"
+							disabled={loading}
+						/>
+					</div>
+					<div class="space-y-2">
+						<Label for="cachingScope">Cache scope</Label>
+						<select
+							id="cachingScope"
+							bind:value={cachingScope}
+							disabled={loading}
+							class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							<option value="">Default (public)</option>
+							<option value="public">public</option>
+							<option value="private">private</option>
+						</select>
+					</div>
+				</div>
 			</div>
 		</Card.Content>
 	</Card.Root>
