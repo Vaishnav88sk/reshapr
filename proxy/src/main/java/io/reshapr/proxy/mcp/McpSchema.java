@@ -60,6 +60,9 @@ public class McpSchema {
     * strict {@code equals} so future protocol versions keep selecting the modern shape.
     */
    public static boolean isAtLeast(String protocolVersion, String reference) {
+      if (protocolVersion == null || reference == null) {
+         return false;
+      }
       int versionIndex = SUPPORTED_PROTOCOL_VERSIONS.indexOf(protocolVersion);
       int referenceIndex = SUPPORTED_PROTOCOL_VERSIONS.indexOf(reference);
       return versionIndex >= 0 && versionIndex >= referenceIndex;
