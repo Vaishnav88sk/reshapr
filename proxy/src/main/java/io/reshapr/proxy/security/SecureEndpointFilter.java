@@ -25,6 +25,7 @@ import io.reshapr.proxy.registry.ServiceEntry;
 
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
 import com.nimbusds.jose.proc.BadJOSEException;
 import com.nimbusds.jose.proc.JWSKeySelector;
@@ -54,6 +55,7 @@ import java.net.URL;
 import java.text.ParseException;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * SecureEndpointFilter is a JAX-RS filter that applies security checks to incoming requests.
@@ -90,6 +92,9 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
          JWTClaimNames.EXPIRATION_TIME,
          JWTClaimNames.JWT_ID
    );
+
+   /* Cache of JWKSource instances keyed by JWK Set URL to avoid reloading keys for each request. */
+   private final ConcurrentHashMap<String, JWKSource<SecurityContext>> jwkSources = new ConcurrentHashMap<>();
 
    private final GatewayRegistry gatewayRegistry;
    private final AuditLogger auditLogger;
@@ -190,9 +195,13 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
 
       // Continue with OAuth2 token validation.
       final OAuth2ConfigurationEntry oauth2Config = configuration.oauth2Configuration();
-      URL jwksUri = null;
+
+      // Create a JWK source that retrieves the public keys from the JWK Set URL.
+      JWKSource<SecurityContext> jwkSource;
       try {
-         jwksUri = URI.create(oauth2Config.jwksUri()).toURL();
+         final URL jwksUri = URI.create(oauth2Config.jwksUri()).toURL();
+         jwkSource = jwkSources.computeIfAbsent(oauth2Config.jwksUri(),
+               uri -> JWKSourceBuilder.create(jwksUri).retrying(true).build());
       } catch (Exception e) {
          logger.errorf("Invalid JWK Set URL in OAuth2 configuration: '%s'", oauth2Config.jwksUri());
          ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED).build());
@@ -209,8 +218,7 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
       // Configure the JWT processor with a key selector to feed matching public
       // RSA keys sourced from the JWK set URL.
       JWSKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector<>(
-            JWS_SUPPORTED_ALGORITHMS,
-            JWKSourceBuilder.create(jwksUri).retrying(true).build());
+            JWS_SUPPORTED_ALGORITHMS, jwkSource);
       jwtProcessor.setJWSKeySelector(keySelector);
 
       // Set the required JWT claims for access tokens
