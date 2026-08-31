@@ -187,8 +187,7 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
          logger.warnf("Redirecting to '%s'", fqdnScheme
                + fqdns.getFirst() + "/.well-known/oauth-protected-resource" + ctx.getUriInfo().getPath());
          ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED)
-               .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer resource_metadata=" + fqdnScheme
-                     + fqdns.getFirst() + "/.well-known/oauth-protected-resource" + ctx.getUriInfo().getPath())
+               .header(HttpHeaders.WWW_AUTHENTICATE, bearerChallenge(ctx, null))
                .build());
          return;
       }
