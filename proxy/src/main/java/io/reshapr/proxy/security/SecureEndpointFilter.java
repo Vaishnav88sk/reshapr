@@ -209,7 +209,7 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
       String token = authorizationHeader.substring("Bearer ".length());
 
       // Here you would typically validate the token against the OAuth2 server.
-      logger.debugf("OAuth2 token received: %s", token);
+      logger.tracef("OAuth2 token received: %s", token);
 
       // Create a JWT processor for the access tokens
       ConfigurableJWTProcessor<SecurityContext> jwtProcessor = new DefaultJWTProcessor<>();
