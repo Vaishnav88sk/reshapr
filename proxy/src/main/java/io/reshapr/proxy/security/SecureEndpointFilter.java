@@ -223,17 +223,29 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
       SecurityContext securityCtx = null;
       try {
          claimsSet = jwtProcessor.process(token, securityCtx);
-      } catch (ParseException | BadJOSEException e) {
-         // Malformed token.
-         logger.warnf("Bad OAuth2 token received: %s", e.getMessage());
-         emitAuthenticationFailureAuditEvent(service, configuration, AuthenticationFailureAuditEvent.REASON_MALFORMED_TOKEN, Response.Status.BAD_REQUEST.getStatusCode(), ctx);
-         ctx.abortWith(Response.status(Response.Status.BAD_REQUEST).build());
+      } catch (ParseException e) {
+         // Unparseable JWT: RFC 6750 classifies malformed tokens as invalid_token -> 401.
+         logger.warnf("Malformed OAuth2 token received: %s", e.getMessage());
+         emitAuthenticationFailureAuditEvent(service, configuration, AuthenticationFailureAuditEvent.REASON_MALFORMED_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(), ctx);
+         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED)
+               .header(HttpHeaders.WWW_AUTHENTICATE, bearerChallenge(ctx, "invalid_token"))
+               .build());
+         return;
+      } catch (BadJOSEException e) {
+         // Well-formed but rejected: bad signature, expired, wrong issuer, missing claims... -> 401.
+         logger.warnf("Invalid OAuth2 token received: %s", e.getMessage());
+         emitAuthenticationFailureAuditEvent(service, configuration, AuthenticationFailureAuditEvent.REASON_INVALID_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(), ctx);
+         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED)
+               .header(HttpHeaders.WWW_AUTHENTICATE, bearerChallenge(ctx, "invalid_token"))
+               .build());
          return;
       } catch (JOSEException e) {
          // Key sourcing failed or another internal exception.
-         logger.warnf("Invalid OAuth2 token received: %s", e.getMessage());
+         logger.warnf("Unable to verify OAuth2 token: %s", e.getMessage());
          emitAuthenticationFailureAuditEvent(service, configuration, AuthenticationFailureAuditEvent.REASON_INVALID_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(), ctx);
-         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED).build());
+         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED)
+               .header(HttpHeaders.WWW_AUTHENTICATE, bearerChallenge(ctx, null))
+               .build());
          return;
       }
 
@@ -302,27 +314,39 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
             ctx.abortWith(Response.status(Response.Status.FORBIDDEN).build());
             return;
          }
-          for (String expectedScope : oauth2Config.scopes()) {
-             if (!tokenScopes.contains(expectedScope)) {
-                logger.warnf("Invalid OAuth2 token received, scope claim does not contain expected scope: '%s'", expectedScope);
-                emitAuthenticationFailureAuditEvent(service, configuration, AuthenticationFailureAuditEvent.REASON_MISSING_SCOPE, Response.Status.FORBIDDEN.getStatusCode(), ctx);
-                ctx.abortWith(Response.status(Response.Status.FORBIDDEN).build());
-                return;
-             }
-          }
-       }
+         for (String expectedScope : oauth2Config.scopes()) {
+            if (!tokenScopes.contains(expectedScope)) {
+               logger.warnf("Invalid OAuth2 token received, scope claim does not contain expected scope: '%s'", expectedScope);
+               emitAuthenticationFailureAuditEvent(service, configuration, AuthenticationFailureAuditEvent.REASON_MISSING_SCOPE, Response.Status.FORBIDDEN.getStatusCode(), ctx);
+               ctx.abortWith(Response.status(Response.Status.FORBIDDEN).build());
+               return;
+            }
+         }
+      }
 
-       // Store authenticated user ID (JWT subject) and issuer in request context for downstream
-       // audit use and stateless user-secret keying (iss + sub).
-       String subject = claimsSet.getSubject();
-       if (subject != null) {
-          ctx.setProperty(USER_ID_PROPERTY, subject);
-       }
-       String issuer = claimsSet.getIssuer();
-       if (issuer != null) {
-          ctx.setProperty(ISSUER_PROPERTY, issuer);
-       }
-     }
+      // Store authenticated user ID (JWT subject) and issuer in request context for downstream
+      // audit use and stateless user-secret keying (iss + sub).
+      String subject = claimsSet.getSubject();
+      if (subject != null) {
+         ctx.setProperty(USER_ID_PROPERTY, subject);
+      }
+      String issuer = claimsSet.getIssuer();
+      if (issuer != null) {
+         ctx.setProperty(ISSUER_PROPERTY, issuer);
+      }
+   }
+
+   private String bearerChallenge(ContainerRequestContext ctx, String error) {
+      StringBuilder challenge = new StringBuilder("Bearer ");
+      if (error != null) {
+         challenge.append("error=\"").append(error).append("\", ");
+      }
+      challenge.append("resource_metadata=\"")
+            .append(WebUtils.getHTTPScheme(fqdns.getFirst())).append(fqdns.getFirst())
+            .append("/.well-known/oauth-protected-resource").append(ctx.getUriInfo().getPath())
+            .append('"');
+      return challenge.toString();
+   }
 
    /** Default JOSE verifies allows only exact match on issuers. This verifier allows multiple issuers. */
    static class MultipleIssuerClaimsVerifier extends DefaultJWTClaimsVerifier<SecurityContext> {
