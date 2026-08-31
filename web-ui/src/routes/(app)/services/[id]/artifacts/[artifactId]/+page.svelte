@@ -135,6 +135,9 @@
 			{listHref}
 			artifactName={artifact?.name}
 			{existingNames}
+			service={ctx.service
+				? { name: ctx.service.name, version: ctx.service.version }
+				: undefined}
 		/>
 	{/key}
 {:else if loading}

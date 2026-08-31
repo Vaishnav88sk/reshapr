@@ -173,6 +173,14 @@
 		editor.updateOptions({ readOnly });
 	});
 
+	/** Imperatively replace the editor content (used to insert example templates). */
+	export function setValue(text: string) {
+		if (!model || !editor) return;
+		model.setValue(text);
+		editor.focus();
+		editor.revealLine(model.getLineCount());
+	}
+
 	$effect(() => {
 		// Toggle the minimap based on the document length.
 		editor?.updateOptions({ minimap: { enabled: minimapEnabled } });

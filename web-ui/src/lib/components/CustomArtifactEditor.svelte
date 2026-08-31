@@ -20,15 +20,27 @@
 	import {
 		buildDefaultArtifactTitle,
 		extractKindFromYaml,
+		getExamplesForKind,
 		getKindDefinition,
+		insertExample,
 		saveCustomArtifact,
+		type ArtifactExample,
 		type EditorMode,
-		type ReshaprArtifactKind
+		type ReshaprArtifactKind,
+		type ServiceRef
 	} from '$lib/artifacts/index.js';
 	import ApiErrorAlert from '$lib/components/ApiErrorAlert.svelte';
 	import YamlMonacoEditor from '$lib/components/YamlMonacoEditor.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
+	import {
+		Tooltip,
+		TooltipContent,
+		TooltipProvider,
+		TooltipTrigger
+	} from '$lib/components/ui/tooltip/index.js';
+	import { HugeiconsIcon } from '@hugeicons/svelte';
+	import { PlusSignIcon } from '@hugeicons/core-free-icons';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import type * as Monaco from 'monaco-editor';
@@ -41,7 +53,8 @@
 		initialContent,
 		listHref,
 		artifactName = undefined,
-		existingNames = []
+		existingNames = [],
+		service = undefined
 	}: {
 		mode: EditorMode;
 		kind: ReshaprArtifactKind;
@@ -49,6 +62,7 @@
 		listHref: string;
 		artifactName?: string;
 		existingNames?: string[];
+		service?: ServiceRef;
 	} = $props();
 
 	let content = $state('');
@@ -56,6 +70,7 @@
 	let validationMarkers = $state<Monaco.editor.IMarker[]>([]);
 	let saveError = $state<string | null>(null);
 	let saving = $state(false);
+	let editorRef = $state<YamlMonacoEditor | null>(null);
 
 	let title = $state('');
 	let titleDirty = $state(false);
@@ -65,6 +80,8 @@
 	const kindDef = $derived(getKindDefinition(kind));
 	const editable = $derived(mode === 'create' || mode === 'edit');
 	const schemaUri = $derived(editable ? kindDef?.schemaPath : undefined);
+	const examples = $derived(editable ? getExamplesForKind(kind) : []);
+	const serviceRef = $derived<ServiceRef>(service ?? { name: '—', version: '—' });
 	const schemaErrors = $derived(
 		validationMarkers.filter((marker) => marker.severity >= MONACO_WARNING_SEVERITY)
 	);
@@ -125,6 +142,12 @@
 			event.preventDefault();
 			cancelTitle();
 		}
+	}
+
+	function onInsertExample(example: ArtifactExample) {
+		const next = insertExample(content, kind, example, serviceRef);
+		content = next;
+		editorRef?.setValue(next);
 	}
 
 	async function onSave() {
@@ -195,18 +218,64 @@
 	</div>
 {/if}
 
-<YamlMonacoEditor
-	value={content}
-	readOnly={!editable}
-	{schemaUri}
-	height="min(70vh, 32rem)"
-	onChange={(value) => {
-		content = value;
-	}}
-	onValidationChange={(markers) => {
-		validationMarkers = markers;
-	}}
-/>
+<div class="flex flex-col gap-3 lg:flex-row lg:items-stretch">
+	<div class="min-w-0 flex-1">
+		<YamlMonacoEditor
+			bind:this={editorRef}
+			value={content}
+			readOnly={!editable}
+			{schemaUri}
+			height="min(70vh, 32rem)"
+			onChange={(value) => {
+				content = value;
+			}}
+			onValidationChange={(markers) => {
+				validationMarkers = markers;
+			}}
+		/>
+	</div>
+
+	{#if editable && examples.length > 0}
+		<aside class="lg:w-64 lg:shrink-0" aria-label="Insert an example">
+			<div class="bg-muted/40 h-full rounded-lg border p-3">
+				<h3 class="text-muted-foreground mb-1 text-xs font-semibold tracking-wide uppercase">
+					Start from an example
+				</h3>
+				<p class="text-muted-foreground mb-3 text-xs">
+					Insert a ready-made snippet into the editor, then adapt it to your service.
+				</p>
+				<TooltipProvider delayDuration={200}>
+					<div class="flex flex-col gap-2">
+						{#each examples as example (example.id)}
+							<Tooltip>
+								<TooltipTrigger>
+									{#snippet child({ props })}
+										<button
+											type="button"
+											{...props}
+											onclick={() => onInsertExample(example)}
+											class="border-border bg-background hover:border-primary/50 hover:bg-accent focus-visible:ring-ring flex w-full items-center gap-2 rounded-md border p-3 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none"
+										>
+											<span
+												class="bg-primary/10 text-primary flex size-8 shrink-0 items-center justify-center rounded-md"
+											>
+												<HugeiconsIcon icon={PlusSignIcon} size={18} />
+											</span>
+											<span class="min-w-0 font-medium">{example.label}</span>
+										</button>
+									{/snippet}
+								</TooltipTrigger>
+								<TooltipContent side="left" class="max-w-xs">
+									<span class="text-xs">{example.description}</span>
+								</TooltipContent>
+							</Tooltip>
+						{/each}
+					</div>
+				</TooltipProvider>
+			</div>
+		</aside>
+	{/if}
+</div>
 
 {#if editable}
 	<div class="mt-4 flex flex-wrap items-center gap-2">
