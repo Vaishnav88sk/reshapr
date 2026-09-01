@@ -28,14 +28,17 @@
   let username = $state('');
   let password = $state('');
   let error = $state('');
+  let sessionExpired = $state(false);
   let loading = $state(false);
   let configLoading = $state(true);
   let oidcEnabled = $state(false);
 
   onMount(async () => {
-    // Check for error from OIDC callback.
+    // Check for error from OIDC callback or a lost/expired session.
     const urlError = page.url.searchParams.get('error');
-    if (urlError === 'missing_token') {
+    if (urlError === 'session_expired') {
+      sessionExpired = true;
+    } else if (urlError === 'missing_token') {
       error = 'Authentication failed: no token received.';
     } else if (urlError === 'invalid_token') {
       error = 'Authentication failed: invalid token received.';
@@ -100,6 +103,19 @@
     </CardHeader>
 
     <CardContent>
+      {#if sessionExpired}
+        <!-- Session-expired notice, styled like the SSO auth error box. -->
+        <div
+          role="alert"
+          class="mb-4 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+        >
+          <p class="font-medium">Session expired</p>
+          <p class="mt-1 text-destructive/90">
+            Your previous session has expired. Please sign in again.
+          </p>
+        </div>
+      {/if}
+
       {#if configLoading}
         <div class="flex justify-center py-8">
           <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>

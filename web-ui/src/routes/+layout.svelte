@@ -16,6 +16,11 @@
 
 <script lang="ts">
   import '../app.css';
+  import { installSessionGuard } from '$lib/api/session-guard.js';
+
+  // Intercept 401s from API calls to redirect to the login screen when the
+  // session is lost, instead of surfacing a raw "Not authenticated" error.
+  installSessionGuard();
 
   let { children } = $props();
 </script>
