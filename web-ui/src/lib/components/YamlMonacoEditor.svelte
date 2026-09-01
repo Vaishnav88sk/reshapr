@@ -23,11 +23,20 @@
 	import ScrollableCode from '$lib/components/ScrollableCode.svelte';
 	import type * as Monaco from 'monaco-editor';
 
+	type EditorWarning = {
+		message: string;
+		startLineNumber: number;
+		startColumn: number;
+		endLineNumber: number;
+		endColumn: number;
+	};
+
 	let {
 		value = '',
 		readOnly = false,
 		height = '24rem',
 		schemaUri = undefined,
+		warnings = [],
 		onChange = undefined,
 		onValidationChange = undefined
 	}: {
@@ -36,6 +45,8 @@
 		height?: string;
 		/** Public path to the JSON Schema (e.g. `/schemas/Prompts-v1alpha1-schema.json`). */
 		schemaUri?: string;
+		/** Non-blocking content warnings shown below the schema summary (also set as markers). */
+		warnings?: EditorWarning[];
 		onChange?: (value: string) => void;
 		onValidationChange?: (markers: Monaco.editor.IMarker[]) => void;
 	} = $props();
@@ -61,6 +72,8 @@
 	const showValidationSummary = $derived(
 		schemaUri !== undefined && yamlMarkers.length > 0
 	);
+	const showWarningsSummary = $derived(warnings.length > 0);
+	const showBottomSummary = $derived(showValidationSummary || showWarningsSummary);
 
 	function emitValidation(monaco: typeof Monaco) {
 		if (!model) return;
@@ -181,6 +194,31 @@
 		editor.revealLine(model.getLineCount());
 	}
 
+	/** Monaco marker owner for custom (reShapr) validators, kept separate from the `yaml` owner. */
+	const VALIDATOR_MARKER_OWNER = 'reshapr-validators';
+
+	/**
+	 * Imperatively set the custom-validator warnings as Monaco markers (yellow, non-blocking). They
+	 * use a dedicated owner so they never collide with — nor leak into — the `yaml` schema markers
+	 * that gate saving.
+	 */
+	export function setValidatorMarkers(warnings: EditorWarning[]) {
+		const monaco = monacoRef;
+		if (!monaco || !model) return;
+		monaco.editor.setModelMarkers(
+			model,
+			VALIDATOR_MARKER_OWNER,
+			warnings.map((warning) => ({
+				severity: monaco.MarkerSeverity.Warning,
+				message: warning.message,
+				startLineNumber: warning.startLineNumber,
+				startColumn: warning.startColumn,
+				endLineNumber: warning.endLineNumber,
+				endColumn: warning.endColumn
+			}))
+		);
+	}
+
 	$effect(() => {
 		// Toggle the minimap based on the document length.
 		editor?.updateOptions({ minimap: { enabled: minimapEnabled } });
@@ -208,26 +246,51 @@
 				Loading editor…
 			</div>
 		{/if}
-		{#if showValidationSummary}
-			<div
-				class="border-destructive/40 bg-background/95 absolute inset-x-2 bottom-2 z-10 rounded-md border px-3 py-2 text-xs shadow-md backdrop-blur-sm"
-			>
-				<p class="text-destructive font-medium">
-					{schemaErrors.length > 0
-						? `${schemaErrors.length} schema ${schemaErrors.length === 1 ? 'error' : 'errors'}`
-						: `${yamlMarkers.length} schema ${yamlMarkers.length === 1 ? 'warning' : 'warnings'}`}
-				</p>
-				<ul class="text-muted-foreground mt-1 space-y-0.5">
-					{#each yamlMarkers.slice(0, 5) as marker (marker.message + marker.startLineNumber)}
-						<li>
-							Line {marker.startLineNumber}: {marker.message}
-						</li>
-					{/each}
-					{#if yamlMarkers.length > 5}
-						<li>…and {yamlMarkers.length - 5} more</li>
-					{/if}
-				</ul>
-			</div>
-		{/if}
 	</div>
+	{#if showBottomSummary}
+		<div class="mt-2 flex flex-col gap-2">
+			{#if showValidationSummary}
+				<div class="border-destructive/40 bg-destructive/5 rounded-md border px-3 py-2 text-xs">
+					<p class="text-destructive font-medium">
+						{schemaErrors.length > 0
+							? `${schemaErrors.length} schema ${schemaErrors.length === 1 ? 'error' : 'errors'}`
+							: `${yamlMarkers.length} schema ${yamlMarkers.length === 1 ? 'warning' : 'warnings'}`}
+					</p>
+					<ul class="text-muted-foreground mt-1 space-y-0.5">
+						{#each yamlMarkers.slice(0, 5) as marker (marker.message + marker.startLineNumber)}
+							<li>
+								Line {marker.startLineNumber}: {marker.message}
+							</li>
+						{/each}
+						{#if yamlMarkers.length > 5}
+							<li>…and {yamlMarkers.length - 5} more</li>
+						{/if}
+					</ul>
+				</div>
+			{/if}
+			{#if showWarningsSummary}
+				<div
+					class="rounded-md border border-amber-400/60 bg-amber-50 px-3 py-2 text-xs dark:border-amber-500/40 dark:bg-amber-950/40"
+					role="status"
+					aria-label="Content warnings"
+				>
+					<p class="font-medium text-amber-700 dark:text-amber-300">
+						{warnings.length}
+						{warnings.length === 1 ? 'warning' : 'warnings'}
+						<span class="font-normal opacity-80">— non-blocking, you can still save</span>
+					</p>
+					<ul class="mt-1 space-y-0.5 text-amber-900/90 dark:text-amber-200/90">
+						{#each warnings.slice(0, 5) as warning (warning.message + warning.startLineNumber + warning.startColumn)}
+							<li>
+								Line {warning.startLineNumber}: {warning.message}
+							</li>
+						{/each}
+						{#if warnings.length > 5}
+							<li>…and {warnings.length - 5} more</li>
+						{/if}
+					</ul>
+				</div>
+			{/if}
+		</div>
+	{/if}
 {/if}

@@ -19,15 +19,20 @@
 	import { apiClient, ApiError } from '$lib/api/client.js';
 	import {
 		buildDefaultArtifactTitle,
+		buildReferenceIndex,
 		extractKindFromYaml,
 		getExamplesForKind,
 		getKindDefinition,
+		hasValidators,
 		insertExample,
+		runValidators,
 		saveCustomArtifact,
 		type ArtifactExample,
 		type EditorMode,
 		type ReshaprArtifactKind,
-		type ServiceRef
+		type ReshaprReferenceIndex,
+		type ServiceRef,
+		type ValidatorWarning
 	} from '$lib/artifacts/index.js';
 	import ApiErrorAlert from '$lib/components/ApiErrorAlert.svelte';
 	import YamlMonacoEditor from '$lib/components/YamlMonacoEditor.svelte';
@@ -54,7 +59,8 @@
 		listHref,
 		artifactName = undefined,
 		existingNames = [],
-		service = undefined
+		service = undefined,
+		serviceId = undefined
 	}: {
 		mode: EditorMode;
 		kind: ReshaprArtifactKind;
@@ -63,6 +69,7 @@
 		artifactName?: string;
 		existingNames?: string[];
 		service?: ServiceRef;
+		serviceId?: string;
 	} = $props();
 
 	let content = $state('');
@@ -88,6 +95,56 @@
 	const canSave = $derived(
 		editable && !saving && content.trim().length > 0 && schemaErrors.length === 0
 	);
+
+	// ── Custom (reShapr) validators ──────────────────────────────────────────────────────────────
+	// These produce non-blocking warnings (yellow) and never gate saving — only schema errors do.
+	let validatorWarnings = $state<ValidatorWarning[]>([]);
+	let referenceIndexPromise: Promise<ReshaprReferenceIndex> | null = null;
+	let validationRunId = 0;
+
+	function loadReferenceIndex(): Promise<ReshaprReferenceIndex> {
+		if (!referenceIndexPromise) {
+			referenceIndexPromise = buildReferenceIndex(apiClient(), serviceId);
+		}
+		return referenceIndexPromise;
+	}
+
+	async function runCustomValidators(currentContent: string) {
+		const runId = ++validationRunId;
+		if (!editable || !hasValidators(kind)) {
+			validatorWarnings = [];
+			return;
+		}
+		try {
+			const warnings = await runValidators({
+				content: currentContent,
+				kind,
+				service: serviceRef,
+				serviceId,
+				api: apiClient(),
+				loadReferenceIndex
+			});
+			if (runId === validationRunId) validatorWarnings = warnings;
+		} catch {
+			if (runId === validationRunId) validatorWarnings = [];
+		}
+	}
+
+	// Debounced re-validation whenever the document changes.
+	$effect(() => {
+		const currentContent = content;
+		if (!editable || !hasValidators(kind)) {
+			validatorWarnings = [];
+			return;
+		}
+		const timer = setTimeout(() => void runCustomValidators(currentContent), 400);
+		return () => clearTimeout(timer);
+	});
+
+	// Reflect warnings into the editor as yellow markers once the editor is mounted.
+	$effect(() => {
+		editorRef?.setValidatorMarkers(validatorWarnings);
+	});
 
 	const defaultTitle = $derived(
 		mode === 'create'
@@ -225,6 +282,7 @@
 			value={content}
 			readOnly={!editable}
 			{schemaUri}
+			warnings={editable ? validatorWarnings : []}
 			height="min(70vh, 32rem)"
 			onChange={(value) => {
 				content = value;

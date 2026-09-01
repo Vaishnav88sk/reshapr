@@ -138,6 +138,7 @@
 			service={ctx.service
 				? { name: ctx.service.name, version: ctx.service.version }
 				: undefined}
+			serviceId={ctx.id}
 		/>
 	{/key}
 {:else if loading}
