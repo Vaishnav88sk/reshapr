@@ -18,5 +18,6 @@ export * from './types.js';
 export * from './kinds.js';
 export * from './templates.js';
 export * from './examples.js';
+export * from './validators.js';
 export * from './attach.js';
 export * from './parse.js';
