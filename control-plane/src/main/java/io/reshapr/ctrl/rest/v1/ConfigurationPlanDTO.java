@@ -25,6 +25,7 @@ import java.util.List;
 
 /**
  * Data Transfer Object (DTO) for a configuration plan in the Reshapr control plane.
+ *
  * @author laurent
  */
 @RegisterForReflection
@@ -47,10 +48,11 @@ public class ConfigurationPlanDTO {
    protected String backendSecretId;
    protected String apiKey;
    protected OAuth2ConfigurationDTO oauth2Configuration;
-    // Indicates whether to use the internal identity provider for OAuth2 authentication.
-    protected String initialAccessToken;
-    protected boolean audit;
+   protected boolean audit;
    protected CachePolicyDTO cachePolicy;
+
+   // Indicates whether to use the internal identity provider for OAuth2 authentication.
+   protected String initialAccessToken;
 
    public String getId() {
       return id;
@@ -160,17 +162,17 @@ public class ConfigurationPlanDTO {
       return backendTimeout;
    }
 
-    public void setBackendTimeout(Long backendTimeout) {
-       this.backendTimeout = backendTimeout;
-    }
+   public void setBackendTimeout(Long backendTimeout) {
+      this.backendTimeout = backendTimeout;
+   }
 
-    public boolean isAudit() {
-       return audit;
-    }
+   public boolean isAudit() {
+      return audit;
+   }
 
-    public void setAudit(boolean audit) {
-       this.audit = audit;
-    }
+   public void setAudit(boolean audit) {
+      this.audit = audit;
+   }
 
    public CachePolicyDTO getCachePolicy() {
       return cachePolicy;
@@ -186,15 +188,29 @@ public class ConfigurationPlanDTO {
     */
    @RegisterForReflection
    public static class CachePolicyDTO {
-      /** Time-to-live in milliseconds for client-side MCP caching. */
+      /**
+       * Time-to-live in milliseconds for client-side MCP caching.
+       */
       private Long ttlMs;
-      /** Cache scope to advertise (e.g. "public" or "private"). */
+      /**
+       * Cache scope to advertise (e.g. "public" or "private").
+       */
       private String cacheScope;
 
-      public Long getTtlMs() { return ttlMs; }
-      public void setTtlMs(Long ttlMs) { this.ttlMs = ttlMs; }
+      public Long getTtlMs() {
+         return ttlMs;
+      }
 
-      public String getCacheScope() { return cacheScope; }
-      public void setCacheScope(String cacheScope) { this.cacheScope = cacheScope; }
+      public void setTtlMs(Long ttlMs) {
+         this.ttlMs = ttlMs;
+      }
+
+      public String getCacheScope() {
+         return cacheScope;
+      }
+
+      public void setCacheScope(String cacheScope) {
+         this.cacheScope = cacheScope;
+      }
    }
 }

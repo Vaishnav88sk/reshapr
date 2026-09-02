@@ -595,17 +595,14 @@ public class McpController {
       );
 
       ConfigurationEntry configuration = exposition.configuration();
-      ConfigurationEntry.CachePolicyEntry caching = configuration.cachePolicy();
-      long ttlMs = caching != null ? caching.effectiveTtlMs() : ConfigurationEntry.CachePolicyEntry.DEFAULT_TTL_MS;
-      String cacheScope = caching != null ? caching.effectiveCacheScope() : ConfigurationEntry.CachePolicyEntry.DEFAULT_CACHE_SCOPE;
 
       McpSchema.DiscoverResult discoverResult = new McpSchema.DiscoverResult(
             McpSchema.SUPPORTED_PROTOCOL_VERSIONS,
             serverCapabilities,
             serverInfo,
             meta,
-            ttlMs,
-            cacheScope);
+            getCacheTtlMs(configuration),
+            getCacheScope(configuration));
 
       return toMcpHandlerResult(request, discoverResult);
    }
@@ -660,12 +657,10 @@ public class McpController {
       // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
       // client-cache hints are always provided here; they are honored only under a modern dialect and
       // silently dropped in legacy mode.
-      // Source ttlMs / cacheScope from the exposition's cachePolicy, falling back to defaults.
       ConfigurationEntry configuration = exposition.configuration();
-      ConfigurationEntry.CachePolicyEntry caching = configuration.cachePolicy();
       McpSchema.ListPromptsResult result = dialect.newListPromptsResult(builder.listPrompts())
-            .ttlMs(caching != null ? caching.effectiveTtlMs() : ConfigurationEntry.CachePolicyEntry.DEFAULT_TTL_MS)
-            .cacheScope(caching != null ? caching.effectiveCacheScope() : ConfigurationEntry.CachePolicyEntry.DEFAULT_CACHE_SCOPE)
+            .ttlMs(getCacheTtlMs(configuration))
+            .cacheScope(getCacheScope(configuration))
             .build();
 
       return toMcpHandlerResult(request, result);
@@ -694,12 +689,10 @@ public class McpController {
       // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
       // client-cache hints are always provided here; they are honored only under a modern dialect and
       // silently dropped in legacy mode.
-      // Source ttlMs / cacheScope from the exposition's cachePolicy, falling back to defaults.
       ConfigurationEntry configuration = exposition.configuration();
-      ConfigurationEntry.CachePolicyEntry caching = configuration.cachePolicy();
       McpSchema.ListResourcesResult result = dialect.newListResourcesResult(builder.listResources())
-            .ttlMs(caching != null ? caching.effectiveTtlMs() : ConfigurationEntry.CachePolicyEntry.DEFAULT_TTL_MS)
-            .cacheScope(caching != null ? caching.effectiveCacheScope() : ConfigurationEntry.CachePolicyEntry.DEFAULT_CACHE_SCOPE)
+            .ttlMs(getCacheTtlMs(configuration))
+            .cacheScope(getCacheScope(configuration))
             .build();
 
       return toMcpHandlerResult(request, result);
@@ -714,12 +707,10 @@ public class McpController {
       // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
       // client-cache hints are always provided here; they are honored only under a modern dialect and
       // silently dropped in legacy mode.
-      // Source ttlMs / cacheScope from the exposition's cachePolicy, falling back to defaults.
       ConfigurationEntry configEntry = exposition.configuration();
-      ConfigurationEntry.CachePolicyEntry cachingEntry = configEntry.cachePolicy();
       McpSchema.ListResourceTemplatesResult result = dialect.newListResourceTemplatesResult(builder.listResourceTemplates())
-            .ttlMs(cachingEntry != null ? cachingEntry.effectiveTtlMs() : ConfigurationEntry.CachePolicyEntry.DEFAULT_TTL_MS)
-            .cacheScope(cachingEntry != null ? cachingEntry.effectiveCacheScope() : ConfigurationEntry.CachePolicyEntry.DEFAULT_CACHE_SCOPE)
+            .ttlMs(getCacheTtlMs(configEntry))
+            .cacheScope(getCacheScope(configEntry))
             .build();
 
       return toMcpHandlerResult(request, result);
@@ -750,11 +741,9 @@ public class McpController {
       // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
       // client-cache hints are always provided here; they are honored only under a modern dialect and
       // silently dropped in legacy mode.
-      // Source ttlMs / cacheScope from the exposition's cachePolicy, falling back to defaults.
-      ConfigurationEntry.CachePolicyEntry cachingEntry = configuration.cachePolicy();
       McpSchema.ReadResourceResult result = dialect.newReadResourceResult(contents)
-            .ttlMs(cachingEntry != null ? cachingEntry.effectiveTtlMs() : ConfigurationEntry.CachePolicyEntry.DEFAULT_TTL_MS)
-            .cacheScope(cachingEntry != null ? cachingEntry.effectiveCacheScope() : ConfigurationEntry.CachePolicyEntry.DEFAULT_CACHE_SCOPE)
+            .ttlMs(getCacheTtlMs(configuration))
+            .cacheScope(getCacheScope(configuration))
             .build();
 
       return toMcpHandlerResult(request, result);
@@ -794,11 +783,9 @@ public class McpController {
       // Delegate the version-specific result shaping to the negotiated protocol dialect. The modern
       // client-cache hints are always provided here; they are honored only under a modern dialect and
       // silently dropped in legacy mode.
-      // Source ttlMs / cacheScope from the exposition's cachePolicy, falling back to defaults.
-      ConfigurationEntry.CachePolicyEntry cachingEntry = configuration.cachePolicy();
       McpSchema.ListToolsResult result = dialect.newListToolsResult(tools)
-            .ttlMs(cachingEntry != null ? cachingEntry.effectiveTtlMs() : ConfigurationEntry.CachePolicyEntry.DEFAULT_TTL_MS)
-            .cacheScope(cachingEntry != null ? cachingEntry.effectiveCacheScope() : ConfigurationEntry.CachePolicyEntry.DEFAULT_CACHE_SCOPE)
+            .ttlMs(getCacheTtlMs(configuration))
+            .cacheScope(getCacheScope(configuration))
             .build();
 
       return toMcpHandlerResult(request, result);
@@ -854,6 +841,18 @@ public class McpController {
       }
       return toMcpHandlerResult(request,
             McpSchema.buildURLElicitationRequiredError(elicitationRequired.elicitations()));
+   }
+
+   /** Source ttlMs from the configuration's cachePolicy, falling back to defaults. */
+   private static Long getCacheTtlMs(ConfigurationEntry configurationEntry) {
+      ConfigurationEntry.CachePolicyEntry cachingEntry = configurationEntry.cachePolicy();
+      return cachingEntry != null ? cachingEntry.effectiveTtlMs() : ConfigurationEntry.CachePolicyEntry.DEFAULT_TTL_MS;
+   }
+
+   /** Source cacheScope from the configuration's cachePolicy, falling back to defaults. */
+   private static String getCacheScope(ConfigurationEntry configurationEntry) {
+      ConfigurationEntry.CachePolicyEntry cachingEntry = configurationEntry.cachePolicy();
+      return cachingEntry != null ? cachingEntry.effectiveCacheScope() : ConfigurationEntry.CachePolicyEntry.DEFAULT_CACHE_SCOPE;
    }
 
    private static McpHandlerResult toMcpHandlerResult(McpSchema.JSONRPCRequest request, Object result) {
