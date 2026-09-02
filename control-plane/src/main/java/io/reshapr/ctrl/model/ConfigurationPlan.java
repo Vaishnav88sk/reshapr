@@ -95,6 +95,10 @@ public class ConfigurationPlan extends TenantAwareEntity {
    @Column(name = "audit")
    public boolean audit;
 
+   @Type(JsonType.class)
+   @Column(columnDefinition = "JSONB", name = "cache_policy")
+   public CachePolicy cachePolicy;
+
    @ManyToOne(fetch = EAGER)
    @JoinColumn(name = "backend_secret_id")
    public Secret backendSecret;
@@ -104,5 +108,38 @@ public class ConfigurationPlan extends TenantAwareEntity {
          String jwksUri,
          List<String> scopes
    ) {
+   }
+
+   /**
+    * Caching directives passed to the MCP client as {@code ttlMs} and {@code cacheScope}
+    * on list/read results (MCP protocol >= 2026-07-28).
+    *
+    * @param ttlMs       Time-to-live in milliseconds for client-side caching. Defaults to 30 000 ms.
+    * @param cacheScope  Cache scope to advertise to the client (e.g. {@code "public"} or
+    *                    {@code "private"}). Defaults to {@code "public"}.
+    */
+   public record CachePolicy(
+         Long ttlMs,
+         String cacheScope
+   ) {
+      /** Default TTL in milliseconds (30 seconds). */
+      public static final long DEFAULT_TTL_MS = 30_000L;
+      /** Default cache scope advertised to MCP clients. */
+      public static final String DEFAULT_CACHE_SCOPE = "public";
+
+      /** Returns a {@link CachePolicy} with the default values. */
+      public static CachePolicy defaults() {
+         return new CachePolicy(DEFAULT_TTL_MS, DEFAULT_CACHE_SCOPE);
+      }
+
+      /** Returns {@code ttlMs} if set, otherwise {@link #DEFAULT_TTL_MS}. */
+      public long effectiveTtlMs() {
+         return ttlMs != null ? ttlMs : DEFAULT_TTL_MS;
+      }
+
+      /** Returns {@code cacheScope} if set, otherwise {@link #DEFAULT_CACHE_SCOPE}. */
+      public String effectiveCacheScope() {
+         return cacheScope != null ? cacheScope : DEFAULT_CACHE_SCOPE;
+      }
    }
 }

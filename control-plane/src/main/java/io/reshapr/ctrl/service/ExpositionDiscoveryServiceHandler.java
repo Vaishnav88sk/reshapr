@@ -440,6 +440,17 @@ public class ExpositionDiscoveryServiceHandler extends ExpositionDiscoveryServic
          builder.setBackendSecret(grpcSecretFromModel(configuration.backendSecret));
       }
       builder.setAudit(configuration.audit);
+      if (configuration.cachePolicy != null) {
+         io.reshapr.discovery.exposition.v1.CachePolicy.Builder cachingBuilder =
+               io.reshapr.discovery.exposition.v1.CachePolicy.newBuilder();
+         if (configuration.cachePolicy.ttlMs() != null) {
+            cachingBuilder.setTtlMs(configuration.cachePolicy.ttlMs());
+         }
+         if (configuration.cachePolicy.cacheScope() != null) {
+            cachingBuilder.setCacheScope(configuration.cachePolicy.cacheScope());
+         }
+         builder.setCachePolicy(cachingBuilder.build());
+      }
       return builder.build();
    }
 

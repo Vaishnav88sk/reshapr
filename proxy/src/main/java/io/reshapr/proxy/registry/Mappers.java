@@ -17,6 +17,7 @@ package io.reshapr.proxy.registry;
 
 import io.reshapr.discovery.exposition.v1.Artifact;
 import io.reshapr.discovery.exposition.v1.ArtifactType;
+import io.reshapr.discovery.exposition.v1.CachePolicy;
 import io.reshapr.discovery.exposition.v1.Configuration;
 import io.reshapr.discovery.exposition.v1.Secret;
 import io.reshapr.discovery.exposition.v1.Service;
@@ -43,7 +44,16 @@ public interface Mappers {
    @Mapping(target = "excludedOperations", source = "excludedOperationsList")
    @Mapping(target = "includedOperations", source = "includedOperationsList")
    @Mapping(target = "backendTimeout", expression = "java(configuration.hasBackendTimeout() ? configuration.getBackendTimeout() : null)")
+   @Mapping(target = "cachePolicy", expression = "java(configuration.hasCachePolicy() ? toCachePolicyEntry(configuration.getCachePolicy()) : null)")
    public ConfigurationEntry toConfigurationEntry(Configuration configuration);
+
+   /** Maps the gRPC {@link CachePolicy} optional fields to a {@link ConfigurationEntry.CachePolicyEntry}. */
+   default ConfigurationEntry.CachePolicyEntry toCachePolicyEntry(CachePolicy cc) {
+      if (cc == null) return null;
+      Long ttlMs = cc.hasTtlMs() ? cc.getTtlMs() : null;
+      String cacheScope = cc.hasCacheScope() ? cc.getCacheScope() : null;
+      return new ConfigurationEntry.CachePolicyEntry(ttlMs, cacheScope);
+   }
 
    @Mapping(target = "authorizationServers", source = "authorizationServersList")
    @Mapping(target = "scopes", source = "scopesList")
