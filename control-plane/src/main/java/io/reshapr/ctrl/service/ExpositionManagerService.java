@@ -15,6 +15,7 @@
  */
 package io.reshapr.ctrl.service;
 
+import io.reshapr.ctrl.control.QuotaExceededException;
 import io.reshapr.ctrl.control.QuotaRestricted;
 import io.reshapr.ctrl.control.ReleaseQuota;
 import io.reshapr.ctrl.model.ActiveExposition;
@@ -190,8 +191,10 @@ public class ExpositionManagerService {
     * @param fqdns the fully-qualified domain names served by the gateway
     * @param version the version of the gateway issuing the request
     * @return the list of expositions the gateway must serve
+    * @throws QuotaExceededException if registering the gateway would exceed the organization's gateway quota
     */
-   public List<Exposition> getGatewayExpositions(String gatewayId, Map<String, String> gatewayLabels, List<String> fqdns, String version) {
+   public List<Exposition> getGatewayExpositions(String gatewayId, Map<String, String> gatewayLabels, List<String> fqdns, String version)
+         throws QuotaExceededException {
       logger.debugf("Finding the assigned groups for gatewayId: %s with labels %s", gatewayId, gatewayLabels);
 
       List<Exposition> expositions = new ArrayList<>();

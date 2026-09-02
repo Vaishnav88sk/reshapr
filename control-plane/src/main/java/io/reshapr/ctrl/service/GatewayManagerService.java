@@ -15,12 +15,15 @@
  */
 package io.reshapr.ctrl.service;
 
+import io.reshapr.ctrl.control.QuotaExceededException;
 import io.reshapr.ctrl.model.Gateway;
 import io.reshapr.ctrl.model.GatewayGroup;
+import io.reshapr.ctrl.model.Quota;
+import io.reshapr.ctrl.model.QuotaMetric;
 import io.reshapr.ctrl.repository.GatewayRepository;
+import io.reshapr.ctrl.security.ReshaprTenantContext;
 
 import io.quarkus.grpc.GrpcService;
-import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
@@ -63,10 +66,21 @@ public class GatewayManagerService {
 
    @Transactional
    public void registerGateway(String gatewayName, List<GatewayGroup> matchingGroups, List<String> fqdns,
-                               Map<String, String> labels, String version) {
+                               Map<String, String> labels, String version) throws QuotaExceededException {
       logger.infof("Registering gateway with name: '%s'", gatewayName);
 
       Optional<Gateway> gatewayOpt = gatewayRepository.findByName(gatewayName);
+      boolean isNewGateway = gatewayOpt.isEmpty();
+
+      // A gateway only consumes quota when it is registered for the first time. Subsequent heartbeats
+      // simply refresh the existing registration and must not decrement the quota again. Enforcement
+      // happens up-front, before anything is persisted, so a rejected registration fails fast and leaves
+      // no partial state behind. The owning organization is taken from the tenant context, which is set
+      // at authentication time.
+      if (isNewGateway) {
+         consumeGatewayCountQuota(ReshaprTenantContext.getCurrentTenant());
+      }
+
       Gateway gateway = gatewayOpt.orElseGet(() -> {
          logger.infof("Gateway with ID %s not found, creating a new one", gatewayName);
          Gateway newGateway = new Gateway();
@@ -109,9 +123,13 @@ public class GatewayManagerService {
          return;
       }
       Gateway gateway = gatewayOpt.get();
+      String organizationId = gateway.organizationId;
       // Clear exposition observers for this gateway to avoid trying to send updates to a non-existing gateway.
-      expositionDiscoveryServiceHandler.clearObserver(gateway.organizationId, gatewayName);
+      expositionDiscoveryServiceHandler.clearObserver(organizationId, gatewayName);
       gateway.delete();
+
+      // Releasing the gateway back to the organization's quota now that it is effectively gone.
+      releaseGatewayCountQuota(organizationId);
    }
 
    @Transactional
@@ -120,6 +138,46 @@ public class GatewayManagerService {
       if (!gateways.isEmpty()) {
          logger.infof("Cleaning %d expired gateway registrations", gateways.size());
       }
-      gateways.forEach(PanacheEntityBase::delete);
+      // This runs under the root tenant and may span several organizations, so the quota is always
+      // released for each gateway's own organization rather than for the current tenant context.
+      for (Gateway gateway : gateways) {
+         String organizationId = gateway.organizationId;
+         gateway.delete();
+         releaseGatewayCountQuota(organizationId);
+      }
+   }
+
+   /**
+    * Enforce and consume one unit of the {@link QuotaMetric#GATEWAY_COUNT} quota for the given
+    * organization. When the quota exists and is enabled, a {@link QuotaExceededException} is thrown if
+    * no unit remains; it is up to the calling layer to translate that business exception into the
+    * relevant protocol error. As it is invoked before the gateway is persisted, a rejection leaves no
+    * partial state behind. When no quota row exists or it is disabled, the gateway count is left
+    * untracked, i.e. unlimited.
+    * @param organizationId the organization owning the gateway being registered
+    * @throws QuotaExceededException if the organization has no remaining gateway quota
+    */
+   private void consumeGatewayCountQuota(String organizationId) throws QuotaExceededException {
+      Quota quota = Quota.getByMetricAndOrganization(QuotaMetric.GATEWAY_COUNT.toString(), organizationId);
+      if (quota == null || !quota.enabled) {
+         return;
+      }
+      if (quota.remaining <= 0) {
+         logger.warnf("Gateway quota limit reached for organization %s", organizationId);
+         throw new QuotaExceededException(QuotaMetric.GATEWAY_COUNT.toString(), organizationId);
+      }
+      int updated = Quota.decrementRemaining(QuotaMetric.GATEWAY_COUNT.toString(), organizationId);
+      logger.debugf("Decremented gateway quota for organization %s (rows updated: %d)", organizationId, updated);
+   }
+
+   /**
+    * Release one unit of the {@link QuotaMetric#GATEWAY_COUNT} quota for the given organization. The
+    * underlying increment is a no-op when the quota is absent or disabled, and is capped at the quota
+    * limit so releases can never exceed the configured maximum.
+    * @param organizationId the organization owning the gateway being unregistered
+    */
+   private void releaseGatewayCountQuota(String organizationId) {
+      int updated = Quota.incrementRemaining(QuotaMetric.GATEWAY_COUNT.toString(), organizationId);
+      logger.debugf("Released gateway quota for organization %s (result: %d)", organizationId, updated);
    }
 }

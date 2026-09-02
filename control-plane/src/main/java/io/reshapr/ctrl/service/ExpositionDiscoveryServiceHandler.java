@@ -15,6 +15,7 @@
  */
 package io.reshapr.ctrl.service;
 
+import io.reshapr.ctrl.control.QuotaExceededException;
 import io.reshapr.ctrl.model.Artifact;
 import io.reshapr.ctrl.model.ArtifactType;
 import io.reshapr.ctrl.model.ConfigurationPlan;
@@ -35,6 +36,7 @@ import io.reshapr.discovery.exposition.v1.ExpositionDiscoveryServiceGrpc;
 import io.reshapr.discovery.exposition.v1.ExpositionFetchRequest;
 
 import io.grpc.Context;
+import io.grpc.Status;
 import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import io.quarkus.grpc.GrpcService;
@@ -99,8 +101,16 @@ public class ExpositionDiscoveryServiceHandler extends ExpositionDiscoveryServic
 
       ExpositionDiscoveryResponse.Builder builder = ExpositionDiscoveryResponse.newBuilder();
 
-      List<Exposition> expositions = expositionManagerService.getGatewayExpositions(request.getGatewayId(),
-            request.getLabelsMap(), request.getFqdnsList(), request.hasVersion() ? request.getVersion() : null);
+      List<Exposition> expositions;
+      try {
+         expositions = expositionManagerService.getGatewayExpositions(request.getGatewayId(),
+               request.getLabelsMap(), request.getFqdnsList(), request.hasVersion() ? request.getVersion() : null);
+      } catch (QuotaExceededException e) {
+         // Translate the transport-agnostic business exception into the relevant gRPC status.
+         logger.warnf("Rejecting gateway registration for gatewayId '%s': %s", request.getGatewayId(), e.getMessage());
+         responseObserver.onError(Status.RESOURCE_EXHAUSTED.withDescription(e.getMessage()).asRuntimeException());
+         return;
+      }
       for (Exposition exposition : expositions) {
          builder.addExpositions(grpcExpositionFromModel(exposition));
       }

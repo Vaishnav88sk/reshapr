@@ -71,7 +71,10 @@ public class ApiTokenIdentityProvider implements IdentityProvider<ApiTokenAuthen
       ReshaprTenantContext.setCurrentTenant(organizationId);
 
       ApiToken apiToken = tokenRepository.findByToken(rawToken);
-      if (apiToken != null && apiToken.isValid()) {
+      // The organizationId is taken from the caller-supplied token prefix and is therefore untrusted: it must match
+      // the organization the token actually belongs to. Otherwise a valid token could be replayed under an arbitrary
+      // organization prefix, breaking tenant isolation.
+      if (apiToken != null && apiToken.isValid() && apiToken.organizationId.equals(organizationId)) {
          logger.debugf("authenticate(): Found valid API token: %s", apiToken.token);
 
          return Uni.createFrom().item(QuarkusSecurityIdentity.builder()
@@ -79,8 +82,8 @@ public class ApiTokenIdentityProvider implements IdentityProvider<ApiTokenAuthen
                .addCredential(request.getToken())
                .build());
       }
-      // Authentication failed
-      logger.warnf("authenticate(): Invalid or expired API token: %s", request.getToken().getToken());
+      // Authentication failed: unknown/expired token or organization mismatch.
+      logger.warnf("authenticate(): Invalid or expired API token, or organization mismatch: %s", request.getToken().getToken());
       return Uni.createFrom().nullItem();
    }
 }
