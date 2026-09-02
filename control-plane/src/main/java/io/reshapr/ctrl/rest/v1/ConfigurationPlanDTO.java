@@ -50,7 +50,7 @@ public class ConfigurationPlanDTO {
     // Indicates whether to use the internal identity provider for OAuth2 authentication.
     protected String initialAccessToken;
     protected boolean audit;
-   protected CachingConfigurationDTO cachingConfiguration;
+   protected CachePolicyDTO cachePolicy;
 
    public String getId() {
       return id;
@@ -172,12 +172,12 @@ public class ConfigurationPlanDTO {
        this.audit = audit;
     }
 
-   public CachingConfigurationDTO getCachingConfiguration() {
-      return cachingConfiguration;
+   public CachePolicyDTO getCachePolicy() {
+      return cachePolicy;
    }
 
-   public void setCachingConfiguration(CachingConfigurationDTO cachingConfiguration) {
-      this.cachingConfiguration = cachingConfiguration;
+   public void setCachePolicy(CachePolicyDTO cachePolicy) {
+      this.cachePolicy = cachePolicy;
    }
 
    /**
@@ -185,7 +185,7 @@ public class ConfigurationPlanDTO {
     * Both fields are optional; when absent the proxy falls back to its built-in defaults.
     */
    @RegisterForReflection
-   public static class CachingConfigurationDTO {
+   public static class CachePolicyDTO {
       /** Time-to-live in milliseconds for client-side MCP caching. */
       private Long ttlMs;
       /** Cache scope to advertise (e.g. "public" or "private"). */

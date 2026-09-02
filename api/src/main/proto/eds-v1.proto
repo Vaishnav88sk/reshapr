@@ -45,11 +45,11 @@ message Configuration {
   optional Secret backendSecret = 8;
   optional int64 backendTimeout = 9;  // For backend endpoint Timeout
   bool audit = 10; // Whether audit logging is enabled for this configuration
-  optional CachingConfiguration cachingConfiguration = 11; // Client-side caching directives (MCP >= 2026-07-28)
+  optional CachePolicy cachePolicy = 11; // Client-side caching directives (MCP >= 2026-07-28)
 }
 
-// CachingConfiguration holds the MCP client-cache hints returned in list/read results.
-message CachingConfiguration {
+// CachePolicy holds the MCP client-cache hints returned in list/read results.
+message CachePolicy {
   optional int64 ttlMs = 1;       // Time-to-live in milliseconds
   optional string cacheScope = 2; // Cache scope (e.g. "public" or "private")
 }

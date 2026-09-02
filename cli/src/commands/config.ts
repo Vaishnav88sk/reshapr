@@ -167,7 +167,7 @@ configCommand.command('create <name>')
         includedArtifacts: options.includedArtifacts ? getArrayOfStrings(options.includedArtifacts, 'includedArtifacts') : undefined,
         apiKey: (options.apiKey ? 'generate-me' : undefined),
         initialAccessToken: (options.internalOAuth2 ? 'generate-me' : undefined),
-        cachingConfiguration: {
+        cachePolicy: {
           ttlMs: parseInt(options.cacheTtl, 10),
           cacheScope: options.cacheScope
         },
@@ -246,7 +246,7 @@ configCommand.command('create-oauth <name>')
         excludedOperations: options.excludedOps || undefined,
         includedArtifacts: options.includedArtifacts ? getArrayOfStrings(options.includedArtifacts, 'includedArtifacts') : undefined,
         oauth2Configuration: options.oauth2Configuration,
-        cachingConfiguration: {
+        cachePolicy: {
           ttlMs: parseInt(options.cacheTtl, 10),
           cacheScope: options.cacheScope
         },

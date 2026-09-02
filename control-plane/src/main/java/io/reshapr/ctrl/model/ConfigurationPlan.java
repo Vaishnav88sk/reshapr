@@ -96,8 +96,8 @@ public class ConfigurationPlan extends TenantAwareEntity {
    public boolean audit;
 
    @Type(JsonType.class)
-   @Column(columnDefinition = "JSONB", name = "caching_configuration")
-   public CachingConfiguration cachingConfiguration;
+   @Column(columnDefinition = "JSONB", name = "cache_policy")
+   public CachePolicy cachePolicy;
 
    @ManyToOne(fetch = EAGER)
    @JoinColumn(name = "backend_secret_id")
@@ -118,7 +118,7 @@ public class ConfigurationPlan extends TenantAwareEntity {
     * @param cacheScope  Cache scope to advertise to the client (e.g. {@code "public"} or
     *                    {@code "private"}). Defaults to {@code "public"}.
     */
-   public record CachingConfiguration(
+   public record CachePolicy(
          Long ttlMs,
          String cacheScope
    ) {
@@ -127,9 +127,9 @@ public class ConfigurationPlan extends TenantAwareEntity {
       /** Default cache scope advertised to MCP clients. */
       public static final String DEFAULT_CACHE_SCOPE = "public";
 
-      /** Returns a {@link CachingConfiguration} with the default values. */
-      public static CachingConfiguration defaults() {
-         return new CachingConfiguration(DEFAULT_TTL_MS, DEFAULT_CACHE_SCOPE);
+      /** Returns a {@link CachePolicy} with the default values. */
+      public static CachePolicy defaults() {
+         return new CachePolicy(DEFAULT_TTL_MS, DEFAULT_CACHE_SCOPE);
       }
 
       /** Returns {@code ttlMs} if set, otherwise {@link #DEFAULT_TTL_MS}. */

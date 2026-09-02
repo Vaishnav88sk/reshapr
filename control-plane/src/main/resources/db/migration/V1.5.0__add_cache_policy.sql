@@ -4,4 +4,4 @@
 -- NULL means "use proxy defaults" (30 000 ms, "public").
 
 ALTER TABLE configuration_plans
-    ADD COLUMN IF NOT EXISTS caching_configuration JSONB;
+    ADD COLUMN IF NOT EXISTS cache_policy JSONB;

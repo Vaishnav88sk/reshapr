@@ -32,7 +32,7 @@ public record ConfigurationEntry(
       OAuth2ConfigurationEntry oauth2Configuration,
       SecretEntry backendSecret,
       boolean audit,
-      CachingConfigurationEntry cachingConfiguration) {
+      CachePolicyEntry cachePolicy) {
 
 
    public ConfigurationEntry(String id, String name, String backendEndpoint, Long backendTimeout,
@@ -59,7 +59,7 @@ public record ConfigurationEntry(
     * @param ttlMs      Time-to-live in milliseconds.
     * @param cacheScope Cache scope (e.g. "public" or "private").
     */
-   public record CachingConfigurationEntry(Long ttlMs, String cacheScope) {
+   public record CachePolicyEntry(Long ttlMs, String cacheScope) {
 
       public static final long DEFAULT_TTL_MS = 30_000L;
       public static final String DEFAULT_CACHE_SCOPE = "public";

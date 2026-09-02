@@ -293,7 +293,7 @@
 		backendSecretId = typeof plan.backendSecretId === 'string' ? plan.backendSecretId : '';
 
 		// Caching configuration
-		const cc = plan.cachingConfiguration as Record<string, unknown> | null | undefined;
+		const cc = plan.cachePolicy as Record<string, unknown> | null | undefined;
 		cachingTtlMs = cc?.ttlMs != null ? String(cc.ttlMs) : '';
 		cachingScope = cc?.cacheScope === 'private' ? 'private' : cc?.cacheScope === 'public' ? 'public' : '';
 
@@ -414,12 +414,12 @@
 		// Caching configuration — send only when at least one field is set; null to clear.
 		const ttlNum = cachingTtlMs.trim();
 		if (ttlNum || cachingScope) {
-			body.cachingConfiguration = {
+			body.cachePolicy = {
 				...(ttlNum && !Number.isNaN(Number(ttlNum)) ? { ttlMs: Number(ttlNum) } : {}),
 				...(cachingScope ? { cacheScope: cachingScope } : {})
 			};
 		} else {
-			body.cachingConfiguration = null;
+			body.cachePolicy = null;
 		}
 
 		delete body.includedOperations;
