@@ -1,6 +1,6 @@
 {
   "name": "@reshapr/reshapr-web-ui",
-  "version": "0.2.3-SNAPSHOT",
+  "version": "0.2.4-SNAPSHOT",
   "private": true,
   "scripts": {
     "copy-schemas": "node scripts/copy-schemas.mjs",
