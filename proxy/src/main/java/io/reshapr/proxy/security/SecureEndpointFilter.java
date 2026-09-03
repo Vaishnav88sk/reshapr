@@ -24,10 +24,12 @@ import io.reshapr.proxy.registry.OAuth2ConfigurationEntry;
 import io.reshapr.proxy.registry.ServiceEntry;
 
 import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
 import com.nimbusds.jose.proc.BadJOSEException;
+import com.nimbusds.jose.proc.DefaultJOSEObjectTypeVerifier;
 import com.nimbusds.jose.proc.JWSKeySelector;
 import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
@@ -213,6 +215,11 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
 
       // Create a JWT processor for the access tokens
       ConfigurableJWTProcessor<SecurityContext> jwtProcessor = new DefaultJWTProcessor<>();
+      jwtProcessor.setJWSTypeVerifier(new DefaultJOSEObjectTypeVerifier<>(
+            JOSEObjectType.JWT,
+            new JOSEObjectType("at+jwt"),
+            null
+      ));
 
       // Configure the JWT processor with a key selector to feed matching public
       // RSA keys sourced from the JWK set URL.

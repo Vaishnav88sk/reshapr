@@ -389,7 +389,6 @@ class SecureEndpointFilterTest {
       }
 
       @Test
-      @Disabled("Pending fix: register a JOSEObjectTypeVerifier allowing at+jwt (RFC 9068) on the JWT processor")
       @DisplayName("typ: at+jwt (RFC 9068 / Auth0, Okta, Spring AS) is accepted")
       void atPlusJwtTypIsAccepted() throws Exception {
          registerOAuth2Exposition(null);
