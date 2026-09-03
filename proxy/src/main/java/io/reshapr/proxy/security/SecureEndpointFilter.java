@@ -89,8 +89,7 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
    private static final Set<String> JWT_VERIFIED_CLAIMS = Set.of(
          JWTClaimNames.SUBJECT,
          JWTClaimNames.ISSUED_AT,
-         JWTClaimNames.EXPIRATION_TIME,
-         JWTClaimNames.JWT_ID
+         JWTClaimNames.EXPIRATION_TIME
    );
 
    /* Cache of JWKSource instances keyed by JWK Set URL to avoid reloading keys for each request. */
