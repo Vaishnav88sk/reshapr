@@ -49,7 +49,7 @@ services:
       retries: 3
 
   gateway-01:
-    image: ghcr.io/guillaumeexia/reshapr-proxy:nightly
+    image: registry.reshapr.io/reshapr/reshapr-proxy:nightly
     container_name: reshapr-gateway-01
     extra_hosts:
       - "host.docker.internal:host-gateway"
