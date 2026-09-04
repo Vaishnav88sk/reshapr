@@ -42,8 +42,8 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: jacoco-report
-          path: target/site/jacoco/
+          name: jacoco-aggregate-report
+          path: e2e-tests/target/site/jacoco-aggregate/
           retention-days: 14
 
       - id: set-environment
