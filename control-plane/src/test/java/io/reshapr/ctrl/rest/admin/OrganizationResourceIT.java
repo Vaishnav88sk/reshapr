@@ -29,13 +29,13 @@ import static org.hamcrest.CoreMatchers.notNullValue;
  * @author vaishnav
  */
 @QuarkusIntegrationTest
-class OrganizationResourceIT {
+public class OrganizationResourceIT {
 
     // Using the default API key configured in application.properties
     private static final String DEFAULT_API_KEY = "CzBuQ9B0i8qrUQe6WLiDLqR3gv4iCbxvjTJQP0z0CFGQbjgBHPZSusa9d1gZKwwjdoCsJ8ogRwRzc06GipJSjSDkFOy0BSOKvAa2EjU3As9I5UjgizTzxsJAVJIXtdo2xiXHhcry9KeJa0zRhDtGmm8WMujoXrlfj0ChlJKaHZiZsRthd4UHrWkKur9KySXpPFP21H4C0Cq6OgM1rJpvMZ7Jd2ZzeEcd5lKE4PlchHZBVEdu8jYzjQtU50fkOPoR";
 
     @Test
-    void testCreateAndGetOrganization() {
+    public void testCreateAndGetOrganization() {
         String uniqueSuffix = UUID.randomUUID().toString().substring(0, 8);
         String orgName = "integration-org-" + uniqueSuffix;
 
@@ -69,7 +69,7 @@ class OrganizationResourceIT {
     }
 
     @Test
-    void testUnauthorizedAccess() {
+    public void testUnauthorizedAccess() {
         given()
             .header("x-reshapr-api-key", "invalid-api-key")
             .contentType(ContentType.JSON)
