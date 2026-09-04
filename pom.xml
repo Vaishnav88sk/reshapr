@@ -53,6 +53,8 @@
     <quarkus.platform.version>3.35.4</quarkus.platform.version>
     <skipITs>true</skipITs>
     <surefire-plugin.version>3.5.6</surefire-plugin.version>
+    <sonar.organization>reshapr</sonar.organization>
+    <sonar.host.url>https://sonarcloud.io</sonar.host.url>
   </properties>
 
   <dependencyManagement>
