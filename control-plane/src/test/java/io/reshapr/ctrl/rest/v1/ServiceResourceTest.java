@@ -39,7 +39,7 @@ import static org.mockito.Mockito.*;
  * @author vaishnav
  */
 @ExtendWith(MockitoExtension.class)
-public class ServiceResourceTest {
+class ServiceResourceTest {
 
     @Mock
     private ServiceManagerService serviceManagerService;
@@ -59,12 +59,12 @@ public class ServiceResourceTest {
     private ServiceResource serviceResource;
 
     @BeforeEach
-    public void setup() {
+    void setup() {
         serviceResource = new ServiceResource(serviceManagerService, serviceRepository, v1Mappers);
     }
 
     @Test
-    public void testGetServices() {
+    void testGetServices() {
         ServiceDTO dto = mock(ServiceDTO.class);
         when(dto.id()).thenReturn("svc-1");
 
@@ -79,7 +79,7 @@ public class ServiceResourceTest {
     }
 
     @Test
-    public void testGetServiceViewSuccess() {
+    void testGetServiceViewSuccess() {
         Service service = new Service();
         ServiceViewDTO viewDto = mock(ServiceViewDTO.class);
 
@@ -92,7 +92,7 @@ public class ServiceResourceTest {
     }
 
     @Test
-    public void testGetServiceViewNotFound() {
+    void testGetServiceViewNotFound() {
         when(serviceRepository.findByIdWithOperations("svc-1")).thenReturn(null);
 
         Response response = serviceResource.getServiceView("svc-1");
@@ -100,7 +100,7 @@ public class ServiceResourceTest {
     }
 
     @Test
-    public void testDeleteServiceSuccess() {
+    void testDeleteServiceSuccess() {
         when(serviceManagerService.deleteService("svc-1")).thenReturn(true);
 
         Response response = serviceResource.deleteService("svc-1");
@@ -108,7 +108,7 @@ public class ServiceResourceTest {
     }
 
     @Test
-    public void testDeleteServiceNotFound() {
+    void testDeleteServiceNotFound() {
         when(serviceManagerService.deleteService("svc-1")).thenReturn(false);
 
         Response response = serviceResource.deleteService("svc-1");

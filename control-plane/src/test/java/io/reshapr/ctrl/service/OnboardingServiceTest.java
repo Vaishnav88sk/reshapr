@@ -40,7 +40,7 @@ import static org.mockito.Mockito.*;
  * @author vaishnav
  */
 @ExtendWith(MockitoExtension.class)
-public class OnboardingServiceTest {
+class OnboardingServiceTest {
 
     @Mock
     private UserRepository userRepository;
@@ -54,12 +54,12 @@ public class OnboardingServiceTest {
     private OnboardingService onboardingService;
 
     @BeforeEach
-    public void setup() {
+    void setup() {
         onboardingService = new OnboardingService(userRepository, organizationRepository, quotaRepository);
     }
 
     @Test
-    public void testCreateUserSuccess() throws Exception {
+    void testCreateUserSuccess() throws Exception {
         UserInfo userInfo = new UserInfo("jdoe", "jdoe@example.com", "password", "John", "Doe");
         when(userRepository.findByUsername("jdoe")).thenReturn(null);
 
@@ -77,7 +77,7 @@ public class OnboardingServiceTest {
     }
 
     @Test
-    public void testCreateUserAlreadyExists() {
+    void testCreateUserAlreadyExists() {
         UserInfo userInfo = new UserInfo("jdoe", "jdoe@example.com", "password", "John", "Doe");
         User existingUser = new User();
         when(userRepository.findByUsername("jdoe")).thenReturn(existingUser);
@@ -87,7 +87,7 @@ public class OnboardingServiceTest {
     }
 
     @Test
-    public void testCreateUserAndAttachToOrganizationSuccess() throws Exception {
+    void testCreateUserAndAttachToOrganizationSuccess() throws Exception {
         UserInfo userInfo = new UserInfo("jdoe", "jdoe@example.com", "password", "John", "Doe");
         Organization org = new Organization();
         org.name = "org-1";
@@ -106,7 +106,7 @@ public class OnboardingServiceTest {
     }
 
     @Test
-    public void testCreateOrganizationSuccess() throws Exception {
+    void testCreateOrganizationSuccess() throws Exception {
         OrganizationInfo orgInfo = new OrganizationInfo("org-1", "Description", "icon-url");
         User user = new User();
         user.username = "jdoe";
@@ -129,7 +129,7 @@ public class OnboardingServiceTest {
     }
 
     @Test
-    public void testCreateOrganizationAlreadyExists() {
+    void testCreateOrganizationAlreadyExists() {
         OrganizationInfo orgInfo = new OrganizationInfo("org-1", "Description", "icon-url");
         User user = new User();
         
@@ -140,7 +140,7 @@ public class OnboardingServiceTest {
     }
 
     @Test
-    public void testCreateOrganizationUserNotFound() {
+    void testCreateOrganizationUserNotFound() {
         OrganizationInfo orgInfo = new OrganizationInfo("org-1", "Description", "icon-url");
         when(userRepository.findByUsername("jdoe")).thenReturn(null);
 

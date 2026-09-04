@@ -44,7 +44,7 @@ import static org.mockito.Mockito.*;
  * @author vaishnav
  */
 @ExtendWith(MockitoExtension.class)
-public class GatewayGroupManagerServiceTest {
+class GatewayGroupManagerServiceTest {
 
     @Mock
     private GatewayGroupRepository gatewayGroupRepository;
@@ -61,20 +61,20 @@ public class GatewayGroupManagerServiceTest {
     private MockedStatic<SharedResource> mockedSharedResource;
 
     @BeforeEach
-    public void setup() {
+    void setup() {
         gatewayGroupManagerService = new GatewayGroupManagerService(gatewayGroupRepository);
         mockedVertx = mockStatic(Vertx.class);
         mockedSharedResource = mockStatic(SharedResource.class);
     }
 
     @AfterEach
-    public void teardown() {
+    void teardown() {
         mockedVertx.close();
         mockedSharedResource.close();
     }
 
     @Test
-    public void testGetOwnedGatewayGroups() {
+    void testGetOwnedGatewayGroups() {
         when(Vertx.currentContext()).thenReturn(vertxContext);
         when(vertxContext.getLocal(ReshaprTenantResolver.TENANT_ID_CONTEXT_KEY)).thenReturn("org-1");
 
@@ -90,7 +90,7 @@ public class GatewayGroupManagerServiceTest {
     }
 
     @Test
-    public void testGetAvailableGatewayGroups() {
+    void testGetAvailableGatewayGroups() {
         when(Vertx.currentContext()).thenReturn(vertxContext);
         when(vertxContext.getLocal(ReshaprTenantResolver.TENANT_ID_CONTEXT_KEY)).thenReturn("org-1");
 

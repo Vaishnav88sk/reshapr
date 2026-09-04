@@ -38,7 +38,7 @@ import static org.mockito.Mockito.*;
  * @author vaishnav
  */
 @ExtendWith(MockitoExtension.class)
-public class ExpositionResourceTest {
+class ExpositionResourceTest {
 
     @Mock
     private ExpositionManagerService expositionManagerService;
@@ -52,12 +52,12 @@ public class ExpositionResourceTest {
     private ExpositionResource expositionResource;
 
     @BeforeEach
-    public void setup() {
+    void setup() {
         expositionResource = new ExpositionResource(expositionManagerService, expositionRepository, v1Mappers);
     }
 
     @Test
-    public void testCreateExpositionSuccess() throws Exception {
+    void testCreateExpositionSuccess() throws Exception {
         ExpositionReferenceDTO requestDto = new ExpositionReferenceDTO(null, null, "My Expo", null, "gg-1", "plan-1");
         Exposition exposition = new Exposition();
         ExpositionDTO responseDto = new ExpositionDTO("exp-1", "org-1", "My Expo", null, null, null, null);
@@ -71,7 +71,7 @@ public class ExpositionResourceTest {
     }
 
     @Test
-    public void testCreateExpositionNotFound() throws Exception {
+    void testCreateExpositionNotFound() throws Exception {
         ExpositionReferenceDTO requestDto = new ExpositionReferenceDTO(null, null, "My Expo", null, "gg-1", "plan-1");
 
         when(expositionManagerService.exposeConfiguration("plan-1", "gg-1", "My Expo"))
@@ -82,7 +82,7 @@ public class ExpositionResourceTest {
     }
 
     @Test
-    public void testListExpositions() {
+    void testListExpositions() {
         Exposition exposition = new Exposition();
         ExpositionDTO dto = new ExpositionDTO("exp-1", "org-1", "My Expo", null, null, null, null);
 
@@ -95,7 +95,7 @@ public class ExpositionResourceTest {
     }
 
     @Test
-    public void testListActiveExpositions() {
+    void testListActiveExpositions() {
         ActiveExposition activeExposition = new ActiveExposition();
         ActiveExpositionDTO dto = new ActiveExpositionDTO("act-1", "org-1", "My Expo", null, null, null, null);
 
@@ -108,7 +108,7 @@ public class ExpositionResourceTest {
     }
 
     @Test
-    public void testGetExpositionSuccess() {
+    void testGetExpositionSuccess() {
         Exposition exposition = new Exposition();
         ExpositionDTO dto = new ExpositionDTO("exp-1", "org-1", "My Expo", null, null, null, null);
 
@@ -121,7 +121,7 @@ public class ExpositionResourceTest {
     }
 
     @Test
-    public void testGetExpositionNotFound() {
+    void testGetExpositionNotFound() {
         when(expositionManagerService.getExposition("exp-1")).thenReturn(null);
 
         Response response = expositionResource.getExposition("exp-1");
@@ -129,7 +129,7 @@ public class ExpositionResourceTest {
     }
 
     @Test
-    public void testGetActiveExpositionSuccess() {
+    void testGetActiveExpositionSuccess() {
         ActiveExposition activeExposition = new ActiveExposition();
         ActiveExpositionDTO dto = new ActiveExpositionDTO("act-1", "org-1", "My Expo", null, null, null, null);
 
@@ -142,7 +142,7 @@ public class ExpositionResourceTest {
     }
 
     @Test
-    public void testGetActiveExpositionNotFound() {
+    void testGetActiveExpositionNotFound() {
         when(expositionManagerService.getActiveExposition("act-1")).thenReturn(null);
 
         Response response = expositionResource.getActiveExposition("act-1");
@@ -150,7 +150,7 @@ public class ExpositionResourceTest {
     }
 
     @Test
-    public void testDeleteExpositionSuccess() throws Exception {
+    void testDeleteExpositionSuccess() throws Exception {
         doNothing().when(expositionManagerService).removeExposition("exp-1");
 
         Response response = expositionResource.deleteExposition("exp-1");
@@ -158,7 +158,7 @@ public class ExpositionResourceTest {
     }
 
     @Test
-    public void testDeleteExpositionNotFound() throws Exception {
+    void testDeleteExpositionNotFound() throws Exception {
         doThrow(new DependencyNotFoundException("Not found")).when(expositionManagerService).removeExposition("exp-1");
 
         Response response = expositionResource.deleteExposition("exp-1");

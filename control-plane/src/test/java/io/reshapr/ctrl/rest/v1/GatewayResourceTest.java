@@ -33,7 +33,7 @@ import static org.mockito.Mockito.when;
  * @author vaishnav
  */
 @ExtendWith(MockitoExtension.class)
-public class GatewayResourceTest {
+class GatewayResourceTest {
 
     @Mock
     private GatewayManagerService gatewayManagerService;
@@ -44,12 +44,12 @@ public class GatewayResourceTest {
     private GatewayResource gatewayResource;
 
     @BeforeEach
-    public void setup() {
+    void setup() {
         gatewayResource = new GatewayResource(gatewayManagerService, v1Mappers);
     }
 
     @Test
-    public void testListGateways() {
+    void testListGateways() {
         Gateway gateway = new Gateway();
         gateway.name = "my-gateway";
 

@@ -38,7 +38,7 @@ import static org.mockito.Mockito.*;
  * @author vaishnav
  */
 @ExtendWith(MockitoExtension.class)
-public class GatewayGroupResourceTest {
+class GatewayGroupResourceTest {
 
     @Mock
     private GatewayGroupManagerService managerService;
@@ -55,13 +55,13 @@ public class GatewayGroupResourceTest {
     private GatewayGroupResource gatewayGroupResource;
 
     @BeforeEach
-    public void setup() {
+    void setup() {
         gatewayGroupResource = new GatewayGroupResource(managerService, gatewayGroupRepository, v1Mappers);
         gatewayGroupResource.securityIdentity = securityIdentity;
     }
 
     @Test
-    public void testGetGatewayGroupsList() {
+    void testGetGatewayGroupsList() {
         GatewayGroup gatewayGroup = new GatewayGroup();
         GatewayGroupDTO dto = new GatewayGroupDTO("gg-1", "org-1", "My Group", null);
 
@@ -74,7 +74,7 @@ public class GatewayGroupResourceTest {
     }
 
     @Test
-    public void testGetGatewayGroupByIdSuccess() {
+    void testGetGatewayGroupByIdSuccess() {
         GatewayGroup gatewayGroup = new GatewayGroup();
         GatewayGroupDTO dto = new GatewayGroupDTO("gg-1", "org-1", "My Group", null);
 
@@ -87,7 +87,7 @@ public class GatewayGroupResourceTest {
     }
 
     @Test
-    public void testGetGatewayGroupByIdNotFound() {
+    void testGetGatewayGroupByIdNotFound() {
         when(gatewayGroupRepository.findById("gg-1")).thenReturn(null);
 
         Response response = gatewayGroupResource.getGatewayGroups("gg-1");
@@ -95,7 +95,7 @@ public class GatewayGroupResourceTest {
     }
 
     @Test
-    public void testCreateGatewayGroupSuccess() {
+    void testCreateGatewayGroupSuccess() {
         GatewayGroupDTO requestDto = new GatewayGroupDTO(null, null, "My Group", Map.of("env", "prod"));
         GatewayGroup gatewayGroup = new GatewayGroup();
         gatewayGroup.name = "My Group";
@@ -115,7 +115,7 @@ public class GatewayGroupResourceTest {
     }
 
     @Test
-    public void testCreateGatewayGroupUnauthorized() {
+    void testCreateGatewayGroupUnauthorized() {
         gatewayGroupResource.securityIdentity = null;
         GatewayGroupDTO requestDto = new GatewayGroupDTO(null, null, "My Group", null);
 
@@ -124,7 +124,7 @@ public class GatewayGroupResourceTest {
     }
 
     @Test
-    public void testUpdateGatewayGroupSuccess() {
+    void testUpdateGatewayGroupSuccess() {
         GatewayGroupDTO requestDto = new GatewayGroupDTO("gg-1", "org-1", "Updated Group", Map.of("env", "dev"));
         GatewayGroup gatewayGroup = new GatewayGroup();
         gatewayGroup.id = "gg-1";
@@ -145,7 +145,7 @@ public class GatewayGroupResourceTest {
     }
 
     @Test
-    public void testUpdateGatewayGroupNotFound() {
+    void testUpdateGatewayGroupNotFound() {
         GatewayGroupDTO requestDto = new GatewayGroupDTO("gg-1", "org-1", "Updated Group", null);
         when(gatewayGroupRepository.findById("gg-1")).thenReturn(null);
 
@@ -154,7 +154,7 @@ public class GatewayGroupResourceTest {
     }
 
     @Test
-    public void testDeleteGatewayGroupSuccess() {
+    void testDeleteGatewayGroupSuccess() {
         GatewayGroup gatewayGroup = new GatewayGroup();
         when(gatewayGroupRepository.findById("gg-1")).thenReturn(gatewayGroup);
 
@@ -165,7 +165,7 @@ public class GatewayGroupResourceTest {
     }
 
     @Test
-    public void testDeleteGatewayGroupNotFound() {
+    void testDeleteGatewayGroupNotFound() {
         when(gatewayGroupRepository.findById("gg-1")).thenReturn(null);
 
         Response response = gatewayGroupResource.deleteGatewayGroup("gg-1");

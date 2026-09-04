@@ -39,7 +39,7 @@ import static org.mockito.Mockito.*;
  * @author vaishnav
  */
 @ExtendWith(MockitoExtension.class)
-public class ArtifactResourceTest {
+class ArtifactResourceTest {
 
     @Mock
     private ServiceManagerService serviceManagerService;
@@ -65,12 +65,12 @@ public class ArtifactResourceTest {
     private ArtifactResource artifactResource;
 
     @BeforeEach
-    public void setup() {
+    void setup() {
         artifactResource = new ArtifactResource(serviceManagerService, artifactManagerService, artifactRepository, v1Mappers);
     }
 
     @Test
-    public void testGetArtifactSuccess() {
+    void testGetArtifactSuccess() {
         Artifact artifact = new Artifact();
         ArtifactDTO dto = mock(ArtifactDTO.class);
         
@@ -83,7 +83,7 @@ public class ArtifactResourceTest {
     }
 
     @Test
-    public void testGetArtifactNotFound() {
+    void testGetArtifactNotFound() {
         when(artifactRepository.findById("art-1")).thenReturn(null);
 
         Response response = artifactResource.getArtifact("art-1");
@@ -91,7 +91,7 @@ public class ArtifactResourceTest {
     }
 
     @Test
-    public void testGetArtifactsByServiceId() {
+    void testGetArtifactsByServiceId() {
         ArtifactDTO dto = mock(ArtifactDTO.class);
         
         when(artifactRepository.findByServiceId("svc-1")).thenReturn(mockQuery);
@@ -103,7 +103,7 @@ public class ArtifactResourceTest {
     }
 
     @Test
-    public void testGetArtifactReferencesByServiceId() {
+    void testGetArtifactReferencesByServiceId() {
         ArtifactReferenceDTO dto = mock(ArtifactReferenceDTO.class);
         
         when(artifactRepository.findByServiceId("svc-1")).thenReturn(mockQuery);
@@ -115,7 +115,7 @@ public class ArtifactResourceTest {
     }
 
     @Test
-    public void testGetArtifactDeletionImpactSuccess() throws Exception {
+    void testGetArtifactDeletionImpactSuccess() throws Exception {
         io.reshapr.ctrl.service.ArtifactDeletionImpact impact = mock(io.reshapr.ctrl.service.ArtifactDeletionImpact.class);
         ArtifactDeletionImpactDTO dto = mock(ArtifactDeletionImpactDTO.class);
 
@@ -128,7 +128,7 @@ public class ArtifactResourceTest {
     }
 
     @Test
-    public void testGetArtifactDeletionImpactNotFound() throws Exception {
+    void testGetArtifactDeletionImpactNotFound() throws Exception {
         when(artifactManagerService.getArtifactDeletionImpact("art-1")).thenThrow(new DependencyNotFoundException("Not found"));
 
         Response response = artifactResource.getArtifactDeletionImpact("art-1");
@@ -136,7 +136,7 @@ public class ArtifactResourceTest {
     }
 
     @Test
-    public void testDeleteArtifactSuccess() throws Exception {
+    void testDeleteArtifactSuccess() throws Exception {
         io.reshapr.ctrl.service.ArtifactDeletionImpact impact = mock(io.reshapr.ctrl.service.ArtifactDeletionImpact.class);
         ArtifactDeletionImpactDTO dto = mock(ArtifactDeletionImpactDTO.class);
 
@@ -149,7 +149,7 @@ public class ArtifactResourceTest {
     }
 
     @Test
-    public void testDeleteArtifactNotFound() throws Exception {
+    void testDeleteArtifactNotFound() throws Exception {
         when(artifactManagerService.deleteArtifact("art-1")).thenThrow(new DependencyNotFoundException("Not found"));
 
         Response response = artifactResource.deleteArtifact("art-1");

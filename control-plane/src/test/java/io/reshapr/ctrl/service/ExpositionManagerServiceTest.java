@@ -43,7 +43,7 @@ import static org.mockito.Mockito.*;
  * @author vaishnav
  */
 @ExtendWith(MockitoExtension.class)
-public class ExpositionManagerServiceTest {
+class ExpositionManagerServiceTest {
 
     @Mock
     private ExpositionRepository expositionRepository;
@@ -73,7 +73,7 @@ public class ExpositionManagerServiceTest {
     private GatewayGroup gatewayGroup;
 
     @BeforeEach
-    public void setup() {
+    void setup() {
         Service service = new Service();
         service.name = "test-svc";
         service.version = "1.0.0";
@@ -89,7 +89,7 @@ public class ExpositionManagerServiceTest {
     }
 
     @Test
-    public void testExposeConfigurationSuccess() throws DependencyNotFoundException {
+    void testExposeConfigurationSuccess() throws DependencyNotFoundException {
         when(configurationPlanRepository.findById("plan-1")).thenReturn(configurationPlan);
         when(gatewayGroupManagerService.getAvailableGatewayGroups()).thenReturn(List.of(gatewayGroup));
         doNothing().when(expositionRepository).persistAndFlush(any(Exposition.class));
@@ -104,7 +104,7 @@ public class ExpositionManagerServiceTest {
     }
 
     @Test
-    public void testExposeConfigurationPlanNotFound() {
+    void testExposeConfigurationPlanNotFound() {
         when(configurationPlanRepository.findById("plan-1")).thenReturn(null);
 
         assertThrows(DependencyNotFoundException.class, () -> {
@@ -113,7 +113,7 @@ public class ExpositionManagerServiceTest {
     }
 
     @Test
-    public void testExposeConfigurationGatewayGroupNotFound() {
+    void testExposeConfigurationGatewayGroupNotFound() {
         when(configurationPlanRepository.findById("plan-1")).thenReturn(configurationPlan);
         when(gatewayGroupManagerService.getAvailableGatewayGroups()).thenReturn(List.of());
 
@@ -123,14 +123,14 @@ public class ExpositionManagerServiceTest {
     }
 
     @Test
-    public void testSuggestExpositionNameUnique() {
+    void testSuggestExpositionNameUnique() {
         when(expositionRepository.findByName("test-svc-1-0-0-default-plan")).thenReturn(null);
         String name = expositionManagerService.suggestExpositionName(configurationPlan.service, configurationPlan);
         assertEquals("test-svc-1-0-0-default-plan", name);
     }
 
     @Test
-    public void testSuggestExpositionNameCollision() {
+    void testSuggestExpositionNameCollision() {
         when(expositionRepository.findByName("test-svc-1-0-0-default-plan")).thenReturn(new Exposition());
         when(expositionRepository.findByName("test-svc-1-0-0-default-plan-2")).thenReturn(null);
 

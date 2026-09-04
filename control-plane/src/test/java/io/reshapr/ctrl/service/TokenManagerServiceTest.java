@@ -35,7 +35,7 @@ import static org.mockito.Mockito.*;
  * @author vaishnav
  */
 @ExtendWith(MockitoExtension.class)
-public class TokenManagerServiceTest {
+class TokenManagerServiceTest {
 
     @Mock
     private ApiTokenRepository apiTokenRepository;
@@ -46,12 +46,12 @@ public class TokenManagerServiceTest {
     private TokenManagerService tokenManagerService;
 
     @BeforeEach
-    public void setup() {
+    void setup() {
         tokenManagerService = new TokenManagerService(apiTokenRepository, userRepository);
     }
 
     @Test
-    public void testGetApiTokens() {
+    void testGetApiTokens() {
         ApiToken token = new ApiToken();
         when(apiTokenRepository.findByOrganizationId("org-1")).thenReturn(List.of(token));
 
@@ -60,7 +60,7 @@ public class TokenManagerServiceTest {
     }
 
     @Test
-    public void testGenerateApiTokenSuccess() throws Exception {
+    void testGenerateApiTokenSuccess() throws Exception {
         User user = new User();
         user.username = "testuser";
         when(userRepository.findByUsername("testuser")).thenReturn(user);
@@ -78,7 +78,7 @@ public class TokenManagerServiceTest {
     }
 
     @Test
-    public void testGenerateApiTokenUserNotFound() {
+    void testGenerateApiTokenUserNotFound() {
         when(userRepository.findByUsername("testuser")).thenReturn(null);
 
         assertThrows(DependencyNotFoundException.class, () -> {
@@ -87,7 +87,7 @@ public class TokenManagerServiceTest {
     }
 
     @Test
-    public void testRevokeApiToken() {
+    void testRevokeApiToken() {
         ApiToken token = new ApiToken();
         tokenManagerService.revokeApiToken(token);
         verify(apiTokenRepository, times(1)).delete(token);

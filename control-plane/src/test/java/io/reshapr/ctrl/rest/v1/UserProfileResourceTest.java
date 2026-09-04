@@ -36,7 +36,7 @@ import static org.mockito.Mockito.*;
  * @author vaishnav
  */
 @ExtendWith(MockitoExtension.class)
-public class UserProfileResourceTest {
+class UserProfileResourceTest {
 
     @Mock
     private UserRepository userRepository;
@@ -53,12 +53,12 @@ public class UserProfileResourceTest {
     private UserProfileResource userProfileResource;
 
     @BeforeEach
-    public void setup() {
+    void setup() {
         userProfileResource = new UserProfileResource(userRepository, v1Mappers);
     }
 
     @Test
-    public void testGetUserProfileSuccess() {
+    void testGetUserProfileSuccess() {
         when(securityIdentity.getPrincipal()).thenReturn(principal);
         when(principal.getName()).thenReturn("testuser");
 
@@ -79,7 +79,7 @@ public class UserProfileResourceTest {
     }
 
     @Test
-    public void testGetUserProfileNotFound() {
+    void testGetUserProfileNotFound() {
         when(securityIdentity.getPrincipal()).thenReturn(principal);
         when(principal.getName()).thenReturn("testuser");
 
@@ -90,7 +90,7 @@ public class UserProfileResourceTest {
     }
 
     @Test
-    public void testSetDefaultOrganizationNotFound() {
+    void testSetDefaultOrganizationNotFound() {
         when(securityIdentity.getPrincipal()).thenReturn(principal);
         when(principal.getName()).thenReturn("testuser");
 

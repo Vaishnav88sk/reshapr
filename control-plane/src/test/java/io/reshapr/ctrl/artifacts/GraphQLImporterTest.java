@@ -28,10 +28,10 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * @author vaishnav
  */
-public class GraphQLImporterTest {
+class GraphQLImporterTest {
 
     @Test
-    public void testGraphQLImporter() throws Exception {
+    void testGraphQLImporter() throws Exception {
         String path = new File("src/test/resources/io/reshapr/ctrl/artifacts/schema.graphql").getAbsolutePath();
         GraphQLImporter importer = new GraphQLImporter(path);
         
@@ -55,7 +55,7 @@ public class GraphQLImporterTest {
     }
 
     @Test
-    public void testGraphQLImporterMissingName() throws Exception {
+    void testGraphQLImporterMissingName() throws Exception {
         String path = new File("src/test/resources/io/reshapr/ctrl/artifacts/schema.graphql").getAbsolutePath();
         GraphQLImporter importer = new GraphQLImporter(path);
         

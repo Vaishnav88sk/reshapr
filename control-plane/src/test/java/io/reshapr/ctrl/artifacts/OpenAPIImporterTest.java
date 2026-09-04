@@ -28,10 +28,10 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * @author vaishnav
  */
-public class OpenAPIImporterTest {
+class OpenAPIImporterTest {
 
     @Test
-    public void testOpenAPIImporter() throws Exception {
+    void testOpenAPIImporter() throws Exception {
         String path = new File("src/test/resources/io/reshapr/ctrl/artifacts/openapi.json").getAbsolutePath();
         OpenAPIImporter importer = new OpenAPIImporter(path, null);
         

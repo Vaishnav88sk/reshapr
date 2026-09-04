@@ -39,7 +39,7 @@ import static org.mockito.Mockito.*;
  * @author vaishnav
  */
 @ExtendWith(MockitoExtension.class)
-public class SecretResourceTest {
+class SecretResourceTest {
 
     @Mock
     private SecretRepository secretRepository;
@@ -59,12 +59,12 @@ public class SecretResourceTest {
     private SecretResource secretResource;
 
     @BeforeEach
-    public void setup() {
+    void setup() {
         secretResource = new SecretResource(secretRepository, v1Mappers, mappersImpl);
     }
 
     @Test
-    public void testGetSecrets() {
+    void testGetSecrets() {
         Secret secret = new Secret();
         SecretDTO dto = mock(SecretDTO.class);
         when(dto.id()).thenReturn("sec-1");
@@ -80,7 +80,7 @@ public class SecretResourceTest {
     }
 
     @Test
-    public void testGetSecretReferences() {
+    void testGetSecretReferences() {
         SecretReferenceDTO dto = mock(SecretReferenceDTO.class);
         when(dto.id()).thenReturn("sec-1");
 
@@ -95,7 +95,7 @@ public class SecretResourceTest {
     }
 
     @Test
-    public void testCreateSecretSuccess() {
+    void testCreateSecretSuccess() {
         SecretDTO requestDto = mock(SecretDTO.class);
         when(requestDto.name()).thenReturn("New Secret");
         
@@ -113,7 +113,7 @@ public class SecretResourceTest {
     }
 
     @Test
-    public void testCreateSecretConflict() {
+    void testCreateSecretConflict() {
         SecretDTO requestDto = mock(SecretDTO.class);
         when(requestDto.name()).thenReturn("Existing Secret");
         when(secretRepository.findByName("Existing Secret")).thenReturn(new Secret());
@@ -123,7 +123,7 @@ public class SecretResourceTest {
     }
 
     @Test
-    public void testUpdateSecretSuccess() {
+    void testUpdateSecretSuccess() {
         SecretDTO requestDto = mock(SecretDTO.class);
         when(requestDto.password()).thenReturn("new-password");
         when(requestDto.token()).thenReturn("new-token");
@@ -138,7 +138,7 @@ public class SecretResourceTest {
     }
 
     @Test
-    public void testDeleteSecretSuccess() {
+    void testDeleteSecretSuccess() {
         Secret secret = new Secret();
         when(secretRepository.findById("sec-1")).thenReturn(secret);
         doNothing().when(secretRepository).delete(secret);
@@ -148,7 +148,7 @@ public class SecretResourceTest {
     }
 
     @Test
-    public void testDeleteSecretNotFound() {
+    void testDeleteSecretNotFound() {
         when(secretRepository.findById("sec-1")).thenReturn(null);
 
         Response response = secretResource.deleteSecret("sec-1");

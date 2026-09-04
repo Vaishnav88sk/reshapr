@@ -43,7 +43,7 @@ import static org.mockito.Mockito.*;
  * @author vaishnav
  */
 @ExtendWith(MockitoExtension.class)
-public class OffboardingServiceTest {
+class OffboardingServiceTest {
 
     @Mock
     private OrganizationRepository organizationRepository;
@@ -76,7 +76,7 @@ public class OffboardingServiceTest {
     private MockedStatic<ReshaprTenantContext> mockedContext;
 
     @BeforeEach
-    public void setup() {
+    void setup() {
         offboardingService = new OffboardingService(
                 organizationRepository, userRepository, serviceRepository,
                 serviceManagerService, secretRepository, gatewayRepository,
@@ -86,29 +86,29 @@ public class OffboardingServiceTest {
     }
 
     @AfterEach
-    public void teardown() {
+    void teardown() {
         mockedContext.close();
     }
 
     @Test
-    public void testDeleteOrganizationCannotDeleteRoot() {
+    void testDeleteOrganizationCannotDeleteRoot() {
         assertThrows(IllegalStateException.class, () -> offboardingService.deleteOrganization("reshapr"));
     }
 
     @Test
-    public void testDeleteOrganizationNotFound() {
+    void testDeleteOrganizationNotFound() {
         when(organizationRepository.findByName("org-1")).thenReturn(null);
         assertThrows(DependencyNotFoundException.class, () -> offboardingService.deleteOrganization("org-1"));
     }
 
     @Test
-    public void testDeleteUserNotFound() {
+    void testDeleteUserNotFound() {
         when(userRepository.findByUsername("user-1")).thenReturn(null);
         assertThrows(DependencyNotFoundException.class, () -> offboardingService.deleteUser("user-1"));
     }
 
     @Test
-    public void testDeleteUserCannotDeleteRootOwner() {
+    void testDeleteUserCannotDeleteRootOwner() {
         User user = new User();
         user.username = "root-owner";
 

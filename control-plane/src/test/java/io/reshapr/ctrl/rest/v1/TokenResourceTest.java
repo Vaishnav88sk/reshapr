@@ -41,7 +41,7 @@ import static org.mockito.Mockito.*;
  * @author vaishnav
  */
 @ExtendWith(MockitoExtension.class)
-public class TokenResourceTest {
+class TokenResourceTest {
 
     @Mock
     private TokenManagerService tokenManagerService;
@@ -61,13 +61,13 @@ public class TokenResourceTest {
     private TokenResource tokenResource;
 
     @BeforeEach
-    public void setup() {
+    void setup() {
         tokenResource = new TokenResource(tokenManagerService, apiTokenRepository, v1Mappers);
         tokenResource.securityIdentity = securityIdentity;
     }
 
     @Test
-    public void testGetApiTokens() {
+    void testGetApiTokens() {
         ApiToken apiToken = new ApiToken();
         ApiTokenDTO dto = new ApiTokenDTO();
         dto.setId("token-1");
@@ -82,7 +82,7 @@ public class TokenResourceTest {
     }
 
     @Test
-    public void testCreateApiTokenSuccess() throws Exception {
+    void testCreateApiTokenSuccess() throws Exception {
         ApiTokenRequestDTO requestDto = new ApiTokenRequestDTO("My Token", ValidityPeriodEnum.THIRTY_DAYS);
         
         when(securityIdentity.getPrincipal()).thenReturn(principal);
@@ -94,7 +94,7 @@ public class TokenResourceTest {
         ApiTokenDTO responseDto = new ApiTokenDTO();
         responseDto.setId("token-1");
 
-        when(tokenManagerService.generateApiToken(eq("My Token"), eq("org-1"), eq(30), eq("testuser"))).thenReturn(createdToken);
+        when(tokenManagerService.generateApiToken("My Token", "org-1", 30, "testuser")).thenReturn(createdToken);
         when(v1Mappers.toResource(createdToken)).thenReturn(responseDto);
 
         Response response = tokenResource.createApiToken(requestDto);
@@ -105,7 +105,7 @@ public class TokenResourceTest {
     }
 
     @Test
-    public void testCreateApiTokenDependencyNotFound() throws Exception {
+    void testCreateApiTokenDependencyNotFound() throws Exception {
         ApiTokenRequestDTO requestDto = new ApiTokenRequestDTO("My Token", ValidityPeriodEnum.THIRTY_DAYS);
         
         when(securityIdentity.getPrincipal()).thenReturn(principal);
@@ -120,7 +120,7 @@ public class TokenResourceTest {
     }
 
     @Test
-    public void testDeleteApiTokenSuccess() {
+    void testDeleteApiTokenSuccess() {
         ApiToken apiToken = new ApiToken();
         when(apiTokenRepository.findById("token-1")).thenReturn(apiToken);
         doNothing().when(tokenManagerService).revokeApiToken(apiToken);
@@ -131,7 +131,7 @@ public class TokenResourceTest {
     }
 
     @Test
-    public void testDeleteApiTokenNotFound() {
+    void testDeleteApiTokenNotFound() {
         when(apiTokenRepository.findById("token-1")).thenReturn(null);
 
         Response response = tokenResource.deleteApiToken("token-1");

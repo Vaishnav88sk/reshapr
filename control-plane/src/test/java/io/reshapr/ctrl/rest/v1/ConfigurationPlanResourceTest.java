@@ -41,7 +41,7 @@ import static org.mockito.Mockito.*;
  * @author vaishnav
  */
 @ExtendWith(MockitoExtension.class)
-public class ConfigurationPlanResourceTest {
+class ConfigurationPlanResourceTest {
 
     @Mock
     private ConfigurationPlanManagerService managerService;
@@ -55,12 +55,12 @@ public class ConfigurationPlanResourceTest {
     private ConfigurationPlanResource configurationPlanResource;
 
     @BeforeEach
-    public void setup() {
+    void setup() {
         configurationPlanResource = new ConfigurationPlanResource(managerService, configurationPlanRepository, v1Mappers);
     }
 
     @Test
-    public void testGetConfigurationPlans() {
+    void testGetConfigurationPlans() {
         ConfigurationPlan plan = new ConfigurationPlan();
         ConfigurationPlanDTO dto = new ConfigurationPlanDTO();
         dto.setId("plan-1");
@@ -74,7 +74,7 @@ public class ConfigurationPlanResourceTest {
     }
 
     @Test
-    public void testCreateConfigurationPlanSuccess() throws Exception {
+    void testCreateConfigurationPlanSuccess() {
         ConfigurationPlanDTO requestDto = new ConfigurationPlanDTO();
         requestDto.setServiceId("svc-1");
         requestDto.setBackendSecretId("backend-1");
@@ -99,7 +99,7 @@ public class ConfigurationPlanResourceTest {
     }
 
     @Test
-    public void testCreateConfigurationPlanDependencyNotFound() throws Exception {
+    void testCreateConfigurationPlanDependencyNotFound() {
         ConfigurationPlanDTO requestDto = new ConfigurationPlanDTO();
         requestDto.setServiceId("svc-1");
         requestDto.setBackendSecretId("backend-1");
@@ -115,7 +115,7 @@ public class ConfigurationPlanResourceTest {
     }
 
     @Test
-    public void testDuplicateConfigurationPlanSuccess() throws Exception {
+    void testDuplicateConfigurationPlanSuccess() {
         ConfigurationPlan newPlan = new ConfigurationPlan();
         newPlan.apiKey = "duplicate-api-key";
         ConfigurationPlanDTO responseDto = new ConfigurationPlanDTO();
@@ -130,7 +130,7 @@ public class ConfigurationPlanResourceTest {
     }
 
     @Test
-    public void testDeleteConfigurationPlanSuccess() {
+    void testDeleteConfigurationPlanSuccess() {
         ConfigurationPlan plan = new ConfigurationPlan();
         when(configurationPlanRepository.findById("plan-1")).thenReturn(plan);
         doNothing().when(managerService).deleteConfigurationPlan(plan);

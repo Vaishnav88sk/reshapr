@@ -41,7 +41,7 @@ import static org.mockito.Mockito.*;
  * @author vaishnav
  */
 @ExtendWith(MockitoExtension.class)
-public class ExpositionDiscoveryServiceHandlerTest {
+class ExpositionDiscoveryServiceHandlerTest {
 
     @Mock
     private ExpositionManagerService expositionManagerService;
@@ -55,12 +55,12 @@ public class ExpositionDiscoveryServiceHandlerTest {
     private ExpositionDiscoveryServiceHandler handler;
 
     @BeforeEach
-    public void setup() {
+    void setup() {
         handler = new ExpositionDiscoveryServiceHandler(expositionManagerService, artifactRepository);
     }
 
     @Test
-    public void testDiscoverExpositions() throws Exception {
+    void testDiscoverExpositions() throws Exception {
         ExpositionDiscoveryRequest request = ExpositionDiscoveryRequest.newBuilder()
                 .setGatewayId("gw-1")
                 .build();
