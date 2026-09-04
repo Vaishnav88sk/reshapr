@@ -22,8 +22,6 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import org.hibernate.annotations.Type;
 
-import java.util.List;
-
 /**
  * A reusable configuration template that can be used to pre-populate a {@link ConfigurationPlan}.
  * A template captures common, organisation-wide settings (e.g. OAuth2 configuration) so that

@@ -94,7 +94,7 @@ public class ConfigurationTemplateResource {
    @Authenticated
    @Produces(MediaType.APPLICATION_JSON)
    public Response createConfigurationTemplate(@Valid ConfigurationTemplateDTO dto) {
-      logger.infof("Creating a new configuration template named '%s'", dto.getName());
+      logger.infof("Creating a new configuration template named '%s'", dto.name());
       ConfigurationTemplate template = v1Mappers.fromResource(dto);
       try {
          template = managerService.createConfigurationTemplate(template);

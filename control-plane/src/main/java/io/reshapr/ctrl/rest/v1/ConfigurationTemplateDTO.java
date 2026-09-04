@@ -28,59 +28,15 @@ import jakarta.validation.constraints.Size;
  * @author vaishnav
  */
 @RegisterForReflection
-public class ConfigurationTemplateDTO {
-
-   protected String id;
-   protected String organizationId;
-
-   @NotBlank(message = "Name must not be blank")
-   @Size(max = 255, message = "Name must not exceed 255 characters")
-   @JsonDeserialize(using = HtmlEncodedStringDeserializer.class)
-   protected String name;
-
-   @Size(max = 255, message = "Description must not exceed 255 characters")
-   @JsonDeserialize(using = HtmlEncodedStringDeserializer.class)
-   protected String description;
-
-   protected OAuth2ConfigurationDTO oauth2Configuration;
-
-   public String getId() {
-      return id;
-   }
-
-   public void setId(String id) {
-      this.id = id;
-   }
-
-   public String getOrganizationId() {
-      return organizationId;
-   }
-
-   public void setOrganizationId(String organizationId) {
-      this.organizationId = organizationId;
-   }
-
-   public String getName() {
-      return name;
-   }
-
-   public void setName(String name) {
-      this.name = name;
-   }
-
-   public String getDescription() {
-      return description;
-   }
-
-   public void setDescription(String description) {
-      this.description = description;
-   }
-
-   public OAuth2ConfigurationDTO getOauth2Configuration() {
-      return oauth2Configuration;
-   }
-
-   public void setOauth2Configuration(OAuth2ConfigurationDTO oauth2Configuration) {
-      this.oauth2Configuration = oauth2Configuration;
-   }
-}
+public record ConfigurationTemplateDTO(
+      String id,
+      String organizationId,
+      @NotBlank(message = "Name must not be blank")
+      @Size(max = 255, message = "Name must not exceed 255 characters")
+      @JsonDeserialize(using = HtmlEncodedStringDeserializer.class)
+      String name,
+      @Size(max = 255, message = "Description must not exceed 255 characters")
+      @JsonDeserialize(using = HtmlEncodedStringDeserializer.class)
+      String description,
+      OAuth2ConfigurationDTO oauth2Configuration
+) {}
