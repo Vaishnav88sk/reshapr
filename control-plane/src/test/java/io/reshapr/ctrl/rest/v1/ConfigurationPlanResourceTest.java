@@ -74,7 +74,7 @@ class ConfigurationPlanResourceTest {
     }
 
     @Test
-    void testCreateConfigurationPlanSuccess() {
+    void testCreateConfigurationPlanSuccess() throws DependencyNotFoundException, io.reshapr.ctrl.service.InvalidConfigurationException {
         ConfigurationPlanDTO requestDto = new ConfigurationPlanDTO();
         requestDto.setServiceId("svc-1");
         requestDto.setBackendSecretId("backend-1");
@@ -99,7 +99,7 @@ class ConfigurationPlanResourceTest {
     }
 
     @Test
-    void testCreateConfigurationPlanDependencyNotFound() {
+    void testCreateConfigurationPlanDependencyNotFound() throws DependencyNotFoundException, io.reshapr.ctrl.service.InvalidConfigurationException {
         ConfigurationPlanDTO requestDto = new ConfigurationPlanDTO();
         requestDto.setServiceId("svc-1");
         requestDto.setBackendSecretId("backend-1");

@@ -46,7 +46,7 @@ class OrganizationResourceTest {
             return foundUserByEmail;
          }
          @Override
-         void persistAndFlush(User entity) {
+         public void persistAndFlush(User entity) {
             // Do nothing
          }
       };
