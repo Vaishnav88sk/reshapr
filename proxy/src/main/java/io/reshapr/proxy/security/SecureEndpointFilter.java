@@ -24,10 +24,12 @@ import io.reshapr.proxy.registry.OAuth2ConfigurationEntry;
 import io.reshapr.proxy.registry.ServiceEntry;
 
 import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
 import com.nimbusds.jose.proc.BadJOSEException;
+import com.nimbusds.jose.proc.DefaultJOSEObjectTypeVerifier;
 import com.nimbusds.jose.proc.JWSKeySelector;
 import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
@@ -94,8 +96,8 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
    private static final Set<String> JWT_VERIFIED_CLAIMS = Set.of(
          JWTClaimNames.SUBJECT,
          JWTClaimNames.ISSUED_AT,
-         JWTClaimNames.EXPIRATION_TIME,
-         JWTClaimNames.JWT_ID);
+         JWTClaimNames.EXPIRATION_TIME
+   );
 
    /*
     * Cache of JWKSource instances keyed by JWK Set URL to avoid reloading keys for
@@ -207,216 +209,23 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
          return;
       }
 
-      // Continue with OAuth2 token validation.
-      final OAuth2ConfigurationEntry oauth2Config = configuration.oauth2Configuration();
-
-      // Create a JWK source that retrieves the public keys from the JWK Set URL.
-      JWKSource<SecurityContext> jwkSource;
-      try {
-         final URL jwksUri = URI.create(oauth2Config.jwksUri()).toURL();
-         jwkSource = jwkSources.computeIfAbsent(oauth2Config.jwksUri(),
-               uri -> JWKSourceBuilder.create(jwksUri).retrying(true).build());
-      } catch (Exception e) {
-         logger.errorf("Invalid JWK Set URL in OAuth2 configuration: '%s'", oauth2Config.jwksUri());
-         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED).build());
-         return;
-      }
       String token = authorizationHeader.substring("Bearer ".length());
-
-      // Here you would typically validate the token against the OAuth2 server.
-      logger.tracef("OAuth2 token received: %s", token);
-
-      // Create a JWT processor for the access tokens
-      ConfigurableJWTProcessor<SecurityContext> jwtProcessor = new DefaultJWTProcessor<>();
-
-      // Configure the JWT processor with a key selector to feed matching public
-      // RSA keys sourced from the JWK set URL.
-      JWSKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector<>(
-            JWS_SUPPORTED_ALGORITHMS, jwkSource);
-      jwtProcessor.setJWSKeySelector(keySelector);
-
-      // Set the required JWT claims for access tokens
-      Set<String> requiredClaims = new java.util.HashSet<>(JWT_VERIFIED_CLAIMS);
-      if (!oauth2Config.disableAudienceValidation()) {
-         requiredClaims.add(JWTClaimNames.AUDIENCE);
-      }
-      jwtProcessor.setJWTClaimsSetVerifier(new MultipleIssuerClaimsVerifier(
-            oauth2Config.authorizationServers(),
-            requiredClaims));
-
-      JWTClaimsSet claimsSet;
-      SecurityContext securityCtx = null;
-      try {
-         claimsSet = jwtProcessor.process(token, securityCtx);
-      } catch (ParseException e) {
-         // Unparseable JWT: RFC 6750 classifies malformed tokens as invalid_token ->
-         // 401.
-         logger.warnf("Malformed OAuth2 token received: %s", e.getMessage());
-         emitAuthenticationFailureAuditEvent(service, configuration,
-               AuthenticationFailureAuditEvent.REASON_MALFORMED_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(),
-               ctx);
-         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED)
-               .header(HttpHeaders.WWW_AUTHENTICATE, bearerChallenge(ctx, "invalid_token"))
-               .build());
-         return;
-      } catch (BadJOSEException e) {
-         // Well-formed but rejected: bad signature, expired, wrong issuer, missing
-         // claims... -> 401.
-         logger.warnf("Invalid OAuth2 token received: %s", e.getMessage());
-         emitAuthenticationFailureAuditEvent(service, configuration,
-               AuthenticationFailureAuditEvent.REASON_INVALID_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(), ctx);
-         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED)
-               .header(HttpHeaders.WWW_AUTHENTICATE, bearerChallenge(ctx, "invalid_token"))
-               .build());
-         return;
-      } catch (JOSEException e) {
-         // Key sourcing failed or another internal exception.
-         logger.warnf("Unable to verify OAuth2 token: %s", e.getMessage());
-         emitAuthenticationFailureAuditEvent(service, configuration,
-               AuthenticationFailureAuditEvent.REASON_INVALID_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(), ctx);
-         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED)
-               .header(HttpHeaders.WWW_AUTHENTICATE, bearerChallenge(ctx, null))
-               .build());
+      JWTClaimsSet claimsSet = parseAndVerifyToken(service, configuration, ctx, token);
+      if (claimsSet == null) {
          return;
       }
 
-      // Now check the claimsSet for resource as per
-      // https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization#token-handling
-      try {
-         String resource = claimsSet.getClaimAsString("resource");
-         if (resource != null
-               && !resource.equalsIgnoreCase(fqdnScheme + fqdns.getFirst() + ctx.getUriInfo().getPath())) {
-            logger.warnf("Invalid OAuth2 token received, resource claim does not match '%s'",
-                  fqdnScheme + fqdns.getFirst() + ctx.getUriInfo().getPath());
-            emitAuthenticationFailureAuditEvent(service, configuration,
-                  AuthenticationFailureAuditEvent.REASON_FORBIDDEN_RESOURCE, Response.Status.FORBIDDEN.getStatusCode(),
-                  ctx);
-            ctx.abortWith(Response.status(Response.Status.FORBIDDEN).build());
-            return;
-         }
-      } catch (ParseException pe) {
-         // Malformed token.
-         logger.warnf("Bad OAuth2 token received, resource claim cannot be parsed as String", pe);
-         emitAuthenticationFailureAuditEvent(service, configuration,
-               AuthenticationFailureAuditEvent.REASON_MALFORMED_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(),
-               ctx);
-         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED).build());
+      if (!validateResourceClaim(service, configuration, ctx, claimsSet, fqdnScheme)) {
          return;
       }
-
-      // If issued by the Reshapr internal IDP, we can also check the serviceID claim.
-      try {
-         String serviceID = claimsSet.getClaimAsString("serviceId");
-         if (serviceID != null && !serviceID.equals(service.id())) {
-            logger.warnf("Invalid OAuth2 token received, serviceId claim does not match service ID '%s'", service.id());
-            emitAuthenticationFailureAuditEvent(service, configuration,
-                  AuthenticationFailureAuditEvent.REASON_FORBIDDEN_SERVICE, Response.Status.FORBIDDEN.getStatusCode(),
-                  ctx);
-            ctx.abortWith(Response.status(Response.Status.FORBIDDEN).build());
-            return;
-         }
-      } catch (ParseException pe) {
-         // Malformed token.
-         logger.warnf("Bad OAuth2 token received, serviceId claim cannot be parsed as String", pe);
-         emitAuthenticationFailureAuditEvent(service, configuration,
-               AuthenticationFailureAuditEvent.REASON_MALFORMED_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(),
-               ctx);
-         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED).build());
+      if (!validateServiceIdClaim(service, configuration, ctx, claimsSet)) {
          return;
       }
-
-      // If the configuration has scopes, check they are present in the token.
-      if (oauth2Config.scopes() != null && !oauth2Config.scopes().isEmpty()) {
-         List<String> tokenScopes;
-
-         try {
-            var scopeClaim = claimsSet.getStringClaim("scope");
-            if (scopeClaim == null) {
-               scopeClaim = claimsSet.getStringClaim("scp");
-            }
-            if (scopeClaim != null) {
-               tokenScopes = List.of(scopeClaim.split(" "));
-            } else {
-               tokenScopes = claimsSet.getStringListClaim("scope");
-               if (tokenScopes == null) {
-                  tokenScopes = claimsSet.getStringListClaim("scp");
-               }
-            }
-         } catch (ParseException pe) {
-            // Malformed token.
-            logger.warnf("Bad OAuth2 token received, scope claim cannot be parsed as String or List<String>", pe);
-            emitAuthenticationFailureAuditEvent(service, configuration,
-                  AuthenticationFailureAuditEvent.REASON_MALFORMED_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(),
-                  ctx);
-            ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED).build());
-            return;
-         }
-
-         if (tokenScopes == null || tokenScopes.isEmpty()) {
-            logger.warnf("Invalid OAuth2 token received, no scope claim found but expected: '%s'",
-                  String.join(" ", oauth2Config.scopes()));
-            emitAuthenticationFailureAuditEvent(service, configuration,
-                  AuthenticationFailureAuditEvent.REASON_MISSING_SCOPE, Response.Status.FORBIDDEN.getStatusCode(), ctx);
-            ctx.abortWith(Response.status(Response.Status.FORBIDDEN).build());
-            return;
-         }
-         for (String expectedScope : oauth2Config.scopes()) {
-            if (!tokenScopes.contains(expectedScope)) {
-               logger.warnf("Invalid OAuth2 token received, scope claim does not contain expected scope: '%s'",
-                     expectedScope);
-               emitAuthenticationFailureAuditEvent(service, configuration,
-                     AuthenticationFailureAuditEvent.REASON_MISSING_SCOPE, Response.Status.FORBIDDEN.getStatusCode(),
-                     ctx);
-               ctx.abortWith(Response.status(Response.Status.FORBIDDEN).build());
-               return;
-            }
-         }
+      if (!validateScopes(service, configuration, ctx, claimsSet)) {
+         return;
       }
-
-      // Audience validation
-      if (!oauth2Config.disableAudienceValidation()) {
-         List<String> tokenAudiences = claimsSet.getAudience();
-         if (tokenAudiences == null || tokenAudiences.isEmpty()) {
-            // Already handled by requiredClaims check in jwtProcessor, but for safety:
-            logger.warnf("Invalid OAuth2 token received, missing audience claim");
-            emitAuthenticationFailureAuditEvent(service, configuration,
-                  AuthenticationFailureAuditEvent.REASON_INVALID_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(),
-                  ctx);
-            ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED).build());
-            return;
-         }
-
-         boolean audienceMatched = false;
-         String requestPath = ctx.getUriInfo().getPath();
-
-         // 1. Check against dynamic FQDN paths
-         for (String fqdn : fqdns) {
-            String expectedAudience = WebUtils.getHTTPScheme(fqdn) + fqdn + requestPath;
-            if (tokenAudiences.contains(expectedAudience)) {
-               audienceMatched = true;
-               break;
-            }
-         }
-
-         // 2. Check against static audiences if configured
-         if (!audienceMatched && oauth2Config.staticAudiences() != null) {
-            for (String staticAudience : oauth2Config.staticAudiences()) {
-               if (tokenAudiences.contains(staticAudience)) {
-                  audienceMatched = true;
-                  break;
-               }
-            }
-         }
-
-         if (!audienceMatched) {
-            logger.warnf(
-                  "Invalid OAuth2 token received, audience claim does not match canonical exposition URI nor any static audience");
-            emitAuthenticationFailureAuditEvent(service, configuration,
-                  AuthenticationFailureAuditEvent.REASON_FORBIDDEN_AUDIENCE, Response.Status.FORBIDDEN.getStatusCode(),
-                  ctx);
-            ctx.abortWith(Response.status(Response.Status.FORBIDDEN).build());
-            return;
-         }
+      if (!validateAudience(service, configuration, ctx, claimsSet)) {
+         return;
       }
 
       // Store authenticated user ID (JWT subject) and issuer in request context for
@@ -430,6 +239,225 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
       if (issuer != null) {
          ctx.setProperty(ISSUER_PROPERTY, issuer);
       }
+   }
+
+   private JWTClaimsSet parseAndVerifyToken(ServiceEntry service, ConfigurationEntry configuration,
+         ContainerRequestContext ctx, String token) {
+      final OAuth2ConfigurationEntry oauth2Config = configuration.oauth2Configuration();
+
+      // Create a JWK source that retrieves the public keys from the JWK Set URL.
+      JWKSource<SecurityContext> jwkSource;
+      try {
+         final URL jwksUri = URI.create(oauth2Config.jwksUri()).toURL();
+         jwkSource = jwkSources.computeIfAbsent(oauth2Config.jwksUri(),
+               uri -> JWKSourceBuilder.create(jwksUri).retrying(true).build());
+      } catch (Exception e) {
+         logger.errorf("Invalid JWK Set URL in OAuth2 configuration: '%s'", oauth2Config.jwksUri());
+         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED).build());
+         return null;
+      }
+
+      // Here you would typically validate the token against the OAuth2 server.
+      logger.tracef("OAuth2 token received: %s", token);
+
+      // Create a JWT processor for the access tokens
+      ConfigurableJWTProcessor<SecurityContext> jwtProcessor = new DefaultJWTProcessor<>();
+
+      // Configure the JWT processor with a key selector to feed matching public
+      // RSA keys sourced from the JWK set URL.
+      JWSKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector<>(
+            JWS_SUPPORTED_ALGORITHMS, jwkSource);
+      jwtProcessor.setJWSKeySelector(keySelector);
+
+      // RFC 9068 access tokens carry an "at+jwt" type header; Nimbus only accepts "JWT" or an
+      // absent header by default. The trailing null keeps tokens without a type header valid.
+      jwtProcessor.setJWSTypeVerifier(new DefaultJOSEObjectTypeVerifier<>(
+            JOSEObjectType.JWT, new JOSEObjectType("at+jwt"), null));
+
+      // Set the required JWT claims for access tokens
+      Set<String> requiredClaims = new java.util.HashSet<>(JWT_VERIFIED_CLAIMS);
+      if (!oauth2Config.disableAudienceValidation()) {
+         requiredClaims.add(JWTClaimNames.AUDIENCE);
+      }
+      jwtProcessor.setJWTClaimsSetVerifier(new MultipleIssuerClaimsVerifier(
+            oauth2Config.authorizationServers(),
+            requiredClaims));
+
+      try {
+         return jwtProcessor.process(token, null);
+      } catch (ParseException e) {
+         logger.warnf("Malformed OAuth2 token received: %s", e.getMessage());
+         emitAuthenticationFailureAuditEvent(service, configuration,
+               AuthenticationFailureAuditEvent.REASON_MALFORMED_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(),
+               ctx);
+         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED)
+               .header(HttpHeaders.WWW_AUTHENTICATE, bearerChallenge(ctx, "invalid_token"))
+               .build());
+         return null;
+      } catch (BadJOSEException e) {
+         logger.warnf("Invalid OAuth2 token received: %s", e.getMessage());
+         emitAuthenticationFailureAuditEvent(service, configuration,
+               AuthenticationFailureAuditEvent.REASON_INVALID_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(), ctx);
+         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED)
+               .header(HttpHeaders.WWW_AUTHENTICATE, bearerChallenge(ctx, "invalid_token"))
+               .build());
+         return null;
+      } catch (JOSEException e) {
+         logger.warnf("Unable to verify OAuth2 token: %s", e.getMessage());
+         emitAuthenticationFailureAuditEvent(service, configuration,
+               AuthenticationFailureAuditEvent.REASON_INVALID_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(), ctx);
+         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED)
+               .header(HttpHeaders.WWW_AUTHENTICATE, bearerChallenge(ctx, null))
+               .build());
+         return null;
+      }
+   }
+
+      // Now check the claimsSet for resource as per
+      // https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization#token-handling
+      try {
+         String resource = claimsSet.getClaimAsString("resource");
+         if (resource != null
+               && !resource.equalsIgnoreCase(fqdnScheme + fqdns.getFirst() + ctx.getUriInfo().getPath())) {
+            logger.warnf("Invalid OAuth2 token received, resource claim does not match '%s'",
+                  fqdnScheme + fqdns.getFirst() + ctx.getUriInfo().getPath());
+            emitAuthenticationFailureAuditEvent(service, configuration,
+                  AuthenticationFailureAuditEvent.REASON_FORBIDDEN_RESOURCE, Response.Status.FORBIDDEN.getStatusCode(),
+                  ctx);
+            ctx.abortWith(Response.status(Response.Status.FORBIDDEN).build());
+            return false;
+         }
+      } catch (ParseException pe) {
+         logger.warnf("Bad OAuth2 token received, resource claim cannot be parsed as String", pe);
+         emitAuthenticationFailureAuditEvent(service, configuration,
+               AuthenticationFailureAuditEvent.REASON_MALFORMED_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(),
+               ctx);
+         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED).build());
+         return false;
+      }
+      return true;
+   }
+
+      // If issued by the Reshapr internal IDP, we can also check the serviceID claim.
+      try {
+         String serviceID = claimsSet.getClaimAsString("serviceId");
+         if (serviceID != null && !serviceID.equals(service.id())) {
+            logger.warnf("Invalid OAuth2 token received, serviceId claim does not match service ID '%s'", service.id());
+            emitAuthenticationFailureAuditEvent(service, configuration,
+                  AuthenticationFailureAuditEvent.REASON_FORBIDDEN_SERVICE, Response.Status.FORBIDDEN.getStatusCode(),
+                  ctx);
+            ctx.abortWith(Response.status(Response.Status.FORBIDDEN).build());
+            return false;
+         }
+      } catch (ParseException pe) {
+         logger.warnf("Bad OAuth2 token received, serviceId claim cannot be parsed as String", pe);
+         emitAuthenticationFailureAuditEvent(service, configuration,
+               AuthenticationFailureAuditEvent.REASON_MALFORMED_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(),
+               ctx);
+         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED).build());
+         return false;
+      }
+      return true;
+   }
+
+   private boolean validateScopes(ServiceEntry service, ConfigurationEntry configuration, ContainerRequestContext ctx, JWTClaimsSet claimsSet) {
+      final OAuth2ConfigurationEntry oauth2Config = configuration.oauth2Configuration();
+      if (oauth2Config.scopes() == null || oauth2Config.scopes().isEmpty()) {
+         return true;
+      }
+
+      List<String> tokenScopes;
+      try {
+         var scopeClaim = claimsSet.getStringClaim("scope");
+         if (scopeClaim == null) {
+            scopeClaim = claimsSet.getStringClaim("scp");
+         }
+         if (scopeClaim != null) {
+            tokenScopes = List.of(scopeClaim.split(" "));
+         } else {
+            tokenScopes = claimsSet.getStringListClaim("scope");
+            if (tokenScopes == null) {
+               tokenScopes = claimsSet.getStringListClaim("scp");
+            }
+         }
+      } catch (ParseException pe) {
+         logger.warnf("Bad OAuth2 token received, scope claim cannot be parsed as String or List<String>", pe);
+         emitAuthenticationFailureAuditEvent(service, configuration,
+               AuthenticationFailureAuditEvent.REASON_MALFORMED_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(),
+               ctx);
+         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED).build());
+         return false;
+      }
+
+      if (tokenScopes == null || tokenScopes.isEmpty()) {
+         logger.warnf("Invalid OAuth2 token received, no scope claim found but expected: '%s'",
+               String.join(" ", oauth2Config.scopes()));
+         emitAuthenticationFailureAuditEvent(service, configuration,
+               AuthenticationFailureAuditEvent.REASON_MISSING_SCOPE, Response.Status.FORBIDDEN.getStatusCode(), ctx);
+         ctx.abortWith(Response.status(Response.Status.FORBIDDEN).build());
+         return false;
+      }
+      for (String expectedScope : oauth2Config.scopes()) {
+         if (!tokenScopes.contains(expectedScope)) {
+            logger.warnf("Invalid OAuth2 token received, scope claim does not contain expected scope: '%s'",
+                  expectedScope);
+            emitAuthenticationFailureAuditEvent(service, configuration,
+                  AuthenticationFailureAuditEvent.REASON_MISSING_SCOPE, Response.Status.FORBIDDEN.getStatusCode(),
+                  ctx);
+            ctx.abortWith(Response.status(Response.Status.FORBIDDEN).build());
+            return false;
+         }
+      }
+      return true;
+   }
+
+   private boolean validateAudience(ServiceEntry service, ConfigurationEntry configuration, ContainerRequestContext ctx, JWTClaimsSet claimsSet) {
+      final OAuth2ConfigurationEntry oauth2Config = configuration.oauth2Configuration();
+      if (oauth2Config.disableAudienceValidation()) {
+         return true;
+      }
+      List<String> tokenAudiences = claimsSet.getAudience();
+      if (tokenAudiences == null || tokenAudiences.isEmpty()) {
+         logger.warnf("Invalid OAuth2 token received, missing audience claim");
+         emitAuthenticationFailureAuditEvent(service, configuration,
+               AuthenticationFailureAuditEvent.REASON_INVALID_TOKEN, Response.Status.UNAUTHORIZED.getStatusCode(),
+               ctx);
+         ctx.abortWith(Response.status(Response.Status.UNAUTHORIZED).build());
+         return false;
+      }
+
+      boolean audienceMatched = false;
+      String requestPath = ctx.getUriInfo().getPath();
+
+         // 1. Check against dynamic FQDN paths
+      for (String fqdn : fqdns) {
+         String expectedAudience = WebUtils.getHTTPScheme(fqdn) + fqdn + requestPath;
+         if (tokenAudiences.contains(expectedAudience)) {
+            audienceMatched = true;
+            break;
+         }
+      }
+
+         // 2. Check against static audiences if configured
+      if (!audienceMatched && oauth2Config.staticAudiences() != null) {
+         for (String staticAudience : oauth2Config.staticAudiences()) {
+            if (tokenAudiences.contains(staticAudience)) {
+               audienceMatched = true;
+               break;
+            }
+         }
+      }
+
+      if (!audienceMatched) {
+         logger.warnf(
+               "Invalid OAuth2 token received, audience claim does not match canonical exposition URI nor any static audience");
+         emitAuthenticationFailureAuditEvent(service, configuration,
+               AuthenticationFailureAuditEvent.REASON_FORBIDDEN_AUDIENCE, Response.Status.FORBIDDEN.getStatusCode(),
+               ctx);
+         ctx.abortWith(Response.status(Response.Status.FORBIDDEN).build());
+         return false;
+      }
+      return true;
    }
 
    private String bearerChallenge(ContainerRequestContext ctx, String error) {
