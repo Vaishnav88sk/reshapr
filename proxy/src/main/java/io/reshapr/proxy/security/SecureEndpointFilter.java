@@ -313,6 +313,7 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
       }
    }
 
+   private boolean validateResourceClaim(ServiceEntry service, ConfigurationEntry configuration, ContainerRequestContext ctx, JWTClaimsSet claimsSet, String fqdnScheme) {
       // Now check the claimsSet for resource as per
       // https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization#token-handling
       try {
@@ -338,6 +339,7 @@ public class SecureEndpointFilter implements ContainerRequestFilter {
       return true;
    }
 
+   private boolean validateServiceIdClaim(ServiceEntry service, ConfigurationEntry configuration, ContainerRequestContext ctx, JWTClaimsSet claimsSet) {
       // If issued by the Reshapr internal IDP, we can also check the serviceID claim.
       try {
          String serviceID = claimsSet.getClaimAsString("serviceId");
