@@ -135,6 +135,135 @@ class GrpcProxyServiceTest {
       }
    }
 
+   @Test
+   void shouldReturn400OnInvalidJsonBody() throws Exception {
+      Descriptors.MethodDescriptor md = GrpcUtil.findMethodDescriptor(FIRESTORE_PBB_BASE64, SERVICE_NAME, METHOD_NAME);
+      try (TestGrpcBackend backend = new TestGrpcBackend(SERVICE_NAME, METHOD_NAME, new byte[0])) {
+         GrpcProxyService proxy = new GrpcProxyService(new SecretReferenceResolver(List.of()), new UserSecretStore(null));
+         injectDefaultTimeout(proxy, 5_000L);
+         ConfigurationEntry configuration = new ConfigurationEntry("cfg-1", "firestore-test",
+               "http://localhost:" + backend.port(), 5_000L, null, null, null, null, null);
+
+         MethodHandlingInfo handlingInfo = new MethodHandlingInfo("127.0.0.1", null, null, null, "org-test");
+         BackendResponse response = ScopedValue.where(MethodHandlingContext.METHOD_HANDLING_INFO, handlingInfo)
+               .call(() -> proxy.callBackend(configuration, md, new java.util.HashMap<>(), "{ invalid json ]"));
+
+         assertEquals(400, response.status());
+         proxy.shutdown();
+      }
+   }
+
+   @Test
+   void shouldReturn400OnInvalidProtobufResponse() throws Exception {
+      Descriptors.MethodDescriptor md = GrpcUtil.findMethodDescriptor(FIRESTORE_PBB_BASE64, SERVICE_NAME, METHOD_NAME);
+      byte[] invalidProtobuf = new byte[] { 0x01, 0x02, 0x03 }; // Corrupt protobuf
+      try (TestGrpcBackend backend = new TestGrpcBackend(SERVICE_NAME, METHOD_NAME, invalidProtobuf)) {
+         GrpcProxyService proxy = new GrpcProxyService(new SecretReferenceResolver(List.of()), new UserSecretStore(null));
+         injectDefaultTimeout(proxy, 5_000L);
+         ConfigurationEntry configuration = new ConfigurationEntry("cfg-1", "firestore-test",
+               "http://localhost:" + backend.port(), 5_000L, null, null, null, null, null);
+
+         MethodHandlingInfo handlingInfo = new MethodHandlingInfo("127.0.0.1", null, null, null, "org-test");
+         BackendResponse response = ScopedValue.where(MethodHandlingContext.METHOD_HANDLING_INFO, handlingInfo)
+               .call(() -> proxy.callBackend(configuration, md, new java.util.HashMap<>(), "{}"));
+
+         assertEquals(400, response.status());
+         proxy.shutdown();
+      }
+   }
+
+   @Test
+   void shouldMapStatusRuntimeExceptionToHttp() throws Exception {
+      Descriptors.MethodDescriptor md = GrpcUtil.findMethodDescriptor(FIRESTORE_PBB_BASE64, SERVICE_NAME, METHOD_NAME);
+      ServerMethodDefinition<byte[], byte[]> methodDef = ServerMethodDefinition.create(
+            MethodDescriptor.<byte[], byte[]>newBuilder()
+                  .setType(MethodDescriptor.MethodType.UNARY)
+                  .setFullMethodName(MethodDescriptor.generateFullMethodName(SERVICE_NAME, METHOD_NAME))
+                  .setRequestMarshaller(TestGrpcBackend.BYTES_MARSHALLER)
+                  .setResponseMarshaller(TestGrpcBackend.BYTES_MARSHALLER)
+                  .build(),
+            ServerCalls.asyncUnaryCall((request, responseObserver) -> {
+               responseObserver.onError(io.grpc.Status.UNAUTHENTICATED.asRuntimeException());
+            }));
+
+      Server server = ServerBuilder.forPort(0).addService(ServerServiceDefinition.builder(SERVICE_NAME).addMethod(methodDef).build()).directExecutor().build().start();
+
+      try {
+         GrpcProxyService proxy = new GrpcProxyService(new SecretReferenceResolver(List.of()), new UserSecretStore(null));
+         injectDefaultTimeout(proxy, 5_000L);
+         ConfigurationEntry configuration = new ConfigurationEntry("cfg-1", "firestore-test",
+               "http://localhost:" + server.getPort(), 5_000L, null, null, null, null, null);
+
+         MethodHandlingInfo handlingInfo = new MethodHandlingInfo("127.0.0.1", null, null, null, "org-test");
+         BackendResponse response = ScopedValue.where(MethodHandlingContext.METHOD_HANDLING_INFO, handlingInfo)
+               .call(() -> proxy.callBackend(configuration, md, new java.util.HashMap<>(), "{}"));
+
+         assertEquals(401, response.status());
+         proxy.shutdown();
+      } finally {
+         server.shutdownNow();
+      }
+   }
+
+   @Test
+   void shouldEvictElicitedSecretOn401() throws Exception {
+      Descriptors.MethodDescriptor md = GrpcUtil.findMethodDescriptor(FIRESTORE_PBB_BASE64, SERVICE_NAME, METHOD_NAME);
+      ServerMethodDefinition<byte[], byte[]> methodDef = ServerMethodDefinition.create(
+            MethodDescriptor.<byte[], byte[]>newBuilder()
+                  .setType(MethodDescriptor.MethodType.UNARY)
+                  .setFullMethodName(MethodDescriptor.generateFullMethodName(SERVICE_NAME, METHOD_NAME))
+                  .setRequestMarshaller(TestGrpcBackend.BYTES_MARSHALLER)
+                  .setResponseMarshaller(TestGrpcBackend.BYTES_MARSHALLER)
+                  .build(),
+            ServerCalls.asyncUnaryCall((request, responseObserver) -> {
+               responseObserver.onError(io.grpc.Status.UNAUTHENTICATED.asRuntimeException());
+            }));
+
+      Server server = ServerBuilder.forPort(0).addService(ServerServiceDefinition.builder(SERVICE_NAME).addMethod(methodDef).build()).directExecutor().build().start();
+
+      UserSecretStore userSecretStore = org.mockito.Mockito.mock(UserSecretStore.class);
+      org.mockito.Mockito.when(userSecretStore.getSecret("issuer1|user1", "org1/sec1")).thenReturn("my-token");
+
+      try {
+         GrpcProxyService proxy = new GrpcProxyService(new SecretReferenceResolver(List.of()), userSecretStore);
+         injectDefaultTimeout(proxy, 5_000L);
+         io.reshapr.proxy.registry.SecretEntry secret = new io.reshapr.proxy.registry.SecretEntry("sec1", null, null, null, null, null, true, null);
+         ConfigurationEntry configuration = new ConfigurationEntry("cfg-1", "firestore-test",
+               "http://localhost:" + server.getPort(), 5_000L, null, null, null, null, secret);
+
+         MethodHandlingInfo handlingInfo = new MethodHandlingInfo("127.0.0.1", null, "user1", "issuer1", "org1");
+         BackendResponse response = ScopedValue.where(MethodHandlingContext.METHOD_HANDLING_INFO, handlingInfo)
+               .call(() -> proxy.callBackend(configuration, md, new java.util.HashMap<>(), "{}"));
+
+         assertEquals(401, response.status());
+         org.mockito.Mockito.verify(userSecretStore).removeSecret("issuer1|user1", "org1/sec1");
+         proxy.shutdown();
+      } finally {
+         server.shutdownNow();
+      }
+   }
+
+   @Test
+   void shouldManageChannelCacheLifecycle() throws Exception {
+      GrpcProxyService proxy = new GrpcProxyService(new SecretReferenceResolver(List.of()), new UserSecretStore(null));
+      injectDefaultTimeout(proxy, 5_000L);
+      ConfigurationEntry configuration = new ConfigurationEntry("cfg-1", "firestore-test",
+            "http://localhost:1234", 5_000L, null, null, null, null, null);
+      
+      java.lang.reflect.Method getOrCreateChannel = GrpcProxyService.class.getDeclaredMethod("getOrCreateChannel", java.net.URL.class, ConfigurationEntry.class);
+      getOrCreateChannel.setAccessible(true);
+      io.grpc.ManagedChannel channel1 = (io.grpc.ManagedChannel) getOrCreateChannel.invoke(proxy, new java.net.URL("http://localhost:1234"), configuration);
+      io.grpc.ManagedChannel channel2 = (io.grpc.ManagedChannel) getOrCreateChannel.invoke(proxy, new java.net.URL("http://localhost:1234"), configuration);
+      
+      assertSame(channel1, channel2);
+      assertEquals(1, proxy.pooledChannelCount());
+      
+      proxy.invalidateEndpoint("http://localhost:1234");
+      assertEquals(0, proxy.pooledChannelCount());
+      
+      proxy.shutdown();
+   }
+
    /** Inject the CDI @ConfigProperty default timeout on a non-CDI instance via reflection. */
    private static void injectDefaultTimeout(GrpcProxyService service, long timeoutMs) throws Exception {
       Field field = GrpcProxyService.class.getDeclaredField("defaultBackendTimeout");
