@@ -115,7 +115,7 @@ class ArtifactResourceTest {
             .when().delete("/api/v1/artifacts/123")
             .then()
             .statusCode(Response.Status.OK.getStatusCode())
-            .body("id", equalTo("123"));
+            .body("artifactId", equalTo("123"));
     }
 
     @Test
