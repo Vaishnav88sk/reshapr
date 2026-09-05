@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -125,6 +126,18 @@ class GatewayRegistryTest {
       // Elected is now e2 which has one attached artifact.
       assertEquals(1, registry.getAttachedArtifacts(service).size());
       assertTrue(registry.hasAttachedArtifacts(service));
+   }
+
+   @Test
+   void resourceForTool() {
+      GatewayRegistry registry = new GatewayRegistry();
+      ToolEntry tool = new ToolEntry("svc1", "org1", "tool1");
+      ResourceEntry resource = new ResourceEntry("ui", "ui://test", new String[]{"app"});
+
+      assertFalse(registry.hasResourceForTool(tool));
+      registry.addResourceForTool(tool, resource);
+      assertTrue(registry.hasResourceForTool(tool));
+      assertEquals(resource, registry.getResourceForTool(tool));
    }
 }
 
