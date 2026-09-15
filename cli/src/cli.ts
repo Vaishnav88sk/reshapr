@@ -23,6 +23,7 @@ import { Logger } from './utils/logger.js';
 import { Context } from './utils/context.js';
 import { CLI_VERSION } from './version.js';
 import { CLI_NAME, CLI_LABEL } from './constants.js';
+import { configureShellCompletion } from './completion.js';
 
 program
   .name(CLI_NAME)
@@ -30,7 +31,7 @@ program
   .version(CLI_VERSION)
   .hook('preAction', (thisCommand, actionCommand) => {
     ConfigUtil.readConfig();
-    const noAuthCommands = ['login', 'logout', 'run', 'status', 'stop'];
+    const noAuthCommands = ['login', 'logout', 'run', 'status', 'stop', 'completion', 'complete'];
     const isAdminCommand = belongsToCommand(actionCommand, 'admin');
     if (!noAuthCommands.includes(actionCommand.name()) && !isAdminCommand) {
       if (!ConfigUtil.config.token) {
@@ -119,4 +120,5 @@ program.addCommand(stopCommand);
 program.addCommand(switchOrgCommand);
 program.addCommand(adminCommand);
 
+configureShellCompletion(program);
 program.parse(process.argv);

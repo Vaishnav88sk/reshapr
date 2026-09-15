@@ -8,6 +8,35 @@ This is the command line interface for the Reshapr project.
 npm install -g @reshapr/reshapr-cli
 ```
 
+## Enabling shell completion
+
+The CLI can generate a completion script for Bash, Zsh, Fish, or PowerShell.
+For example, enable completion for the current Zsh session with:
+
+```shell
+source <(reshapr completion zsh)
+```
+
+To enable it permanently, generate the script once and load it from your shell
+configuration:
+
+```shell
+mkdir -p ~/.reshapr
+reshapr completion zsh > ~/.reshapr/completion.zsh
+echo 'source ~/.reshapr/completion.zsh' >> ~/.zshrc
+```
+
+Equivalent generation commands for the other supported shells are:
+
+```shell
+reshapr completion bash > ~/.reshapr/completion.bash
+reshapr completion fish > ~/.config/fish/completions/reshapr.fish
+reshapr completion powershell > ~/.reshapr/completion.ps1
+```
+
+Load the generated Bash or PowerShell script from the corresponding shell
+configuration. Fish discovers scripts in its completions directory automatically.
+
 ## Running the CLI in dev mode
 
 After cloning the repository, you can run the CLI in development mode using the following commands.
