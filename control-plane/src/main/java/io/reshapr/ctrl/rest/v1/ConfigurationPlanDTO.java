@@ -50,6 +50,7 @@ public class ConfigurationPlanDTO {
    protected OAuth2ConfigurationDTO oauth2Configuration;
    protected boolean audit;
    protected CachePolicyDTO cachePolicy;
+   protected HeaderPolicyDTO headerPolicy;
 
    // Indicates whether to use the internal identity provider for OAuth2 authentication.
    protected String initialAccessToken;
@@ -182,6 +183,14 @@ public class ConfigurationPlanDTO {
       this.cachePolicy = cachePolicy;
    }
 
+   public HeaderPolicyDTO getHeaderPolicy() {
+      return headerPolicy;
+   }
+
+   public void setHeaderPolicy(HeaderPolicyDTO headerPolicy) {
+      this.headerPolicy = headerPolicy;
+   }
+
    /**
     * DTO for the caching configuration of a {@code ConfigurationPlan}.
     * Both fields are optional; when absent the proxy falls back to its built-in defaults.
@@ -211,6 +220,91 @@ public class ConfigurationPlanDTO {
 
       public void setCacheScope(String cacheScope) {
          this.cacheScope = cacheScope;
+      }
+   }
+
+   /**
+    * DTO for the header propagation policy of a {@code ConfigurationPlan}. Only the request
+    * direction is honored today; the response direction is reserved for future use.
+    */
+   @RegisterForReflection
+   public static class HeaderPolicyDTO {
+      private HeaderRulesDTO request;
+      private HeaderRulesDTO response;
+
+      public HeaderRulesDTO getRequest() {
+         return request;
+      }
+
+      public void setRequest(HeaderRulesDTO request) {
+         this.request = request;
+      }
+
+      public HeaderRulesDTO getResponse() {
+         return response;
+      }
+
+      public void setResponse(HeaderRulesDTO response) {
+         this.response = response;
+      }
+   }
+
+   /**
+    * DTO for a set of allow/deny/rename directives applied in a single direction.
+    */
+   @RegisterForReflection
+   public static class HeaderRulesDTO {
+      private List<String> allow;
+      private List<String> deny;
+      private List<HeaderRenameDTO> rename;
+
+      public List<String> getAllow() {
+         return allow;
+      }
+
+      public void setAllow(List<String> allow) {
+         this.allow = allow;
+      }
+
+      public List<String> getDeny() {
+         return deny;
+      }
+
+      public void setDeny(List<String> deny) {
+         this.deny = deny;
+      }
+
+      public List<HeaderRenameDTO> getRename() {
+         return rename;
+      }
+
+      public void setRename(List<HeaderRenameDTO> rename) {
+         this.rename = rename;
+      }
+   }
+
+   /**
+    * DTO for a single header rename directive: removes {@code from} and sets {@code to}.
+    */
+   @RegisterForReflection
+   public static class HeaderRenameDTO {
+      private String from;
+      private String to;
+
+      public String getFrom() {
+         return from;
+      }
+
+      public void setFrom(String from) {
+         this.from = from;
+      }
+
+      public String getTo() {
+         return to;
+      }
+
+      public void setTo(String to) {
+         this.to = to;
       }
    }
 }

@@ -42,7 +42,6 @@ import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -67,8 +66,6 @@ public class ProxyService {
 
    /** Round-robin cursor for shard selection. */
    private static final AtomicInteger CURSOR = new AtomicInteger();
-
-   private static final List<String> RESTRICTED_HEADERS = List.of("host", "connection", "x-reshapr-key");
 
    private final SecretReferenceResolver secretResolver;
    private final UserSecretStore userSecretStore;
@@ -125,11 +122,10 @@ public class ProxyService {
             .timeout(Duration.ofMillis(timeoutMs))
             .method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
 
-      // Some headers are restricted in HttpClient and must not be propagated.
-      Map<String, List<String>> requestHeaders = new HashMap<>();
-      headers.entrySet().stream()
-            .filter(entry -> !RESTRICTED_HEADERS.contains(entry.getKey().toLowerCase()))
-            .forEach(entry -> requestHeaders.put(entry.getKey(), entry.getValue()));
+      // Apply the configuration plan header propagation policy: strip the non-overridable baseline
+      // (hop-by-hop + internal), enforce the allow/deny lists (with Authorization/Cookie denied by
+      // default) and apply any rewrite directives on the client-supplied headers.
+      Map<String, List<String>> requestHeaders = HeaderPolicyEngine.applyRequestPolicy(headers, configuration.headerPolicy());
 
       // Manage the Forwarded and X-Forwarded-For headers.
       HeadersUtil.addForwardingHeaders(requestHeaders);

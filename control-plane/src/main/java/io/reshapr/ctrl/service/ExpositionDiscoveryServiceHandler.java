@@ -451,6 +451,37 @@ public class ExpositionDiscoveryServiceHandler extends ExpositionDiscoveryServic
          }
          builder.setCachePolicy(cachingBuilder.build());
       }
+      if (configuration.headerPolicy != null) {
+         builder.setHeaderPolicy(grpcHeaderPolicyFromModel(configuration.headerPolicy));
+      }
+      return builder.build();
+   }
+
+   private io.reshapr.discovery.exposition.v1.HeaderPolicy grpcHeaderPolicyFromModel(ConfigurationPlan.HeaderPolicy headerPolicy) {
+      io.reshapr.discovery.exposition.v1.HeaderPolicy.Builder builder =
+            io.reshapr.discovery.exposition.v1.HeaderPolicy.newBuilder();
+      if (headerPolicy.request() != null) {
+         builder.setRequest(grpcHeaderRulesFromModel(headerPolicy.request()));
+      }
+      if (headerPolicy.response() != null) {
+         builder.setResponse(grpcHeaderRulesFromModel(headerPolicy.response()));
+      }
+      return builder.build();
+   }
+
+   private io.reshapr.discovery.exposition.v1.HeaderRules grpcHeaderRulesFromModel(ConfigurationPlan.HeaderRules rules) {
+      io.reshapr.discovery.exposition.v1.HeaderRules.Builder builder =
+            io.reshapr.discovery.exposition.v1.HeaderRules.newBuilder()
+                  .addAllAllow(rules.allow() != null ? rules.allow() : List.of())
+                  .addAllDeny(rules.deny() != null ? rules.deny() : List.of());
+      if (rules.rename() != null) {
+         for (ConfigurationPlan.HeaderRename rename : rules.rename()) {
+            builder.addRename(io.reshapr.discovery.exposition.v1.HeaderRename.newBuilder()
+                  .setFrom(rename.from() != null ? rename.from() : "")
+                  .setTo(rename.to() != null ? rename.to() : "")
+                  .build());
+         }
+      }
       return builder.build();
    }
 

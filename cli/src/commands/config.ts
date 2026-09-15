@@ -122,6 +122,8 @@ configCommand.command('get <id>')
       Logger.log(`OAuth2          : No`);
     }
     Logger.log(`Audit           : ${config.audit ? 'Yes' : 'No'}`);
+    printCachePolicy(config);
+    printHeaderPolicy(config);
   });
 
 /** Create a new configuration plan */
@@ -147,6 +149,9 @@ configCommand.command('create <name>')
   .option('--audit', 'Enable audit logging for this configuration plan')
   .option('--ct, --cacheTtl <cacheTtlMs>', 'Cache TTL in milliseconds', '30000')
   .option('--cs, --cacheScope <cacheScope>', 'Cache scope (e.g. public, private)', 'public')
+  .option('--reqhp, --requestHeaderPolicy <json>', 'Request header propagation policy as a JSON object with optional allow, deny and rename fields (e.g. \'{"allow":["X-Trace-Id"],"deny":["Cookie"],"rename":["X-Authorization:Authorization"]}\'). Mutually exclusive with --passthrough.')
+  .option('--reshp, --responseHeaderPolicy <json>', 'Response header propagation policy as a JSON object with optional allow, deny and rename fields. Reserved for future use (not enforced by the gateway yet).')
+  .option('--passthrough', 'Forward the incoming Authorization header to the backend (shortcut adding Authorization to the request header allow-list). Mutually exclusive with --requestHeaderPolicy. Not recommended outside development or debugging.')
   .option('-o, --output <format>', 'Output format (json, yaml)')
   .action(async (name, options) => {
     if (!options.serviceId) {
@@ -178,6 +183,7 @@ configCommand.command('create <name>')
           ttlMs: parseInt(options.cacheTtl, 10),
           cacheScope: options.cacheScope
         },
+        headerPolicy: buildHeaderPolicy(options),
         audit: options.audit || false
       })
     });
@@ -223,6 +229,9 @@ configCommand.command('create-oauth <name>')
   .option('--audit', 'Enable audit logging for this configuration plan')
   .option('--ct, --cacheTtl <cacheTtlMs>', 'Cache TTL in milliseconds', '30000')
   .option('--cs, --cacheScope <cacheScope>', 'Cache scope (e.g. public, private)', 'public')
+  .option('--reqhp, --requestHeaderPolicy <json>', 'Request header propagation policy as a JSON object with optional allow, deny and rename fields (e.g. \'{"allow":["X-Trace-Id"],"deny":["Cookie"],"rename":["X-Authorization:Authorization"]}\'). Mutually exclusive with --passthrough.')
+  .option('--reshp, --responseHeaderPolicy <json>', 'Response header propagation policy as a JSON object with optional allow, deny and rename fields. Reserved for future use (not enforced by the gateway yet).')
+  .option('--passthrough', 'Forward the incoming Authorization header to the backend (shortcut adding Authorization to the request header allow-list). Mutually exclusive with --requestHeaderPolicy. Not recommended outside development or debugging.')
   .option('-o, --output <format>', 'Output format (json, yaml)')
   .action(async (name, options) => {
     if (!options.serviceId) {
@@ -261,6 +270,7 @@ configCommand.command('create-oauth <name>')
           ttlMs: parseInt(options.cacheTtl, 10),
           cacheScope: options.cacheScope
         },
+        headerPolicy: buildHeaderPolicy(options),
         audit: options.audit || false
       })
     });
@@ -502,4 +512,125 @@ function getArrayOfStrings(input: any, name: string): string[] {
     }
   }
   return [];
+}
+
+/**
+ * Build the header propagation policy from CLI options. The `--passthrough` shortcut adds the
+ * `Authorization` header to the request allow-list so the incoming Authorization header is
+ * forwarded to the backend. The `--requestHeaderPolicy`/`--responseHeaderPolicy` flags each accept
+ * a JSON object ({ allow, deny, rename }) mapped 1:1 to the API contract. `--passthrough` is
+ * mutually exclusive with `--requestHeaderPolicy`. Returns undefined when no directive applies.
+ */
+function buildHeaderPolicy(options: any): any | undefined {
+  if (options.passthrough && options.requestHeaderPolicy !== undefined) {
+    Logger.error('The --passthrough flag is mutually exclusive with --requestHeaderPolicy. Use either the shortcut or the explicit request header policy.');
+    process.exit(1);
+  }
+
+  const policy: any = {};
+  if (options.passthrough) {
+    policy.request = { allow: ['Authorization'] };
+  } else if (options.requestHeaderPolicy !== undefined) {
+    policy.request = parseHeaderRules(options.requestHeaderPolicy, 'requestHeaderPolicy');
+  }
+  if (options.responseHeaderPolicy !== undefined) {
+    policy.response = parseHeaderRules(options.responseHeaderPolicy, 'responseHeaderPolicy');
+  }
+
+  return Object.keys(policy).length > 0 ? policy : undefined;
+}
+
+/** Parse a JSON object into a set of allow/deny/rename directives for a single direction. */
+function parseHeaderRules(input: any, name: string): any {
+  let parsed: any;
+  try {
+    parsed = typeof input === 'string' ? JSON.parse(input) : input;
+  } catch (err) {
+    Logger.error(`Input for --${name} must be a JSON object with optional allow, deny and rename fields.`);
+    process.exit(1);
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    Logger.error(`Input for --${name} must be a JSON object with optional allow, deny and rename fields.`);
+    process.exit(1);
+  }
+  const rules: any = {};
+  if (parsed.allow !== undefined) {
+    rules.allow = getArrayOfStrings(parsed.allow, `${name}.allow`);
+  }
+  if (parsed.deny !== undefined) {
+    rules.deny = getArrayOfStrings(parsed.deny, `${name}.deny`);
+  }
+  if (parsed.rename !== undefined) {
+    rules.rename = parseHeaderRenames(parsed.rename, name);
+  }
+  return rules;
+}
+
+/**
+ * Parse rename directives accepting either 'From-Header:To-Header' strings or
+ * { from, to } objects, normalizing them to { from, to }.
+ */
+function parseHeaderRenames(input: any, name: string): { from: string; to: string }[] {
+  if (!Array.isArray(input)) {
+    Logger.error(`The rename field of --${name} must be a JSON array.`);
+    process.exit(1);
+  }
+  return input.map((entry: any) => {
+    if (typeof entry === 'string') {
+      const idx = entry.indexOf(':');
+      if (idx <= 0 || idx === entry.length - 1) {
+        Logger.error(`Invalid header rename rule '${entry}'. Expected format 'From-Header:To-Header'.`);
+        process.exit(1);
+      }
+      return { from: entry.slice(0, idx).trim(), to: entry.slice(idx + 1).trim() };
+    }
+    if (entry && typeof entry === 'object' && typeof entry.from === 'string' && typeof entry.to === 'string') {
+      return { from: entry.from, to: entry.to };
+    }
+    Logger.error(`Invalid header rename rule '${JSON.stringify(entry)}'. Expected 'From-Header:To-Header' or { "from": ..., "to": ... }.`);
+    process.exit(1);
+    return { from: '', to: '' };
+  });
+}
+
+/** Print the header propagation policy of a configuration plan, when present. */
+/** Print the caching configuration of a plan, when present. */
+function printCachePolicy(config: any) {
+  const policy = config.cachePolicy;
+  if (!policy || (policy.ttlMs == undefined && !policy.cacheScope)) {
+    return;
+  }
+  Logger.bold('Cache Policy:');
+  if (policy.ttlMs != undefined) {
+    Logger.log(`  TTL             : ${policy.ttlMs} ms`);
+  }
+  if (policy.cacheScope) {
+    Logger.log(`  Scope           : ${policy.cacheScope}`);
+  }
+}
+
+function printHeaderPolicy(config: any) {
+  const policy = config.headerPolicy;
+  if (!policy) {
+    return;
+  }
+  printHeaderRules('Header Policy (request)', policy.request);
+  printHeaderRules('Header Policy (response)', policy.response);
+}
+
+/** Print a single direction of allow/deny/rename directives, when present. */
+function printHeaderRules(title: string, rules: any) {
+  if (!rules || (!rules.allow?.length && !rules.deny?.length && !rules.rename?.length)) {
+    return;
+  }
+  Logger.bold(`${title}:`);
+  if (rules.allow && rules.allow.length > 0) {
+    Logger.log(`  Allow           : ${rules.allow.join(', ')}`);
+  }
+  if (rules.deny && rules.deny.length > 0) {
+    Logger.log(`  Deny            : ${rules.deny.join(', ')}`);
+  }
+  if (rules.rename && rules.rename.length > 0) {
+    Logger.log(`  Rename          : ${rules.rename.map((r: any) => `${r.from} -> ${r.to}`).join(', ')}`);
+  }
 }

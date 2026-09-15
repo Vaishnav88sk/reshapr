@@ -99,6 +99,16 @@ public class ConfigurationPlan extends TenantAwareEntity {
    @Column(columnDefinition = "JSONB", name = "cache_policy")
    public CachePolicy cachePolicy;
 
+   /**
+    * Header propagation policy applied by the gateway. Only the request direction
+    * (client MCP → backend) is honored today; the response direction is reserved for future use.
+    * A {@code null} value means the proxy applies its built-in defaults (baseline stripping plus
+    * the default deny-list).
+    */
+   @Type(JsonType.class)
+   @Column(columnDefinition = "JSONB", name = "header_policy")
+   public HeaderPolicy headerPolicy;
+
    @ManyToOne(fetch = EAGER)
    @JoinColumn(name = "backend_secret_id")
    public Secret backendSecret;
@@ -143,5 +153,41 @@ public class ConfigurationPlan extends TenantAwareEntity {
       public String effectiveCacheScope() {
          return cacheScope != null ? cacheScope : DEFAULT_CACHE_SCOPE;
       }
+   }
+
+   /**
+    * Header propagation policy. Structured per direction to stay future-proof: only
+    * {@link #request()} is honored today, {@link #response()} is reserved.
+    * @param request  Rules applied to headers forwarded to the backend.
+    * @param response Reserved rules for the backend → client direction.
+    */
+   public record HeaderPolicy(
+         HeaderRules request,
+         HeaderRules response
+   ) {
+   }
+
+   /**
+    * A set of allow/deny/rename directives applied in a single direction.
+    * @param allow  Allow-list; when non-empty only these headers pass (deny-by-default).
+    * @param deny   Deny-list; these headers are removed (subtracted from what passes).
+    * @param rename Rename directives applied after filtering.
+    */
+   public record HeaderRules(
+         List<String> allow,
+         List<String> deny,
+         List<HeaderRename> rename
+   ) {
+   }
+
+   /**
+    * A single header rename directive: removes {@code from} and sets {@code to} with its values.
+    * @param from Source header name.
+    * @param to   Target header name.
+    */
+   public record HeaderRename(
+         String from,
+         String to
+   ) {
    }
 }

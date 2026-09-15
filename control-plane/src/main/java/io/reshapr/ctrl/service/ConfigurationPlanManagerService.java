@@ -207,6 +207,8 @@ public class ConfigurationPlanManagerService {
       // Validate/normalize the selected artifacts (by name) against the service's attached artifacts.
       existingPlan.includedArtifacts = validateIncludedArtifacts(existingPlan.service.id, configurationPlan.includedArtifacts);
       existingPlan.audit = configurationPlan.audit;
+      existingPlan.cachePolicy = configurationPlan.cachePolicy;
+      existingPlan.headerPolicy = configurationPlan.headerPolicy;
       if (backendSecretId != null) {
          logger.debugf("Setting backend secret with id %s for configuration plan %s", backendSecretId, existingPlan.name);
          existingPlan.backendSecret = secretRepository.findById(backendSecretId);

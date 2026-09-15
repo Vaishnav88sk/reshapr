@@ -83,8 +83,11 @@ public class GrpcProxyService {
    public static final CallOptions.Key<Metadata> METADATA_CUSTOM_CALL_OPTION = CallOptions.Key
          .createWithDefault(CUSTOM_CALL_OPTION_NAME, null);
 
-   private static final List<String> RESTRICTED_HEADERS = List.of("host", "connection", "accept",
-         "content-type", "content-length", "user-agent");
+   // gRPC-specific transport headers that must never be forwarded as call metadata: gRPC manages
+   // these itself (content-type "application/grpc", its own user-agent, accept). The hop-by-hop and
+   // internal baseline (host, connection, content-length, ...) is already stripped upstream by
+   // HeaderPolicyEngine.applyRequestPolicy, so it is not repeated here.
+   private static final List<String> RESTRICTED_HEADERS = List.of("accept", "content-type", "user-agent");
 
    /** Default upper bound on the number of pooled channels (distinct endpoints). */
    private static final long DEFAULT_MAX_CHANNELS = 512L;
@@ -177,6 +180,10 @@ public class GrpcProxyService {
          Map<String, List<String>> headers, String body) throws IOException {
 
       URL endpoint = URI.create(configuration.backendEndpoint()).toURL();
+
+      // Apply the configuration plan header propagation policy (baseline strip + allow/deny +
+      // rewrite) before any credential handling. Authorization/Cookie are denied by default.
+      headers = HeaderPolicyEngine.applyRequestPolicy(headers, configuration.headerPolicy());
 
       if (logger.isDebugEnabled()) {
          logger.debugf("Proxy request url: '%s'", endpoint);

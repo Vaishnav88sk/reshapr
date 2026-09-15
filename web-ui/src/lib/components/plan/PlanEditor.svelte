@@ -20,8 +20,10 @@
 	import ApiErrorAlert from '$lib/components/ApiErrorAlert.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
+	import { Badge } from '$lib/components/ui/badge/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
+	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import { Switch } from '$lib/components/ui/switch/index.js';
@@ -83,6 +85,60 @@
 	// ── Caching configuration (MCP >= 2026-07-28) ───────────────────────────────
 	let cachingTtlMs = $state('');
 	let cachingScope = $state<'public' | 'private' | ''>('');
+
+	// ── Header propagation policy (request direction) ───────────────────────────
+	type HeaderRenameRow = { from: string; to: string };
+	let headerAllow = $state('');
+	let headerDeny = $state('');
+	let headerRenames = $state<HeaderRenameRow[]>([]);
+	let headerPassthrough = $state(false);
+	const AUTHORIZATION_HEADER = 'Authorization';
+	// Collapsed-by-default advanced sub-sections of the General card.
+	let headerOpen = $state(false);
+	let cachingOpen = $state(false);
+
+	/** Split a comma/newline separated header list into a clean array. */
+	function parseHeaderList(value: string): string[] {
+		return value
+			.split(/[\n,]/)
+			.map((h) => h.trim())
+			.filter(Boolean);
+	}
+
+	function addHeaderRename() {
+		headerRenames = [...headerRenames, { from: '', to: '' }];
+	}
+
+	function removeHeaderRename(index: number) {
+		headerRenames = headerRenames.filter((_, i) => i !== index);
+	}
+
+	/** Whether a header name list already contains Authorization (case-insensitive). */
+	function containsAuthorization(list: string[]): boolean {
+		return list.some((h) => h.toLowerCase() === 'authorization');
+	}
+
+	/**
+	 * Toggle the passthrough shortcut. When enabled, Authorization is added to the request
+	 * allow-list (and the allow/deny fields are locked); when disabled it is removed again.
+	 */
+	function setPassthrough(enabled: boolean) {
+		headerPassthrough = enabled;
+		const list = parseHeaderList(headerAllow).filter((h) => h.toLowerCase() !== 'authorization');
+		if (enabled) list.push(AUTHORIZATION_HEADER);
+		headerAllow = list.join(', ');
+	}
+
+	/** Whether a non-default caching policy is set (drives the collapsed section badge). */
+	const cachingConfigured = $derived(Boolean(cachingTtlMs.trim()) || Boolean(cachingScope));
+
+	/** Whether a non-default header policy is set (drives the collapsed section badge). */
+	const headerConfigured = $derived(
+		headerPassthrough ||
+			parseHeaderList(headerAllow).length > 0 ||
+			parseHeaderList(headerDeny).length > 0 ||
+			headerRenames.some((r) => r.from.trim() && r.to.trim())
+	);
 
 	/** 'include' exposes only the selected operations, 'exclude' hides the selected ones. */
 	let opsMode = $state<'include' | 'exclude'>('include');
@@ -300,6 +356,20 @@
 		cachingTtlMs = cc?.ttlMs != null ? String(cc.ttlMs) : '';
 		cachingScope = cc?.cacheScope === 'private' ? 'private' : cc?.cacheScope === 'public' ? 'public' : '';
 
+		// Header propagation policy (request direction only for now)
+		const hp = plan.headerPolicy as Record<string, unknown> | null | undefined;
+		const req = hp?.request as Record<string, unknown> | null | undefined;
+		const allowArr = Array.isArray(req?.allow) ? req.allow.map(String) : [];
+		headerPassthrough = containsAuthorization(allowArr);
+		headerAllow = allowArr.join(', ');
+		headerDeny = Array.isArray(req?.deny) ? req.deny.map(String).join(', ') : '';
+		headerRenames = Array.isArray(req?.rename)
+			? (req.rename as Record<string, unknown>[]).map((r) => ({
+					from: typeof r.from === 'string' ? r.from : '',
+					to: typeof r.to === 'string' ? r.to : ''
+				}))
+			: [];
+
 		const included = Array.isArray(plan.includedOperations)
 			? plan.includedOperations.map(String).filter(Boolean)
 			: [];
@@ -425,6 +495,24 @@
 			};
 		} else {
 			body.cachePolicy = null;
+		}
+
+		// Header propagation policy — send only when at least one directive is set; null to clear.
+		const allowList = parseHeaderList(headerAllow);
+		const denyList = parseHeaderList(headerDeny);
+		const renameList = headerRenames
+			.map((r) => ({ from: r.from.trim(), to: r.to.trim() }))
+			.filter((r) => r.from && r.to);
+		if (allowList.length || denyList.length || renameList.length) {
+			body.headerPolicy = {
+				request: {
+					...(allowList.length ? { allow: allowList } : {}),
+					...(denyList.length ? { deny: denyList } : {}),
+					...(renameList.length ? { rename: renameList } : {})
+				}
+			};
+		} else {
+			body.headerPolicy = null;
 		}
 
 		delete body.includedOperations;
@@ -651,46 +739,189 @@
 					/>
 				</div>
 			</div>
+			<!-- Quick options -->
 			<div class="flex flex-wrap items-center gap-6">
 				<label class="flex items-center gap-2 text-sm">
 					<Checkbox checked={audit} disabled={loading} onCheckedChange={(v) => (audit = v === true)} />
 					<span>Enable audit log</span>
 				</label>
+				<label class="flex items-center gap-2 text-sm">
+					<Checkbox
+						checked={headerPassthrough}
+						disabled={loading}
+						onCheckedChange={(v) => setPassthrough(v === true)}
+					/>
+					<span>Passthrough <code>Authorization</code> header</span>
+				</label>
 			</div>
 
-			<!-- ── Caching configuration ─────────────────────────────────────── -->
-			<div class="border-t pt-4">
-				<p class="mb-3 text-sm font-medium">Caching configuration</p>
-				<p class="mb-4 text-xs text-muted-foreground">
-					Client-side cache hints sent on MCP list/read responses (protocol ≥ 2026-07-28).
-					Leave blank to use the defaults (30 000 ms, public).
-				</p>
-				<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-					<div class="space-y-2">
-						<Label for="cachingTtlMs">Cache TTL (ms)</Label>
-						<Input
-							id="cachingTtlMs"
-							bind:value={cachingTtlMs}
-							inputmode="numeric"
-							placeholder="Default: 30000"
-							disabled={loading}
-						/>
-					</div>
-					<div class="space-y-2">
-						<Label for="cachingScope">Cache scope</Label>
-						<select
-							id="cachingScope"
-							bind:value={cachingScope}
-							disabled={loading}
-							class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+			<!-- ── Header propagation policy (collapsible) ─────────────────────── -->
+			<Collapsible.Root bind:open={headerOpen}>
+				<div class="border-t pt-4">
+					<Collapsible.Trigger class="flex w-full items-center gap-2 text-left">
+						<span
+							class="text-muted-foreground inline-flex shrink-0 transition-transform duration-200 {headerOpen
+								? 'rotate-90'
+								: ''}"
 						>
-							<option value="">Default (public)</option>
-							<option value="public">public</option>
-							<option value="private">private</option>
-						</select>
-					</div>
+							<HugeiconsIcon icon={ArrowRight01Icon} size={14} />
+						</span>
+						<span class="text-sm font-medium">Header propagation</span>
+						{#if !headerOpen}
+							{#if headerConfigured}
+								{#if headerPassthrough}
+									<Badge
+										class="ml-auto shrink-0 border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-400"
+									>
+										Passthrough
+									</Badge>
+								{:else}
+									<Badge variant="default" class="ml-auto shrink-0">Custom</Badge>
+								{/if}
+							{:else}
+								<Badge variant="secondary" class="ml-auto shrink-0">Defaults</Badge>
+							{/if}
+						{/if}
+					</Collapsible.Trigger>
+					<Collapsible.Content class="pt-4">
+						<p class="mb-4 text-xs text-muted-foreground">
+							Controls which request headers are forwarded to the backend. Hop-by-hop and internal
+							headers are always stripped, and <code>Authorization</code> and <code>Cookie</code> are
+							denied by default. List names separated by commas. Add an allow-list to forward only the
+							listed headers, or use rename rules to remap headers (e.g. rename an incoming
+							<code>X-Authorization</code> to <code>Authorization</code>). Enable
+							<span class="font-medium">Passthrough</span> above to quickly forward
+							<code>Authorization</code>.
+						</p>
+						<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+							<div class="space-y-2">
+								<Label for="headerAllow">Allow-list</Label>
+								<Textarea
+									id="headerAllow"
+									bind:value={headerAllow}
+									placeholder="e.g. X-Request-Id, X-Tenant"
+									disabled={loading || headerPassthrough}
+									rows={2}
+								/>
+								<p class="text-xs text-muted-foreground">
+									When set, only these headers are forwarded (also re-enables a default-denied header).
+								</p>
+							</div>
+							<div class="space-y-2">
+								<Label for="headerDeny">Deny-list</Label>
+								<Textarea
+									id="headerDeny"
+									bind:value={headerDeny}
+									placeholder="e.g. X-Internal-Token"
+									disabled={loading || headerPassthrough}
+									rows={2}
+								/>
+								<p class="text-xs text-muted-foreground">
+									Additional headers to remove, on top of the defaults.
+								</p>
+							</div>
+						</div>
+
+						<div class="mt-4 space-y-3">
+							<div class="flex items-center justify-between">
+								<Label>Rename rules</Label>
+								<Button type="button" variant="outline" size="sm" onclick={addHeaderRename} disabled={loading}>
+									Add rule
+								</Button>
+							</div>
+							{#if headerRenames.length === 0}
+								<p class="text-xs text-muted-foreground">No rename rule.</p>
+							{/if}
+							{#each headerRenames as rename, i (i)}
+								<div class="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_1fr_auto]">
+									<div class="space-y-1">
+										<Label class="text-xs" for={`rn-from-${i}`}>From</Label>
+										<Input
+											id={`rn-from-${i}`}
+											bind:value={rename.from}
+											placeholder="X-Authorization"
+											disabled={loading}
+										/>
+									</div>
+									<div class="space-y-1">
+										<Label class="text-xs" for={`rn-to-${i}`}>To</Label>
+										<Input
+											id={`rn-to-${i}`}
+											bind:value={rename.to}
+											placeholder="Authorization"
+											disabled={loading}
+										/>
+									</div>
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon"
+										onclick={() => removeHeaderRename(i)}
+										disabled={loading}
+										aria-label="Remove rule"
+									>
+										<HugeiconsIcon icon={Delete02Icon} size={16} />
+									</Button>
+								</div>
+							{/each}
+						</div>
+					</Collapsible.Content>
 				</div>
-			</div>
+			</Collapsible.Root>
+
+			<!-- ── Caching configuration (collapsible) ─────────────────────────── -->
+			<Collapsible.Root bind:open={cachingOpen}>
+				<div class="border-t pt-4">
+					<Collapsible.Trigger class="flex w-full items-center gap-2 text-left">
+						<span
+							class="text-muted-foreground inline-flex shrink-0 transition-transform duration-200 {cachingOpen
+								? 'rotate-90'
+								: ''}"
+						>
+							<HugeiconsIcon icon={ArrowRight01Icon} size={14} />
+						</span>
+						<span class="text-sm font-medium">Caching configuration</span>
+						{#if !cachingOpen}
+							{#if cachingConfigured}
+								<Badge variant="default" class="ml-auto shrink-0">Custom</Badge>
+							{:else}
+								<Badge variant="secondary" class="ml-auto shrink-0">Defaults</Badge>
+							{/if}
+						{/if}
+					</Collapsible.Trigger>
+					<Collapsible.Content class="pt-4">
+						<p class="mb-4 text-xs text-muted-foreground">
+							Client-side cache hints sent on MCP list/read responses (protocol ≥ 2026-07-28).
+							Leave blank to use the defaults (30 000 ms, public).
+						</p>
+						<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+							<div class="space-y-2">
+								<Label for="cachingTtlMs">Cache TTL (ms)</Label>
+								<Input
+									id="cachingTtlMs"
+									bind:value={cachingTtlMs}
+									inputmode="numeric"
+									placeholder="Default: 30000"
+									disabled={loading}
+								/>
+							</div>
+							<div class="space-y-2">
+								<Label for="cachingScope">Cache scope</Label>
+								<select
+									id="cachingScope"
+									bind:value={cachingScope}
+									disabled={loading}
+									class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+								>
+									<option value="">Default (public)</option>
+									<option value="public">public</option>
+									<option value="private">private</option>
+								</select>
+							</div>
+						</div>
+					</Collapsible.Content>
+				</div>
+			</Collapsible.Root>
 		</Card.Content>
 	</Card.Root>
 

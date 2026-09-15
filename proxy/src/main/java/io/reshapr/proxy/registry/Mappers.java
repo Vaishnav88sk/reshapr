@@ -19,6 +19,9 @@ import io.reshapr.discovery.exposition.v1.Artifact;
 import io.reshapr.discovery.exposition.v1.ArtifactType;
 import io.reshapr.discovery.exposition.v1.CachePolicy;
 import io.reshapr.discovery.exposition.v1.Configuration;
+import io.reshapr.discovery.exposition.v1.HeaderPolicy;
+import io.reshapr.discovery.exposition.v1.HeaderRename;
+import io.reshapr.discovery.exposition.v1.HeaderRules;
 import io.reshapr.discovery.exposition.v1.OAuth2ClientConfiguration;
 import io.reshapr.discovery.exposition.v1.Secret;
 import io.reshapr.discovery.exposition.v1.Service;
@@ -46,6 +49,7 @@ public interface Mappers {
    @Mapping(target = "includedOperations", source = "includedOperationsList")
    @Mapping(target = "backendTimeout", expression = "java(configuration.hasBackendTimeout() ? configuration.getBackendTimeout() : null)")
    @Mapping(target = "cachePolicy", expression = "java(configuration.hasCachePolicy() ? toCachePolicyEntry(configuration.getCachePolicy()) : null)")
+   @Mapping(target = "headerPolicy", expression = "java(configuration.hasHeaderPolicy() ? toHeaderPolicyEntry(configuration.getHeaderPolicy()) : null)")
    public ConfigurationEntry toConfigurationEntry(Configuration configuration);
 
    /** Maps the gRPC {@link CachePolicy} optional fields to a {@link ConfigurationEntry.CachePolicyEntry}. */
@@ -54,6 +58,27 @@ public interface Mappers {
       Long ttlMs = cc.hasTtlMs() ? cc.getTtlMs() : null;
       String cacheScope = cc.hasCacheScope() ? cc.getCacheScope() : null;
       return new ConfigurationEntry.CachePolicyEntry(ttlMs, cacheScope);
+   }
+
+   /** Maps the gRPC {@link HeaderPolicy} to a {@link ConfigurationEntry.HeaderPolicyEntry}. */
+   default ConfigurationEntry.HeaderPolicyEntry toHeaderPolicyEntry(HeaderPolicy hp) {
+      if (hp == null) return null;
+      ConfigurationEntry.HeaderRulesEntry request = hp.hasRequest() ? toHeaderRulesEntry(hp.getRequest()) : null;
+      ConfigurationEntry.HeaderRulesEntry response = hp.hasResponse() ? toHeaderRulesEntry(hp.getResponse()) : null;
+      return new ConfigurationEntry.HeaderPolicyEntry(request, response);
+   }
+
+   /** Maps a gRPC {@link HeaderRules} to a {@link ConfigurationEntry.HeaderRulesEntry}. */
+   default ConfigurationEntry.HeaderRulesEntry toHeaderRulesEntry(HeaderRules rules) {
+      if (rules == null) return null;
+      java.util.List<ConfigurationEntry.HeaderRenameEntry> renames = new java.util.ArrayList<>();
+      for (HeaderRename rename : rules.getRenameList()) {
+         renames.add(new ConfigurationEntry.HeaderRenameEntry(rename.getFrom(), rename.getTo()));
+      }
+      return new ConfigurationEntry.HeaderRulesEntry(
+            new java.util.ArrayList<>(rules.getAllowList()),
+            new java.util.ArrayList<>(rules.getDenyList()),
+            renames);
    }
 
    @Mapping(target = "authorizationServers", source = "authorizationServersList")

@@ -20,9 +20,11 @@
 	import ApiErrorAlert from '$lib/components/ApiErrorAlert.svelte';
 	import ImportArtifactForm from './ImportArtifactForm.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
+	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
+	import * as Select from '$lib/components/ui/select/index.js';
 	import { Switch } from '$lib/components/ui/switch/index.js';
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import { parseServiceRecord } from '$lib/serviceHub.js';
@@ -93,6 +95,19 @@
 	// Plan step.
 	let fineGrained = $state(false);
 	let backendEndpoint = $state('');
+	let audit = $state(false);
+	let headerPassthrough = $state(false);
+	// Backend authentication (MCP → backend) via an endpoint secret.
+	type SecretOption = { id: string; name: string; type: string };
+	let secrets = $state<SecretOption[]>([]);
+	let backendSecretId = $state('');
+	let backendAuthEnabled = $state(false);
+	const NONE_SECRET = '__none__';
+	const selectedSecretLabel = $derived.by(() => {
+		if (!backendSecretId) return 'None (public backend)';
+		const found = secrets.find((s) => s.id === backendSecretId);
+		return found ? found.name : backendSecretId;
+	});
 	let secure = $state(false);
 	let mcpAuthMode = $state<'apikey' | 'oauth'>('apikey');
 	let oauthAuthServersText = $state('');
@@ -136,6 +151,10 @@
 		attached = [];
 		fineGrained = false;
 		backendEndpoint = '';
+		audit = false;
+		headerPassthrough = false;
+		backendSecretId = '';
+		backendAuthEnabled = false;
 		secure = false;
 		mcpAuthMode = 'apikey';
 		oauthAuthServersText = '';
@@ -152,9 +171,34 @@
 	// Reset state each time the wizard is (re)opened.
 	let prevOpen = false;
 	$effect(() => {
-		if (open && !prevOpen) resetAll();
+		if (open && !prevOpen) {
+			resetAll();
+			void loadSecrets();
+		}
 		prevOpen = open;
 	});
+
+	/** Load endpoint secrets usable to authenticate the proxied backend. */
+	async function loadSecrets() {
+		try {
+			const refs = await apiClient().listSecretRefs();
+			secrets = (Array.isArray(refs) ? refs : [])
+				.map((s): SecretOption | null => {
+					if (!s || typeof s !== 'object') return null;
+					const o = s as Record<string, unknown>;
+					if (typeof o.id !== 'string' || typeof o.name !== 'string') return null;
+					return { id: o.id, name: o.name, type: typeof o.type === 'string' ? o.type : '' };
+				})
+				.filter((s): s is SecretOption => s != null)
+				.filter((s) => s.type === 'ENDPOINT' || s.type === '');
+		} catch {
+			secrets = [];
+		}
+	}
+
+	function onSecretChange(v: string) {
+		backendSecretId = v === NONE_SECRET ? '' : v;
+	}
 
 	function handleOpenChange(next: boolean) {
 		if (busy) return;
@@ -221,6 +265,23 @@
 		}
 	}
 
+	/**
+	 * Apply the quick options (audit log, Authorization passthrough) onto a plan body.
+	 * Only writes when enabled, so it never clobbers options set from the advanced editor.
+	 */
+	function applyQuickOptions(body: Record<string, unknown>) {
+		if (audit) body.audit = true;
+		if (headerPassthrough) {
+			body.headerPolicy = { request: { allow: ['Authorization'] } };
+		}
+	}
+
+	/** Apply the selected backend endpoint secret onto a plan body. */
+	function applyBackendSecret(body: Record<string, unknown>) {
+		if (backendSecretId) body.backendSecretId = backendSecretId;
+		else delete body.backendSecretId;
+	}
+
 	async function createPlan() {
 		error = null;
 		if (!backendEndpoint.trim()) {
@@ -249,6 +310,8 @@
 					backendEndpoint: backendEndpoint.trim()
 				};
 				applyAuth(body, true);
+				applyQuickOptions(body);
+				applyBackendSecret(body);
 				out = (await client.updateConfigurationPlan(existing.id, body)) as {
 					id: string;
 					apiKey?: string;
@@ -264,6 +327,8 @@
 					backendEndpoint: backendEndpoint.trim()
 				};
 				applyAuth(body, false);
+				applyQuickOptions(body);
+				applyBackendSecret(body);
 				out = (await client.createConfigurationPlan(body)) as { id: string; apiKey?: string };
 				planId = out.id;
 				planExisted = false;
@@ -441,14 +506,41 @@
 				</div>
 			{:else if view === 'plan'}
 				<div class="space-y-4">
+					<div class="space-y-2">
+						<Label for="qs-backend-endpoint">
+							Backend endpoint URL <span class="text-destructive">*</span>
+						</Label>
+						<Input
+							id="qs-backend-endpoint"
+							bind:value={backendEndpoint}
+							class="w-full"
+							placeholder="https://api.backend.acme.com"
+						/>
+					</div>
+
+					<!-- Quick options (mirrors the plan editor) -->
+					<div class="flex flex-wrap items-center gap-6">
+						<label class="flex items-center gap-2 text-sm">
+							<Checkbox checked={audit} onCheckedChange={(v) => (audit = v === true)} />
+							<span>Enable audit log</span>
+						</label>
+						<label class="flex items-center gap-2 text-sm">
+							<Checkbox
+								checked={headerPassthrough}
+								onCheckedChange={(v) => (headerPassthrough = v === true)}
+							/>
+							<span>Passthrough <code>Authorization</code> header</span>
+						</label>
+					</div>
+
 					<div class="flex items-center justify-between gap-4 rounded-lg border p-4">
 						<div class="space-y-0.5">
 							<Label for="qs-fine-grained" class="text-sm font-medium">
-								Fine-grained operations &amp; capabilities
+								Advanced configuration
 							</Label>
 							<p class="text-muted-foreground text-sm">
-								Pick exactly which operations, artifacts and capabilities to expose in the advanced
-								editor.
+								Fine-tune header propagation, exposed operations, artifacts and capabilities in the
+								advanced editor.
 							</p>
 						</div>
 						<Switch
@@ -461,25 +553,13 @@
 					{#if fineGrained}
 						<div class="bg-muted/50 space-y-3 rounded-lg border p-4">
 							<p class="text-muted-foreground text-sm">
-								The advanced plan editor lets you select exposed operations, artifacts and
-								capabilities. You'll leave the wizard to continue there.
+								The advanced plan editor lets you select exposed operations, artifacts, capabilities
+								and configure header propagation. You'll leave the wizard to continue there.
 							</p>
 							<Button onclick={() => void openAdvancedEditor()}>Open advanced plan editor</Button>
 						</div>
 					{:else}
 						<div class="space-y-4">
-							<div class="space-y-2">
-								<Label for="qs-backend-endpoint">
-									Backend endpoint URL <span class="text-destructive">*</span>
-								</Label>
-								<Input
-									id="qs-backend-endpoint"
-									bind:value={backendEndpoint}
-									class="w-full"
-									placeholder="https://api.backend.acme.com"
-								/>
-							</div>
-
 							<div class="flex items-center justify-between gap-4 rounded-lg border p-4">
 								<div class="space-y-0.5">
 									<Label for="qs-secure" class="text-sm font-medium">
@@ -571,6 +651,49 @@
 										{/if}
 									{/if}
 								</div>
+							{/if}
+
+							<!-- Backend authentication (MCP → backend). Only when endpoint secrets exist. -->
+							{#if secrets.length > 0}
+								<div class="flex items-center justify-between gap-4 rounded-lg border p-4">
+									<div class="space-y-0.5">
+										<Label for="qs-backend-auth" class="text-sm font-medium">
+											Backend authentication
+										</Label>
+										<p class="text-muted-foreground text-sm">
+											Authenticate calls to the backend API with an endpoint secret.
+										</p>
+									</div>
+									<Switch
+										id="qs-backend-auth"
+										checked={backendAuthEnabled}
+										onCheckedChange={(v) => {
+											backendAuthEnabled = v;
+											if (!v) backendSecretId = '';
+										}}
+									/>
+								</div>
+
+								{#if backendAuthEnabled}
+									<div class="space-y-2 rounded-lg border p-4">
+										<Label for="qs-backend-secret">Backend secret</Label>
+										<Select.Root
+											type="single"
+											value={backendSecretId || NONE_SECRET}
+											onValueChange={onSecretChange}
+										>
+											<Select.Trigger id="qs-backend-secret" class="w-full sm:w-96">
+												{selectedSecretLabel}
+											</Select.Trigger>
+											<Select.Content>
+												<Select.Item value={NONE_SECRET}>None (public backend)</Select.Item>
+												{#each secrets as s (s.id)}
+													<Select.Item value={s.id}>{s.name}</Select.Item>
+												{/each}
+											</Select.Content>
+										</Select.Root>
+									</div>
+								{/if}
 							{/if}
 						</div>
 					{/if}

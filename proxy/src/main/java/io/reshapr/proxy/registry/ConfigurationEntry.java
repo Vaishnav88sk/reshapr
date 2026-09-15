@@ -32,19 +32,27 @@ public record ConfigurationEntry(
       OAuth2ConfigurationEntry oauth2Configuration,
       SecretEntry backendSecret,
       boolean audit,
-      CachePolicyEntry cachePolicy) {
+      CachePolicyEntry cachePolicy,
+      HeaderPolicyEntry headerPolicy) {
 
 
    public ConfigurationEntry(String id, String name, String backendEndpoint, Long backendTimeout,
                              List<String> excludedOperations, List<String> includedOperations,
                              String apiKey, OAuth2ConfigurationEntry oauth2Configuration, SecretEntry backendSecret) {
-      this(id, name, backendEndpoint, backendTimeout, excludedOperations, includedOperations, apiKey, oauth2Configuration, backendSecret, false, null);
+      this(id, name, backendEndpoint, backendTimeout, excludedOperations, includedOperations, apiKey, oauth2Configuration, backendSecret, false, null, null);
    }
 
    public ConfigurationEntry(String id, String name, String backendEndpoint, Long backendTimeout,
                              List<String> excludedOperations, List<String> includedOperations,
                              String apiKey, OAuth2ConfigurationEntry oauth2Configuration, SecretEntry backendSecret, boolean audit) {
-      this(id, name, backendEndpoint, backendTimeout, excludedOperations, includedOperations, apiKey, oauth2Configuration, backendSecret, audit, null);
+      this(id, name, backendEndpoint, backendTimeout, excludedOperations, includedOperations, apiKey, oauth2Configuration, backendSecret, audit, null, null);
+   }
+
+   public ConfigurationEntry(String id, String name, String backendEndpoint, Long backendTimeout,
+                             List<String> excludedOperations, List<String> includedOperations,
+                             String apiKey, OAuth2ConfigurationEntry oauth2Configuration, SecretEntry backendSecret,
+                             boolean audit, CachePolicyEntry cachePolicy) {
+      this(id, name, backendEndpoint, backendTimeout, excludedOperations, includedOperations, apiKey, oauth2Configuration, backendSecret, audit, cachePolicy, null);
    }
 
    @Override
@@ -96,5 +104,34 @@ public record ConfigurationEntry(
       public String effectiveCacheScope() {
          return cacheScope != null ? cacheScope : DEFAULT_CACHE_SCOPE;
       }
+   }
+
+   /**
+    * Header propagation policy forwarded from the ConfigurationPlan. Only the request direction
+    * is honored today; the response direction is reserved.
+    *
+    * @param request  Rules applied to headers forwarded to the backend (may be {@code null}).
+    * @param response Reserved rules for the backend → client direction (may be {@code null}).
+    */
+   public record HeaderPolicyEntry(HeaderRulesEntry request, HeaderRulesEntry response) {
+   }
+
+   /**
+    * A set of allow/deny/rename directives applied in a single direction.
+    *
+    * @param allow  Allow-list; when non-empty only these headers pass (deny-by-default).
+    * @param deny   Deny-list; these headers are removed.
+    * @param rename Rename directives applied after filtering.
+    */
+   public record HeaderRulesEntry(List<String> allow, List<String> deny, List<HeaderRenameEntry> rename) {
+   }
+
+   /**
+    * A single header rename directive: removes {@code from} and sets {@code to} with its values.
+    *
+    * @param from Source header name.
+    * @param to   Target header name.
+    */
+   public record HeaderRenameEntry(String from, String to) {
    }
 }
