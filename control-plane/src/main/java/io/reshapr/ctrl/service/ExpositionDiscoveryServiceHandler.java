@@ -147,7 +147,6 @@ public class ExpositionDiscoveryServiceHandler extends ExpositionDiscoveryServic
 
       // Set a Cancellation listener to remove the observer when the context is cancelled.
       Context.current().addListener(listener -> {
-         ;
          logger.infof("Cancellation listener triggered for gatewayId: %s", request.getGatewayId());
          removeOrganizationExpositionsObserver(organization, request.getGatewayId());
       }, cancellationExecutor);
@@ -430,6 +429,9 @@ public class ExpositionDiscoveryServiceHandler extends ExpositionDiscoveryServic
          }
          if (configuration.oauth2Configuration.scopes() != null) {
             oauth2Builder.addAllScopes(configuration.oauth2Configuration.scopes());
+         }
+         if (configuration.oauth2Configuration.disableAudienceValidation()) {
+            oauth2Builder.setDisableAudienceValidation(true);
          }
          builder.setOauth2Configuration(oauth2Builder.build());
       }
