@@ -1247,7 +1247,7 @@ components:
           type: array
           items:
             type: string
-        includedOperatoions:
+        includedOperations:
           description: List of included operation names
           type: array
           items:
