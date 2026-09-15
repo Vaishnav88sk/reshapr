@@ -188,7 +188,7 @@ public class ElicitationController {
       }
 
       String authorizationEndpoint = secret.oauth2ClientConfiguration().authorizationEndpoint();
-      String redirectUri = WebUtils.getHTTPScheme(fqdns.getFirst()) + fqdns.getFirst() + "/elicitation/callback?elicitationId=" + elicitationId;
+      String redirectUri = buildCallbackRedirectUri();
       if (!authorizationEndpoint.contains("?")) {
          authorizationEndpoint += "?";
       } else {
@@ -197,11 +197,11 @@ public class ElicitationController {
       authorizationEndpoint += "client_id=" + secret.oauth2ClientConfiguration().clientId();
       authorizationEndpoint += "&redirect_uri=" + URLEncoder.encode(redirectUri, StandardCharsets.UTF_8);
       authorizationEndpoint += "&response_type=code";
-      // Stateless URL Mode OAuth: carry the opaque requestState as the OAuth `state` parameter so the
-      // callback (which has no session) can correlate/validate the resumed flow.
-      if (elicitationInformation.getRequestState() != null) {
-         authorizationEndpoint += "&state=" + URLEncoder.encode(elicitationInformation.getRequestState(), StandardCharsets.UTF_8);
-      }
+      // Carry the elicitationId as the OAuth `state` parameter (RFC 6749 §4.1.1) so the callback can
+      // correlate the resumed flow while keeping a fully static redirect_uri that can be pre-registered
+      // on strict Authorization Servers (no wildcard support). The elicitationId is an unguessable UUID,
+      // so it also serves as the CSRF protection token expected from `state`.
+      authorizationEndpoint += "&state=" + URLEncoder.encode(elicitationId, StandardCharsets.UTF_8);
 
       logger.debugf("Redirecting to OAuth2 authorization endpoint: '%s'", authorizationEndpoint);
       return Response.seeOther(URI.create(authorizationEndpoint)).build();
@@ -209,9 +209,11 @@ public class ElicitationController {
 
    @GET
    @Path("/callback")
-   public TemplateInstance oauth2Callback(@QueryParam("elicitationId") String elicitationId,
-                                  @QueryParam("code") String authorizationCode,
+   public TemplateInstance oauth2Callback(@QueryParam("code") String authorizationCode,
                                   @QueryParam("state") String state) {
+      // The elicitationId is carried by the OAuth `state` parameter (see oauth2Connect) so that the
+      // redirect_uri can stay fully static and be pre-registered on strict Authorization Servers.
+      String elicitationId = state;
       ElicitationInfo elicitationInformation = elicitationStore.getElicitationInfo(elicitationId);
       if (elicitationInformation == null) {
          logger.warnf("Elicitation information not found for elicitation id '%s'", elicitationId);
@@ -220,13 +222,6 @@ public class ElicitationController {
 
       // Check the elicitation binding is still valid (legacy session or stateless user identity).
       if (!hasValidBinding(elicitationInformation)) {
-         return ElicitationController.Templates.error(elicitationId);
-      }
-
-      // Stateless URL Mode OAuth: the returned `state` must match the opaque requestState we emitted.
-      if (elicitationInformation.getRequestState() != null
-            && !elicitationInformation.getRequestState().equals(state)) {
-         logger.warnf("OAuth2 state mismatch for elicitation id '%s'", elicitationId);
          return ElicitationController.Templates.error(elicitationId);
       }
 
@@ -239,7 +234,7 @@ public class ElicitationController {
          return ElicitationController.Templates.configError(elicitationInformation.getBackendEndpoint());
       }
 
-      String redirectUri = WebUtils.getHTTPScheme(fqdns.getFirst()) + fqdns.getFirst() + "/elicitation/callback?elicitationId=" + elicitationId;
+      String redirectUri = buildCallbackRedirectUri();
 
       // Now exchange the authorization code for an access token calling the token endpoint.
       String accessToken = null;
@@ -264,6 +259,19 @@ public class ElicitationController {
       elicitationStore.removeElicitationInfo(elicitationId);
 
       return ElicitationController.Templates.complete(elicitationId);
+   }
+
+   /**
+    * Build the static OAuth2 {@code redirect_uri} pointing at the elicitation callback endpoint.
+    * <p>The URI is deliberately free of any dynamic query parameter (the {@code elicitationId} is carried
+    * by the OAuth {@code state} parameter instead) so it can be pre-registered as a fixed value on
+    * Authorization Servers that do not support wildcard {@code redirect_uri} matching. It must be built
+    * identically in {@code oauth2Connect} and {@code oauth2Callback} as the token endpoint requires the
+    * {@code redirect_uri} of the code exchange to match the one of the authorization request.
+    * @return the static callback redirect URI.
+    */
+   private String buildCallbackRedirectUri() {
+      return WebUtils.getHTTPScheme(fqdns.getFirst()) + fqdns.getFirst() + "/elicitation/callback";
    }
 
    /**

@@ -143,6 +143,69 @@ class OidcUtilsTest {
       }
    }
 
+   @Test
+   void testExchangeAuthorizationCodeSendsBasicAuthAndOmitsCredentialsFromBody() throws Exception {
+
+      try (CapturingTokenEndpoint endpoint = new CapturingTokenEndpoint(200,
+            "{\"access_token\":\"access-123\"}")) {
+
+         String accessToken = OidcUtils.exchangeAuthorizationCode(
+               new OidcUtils.OidcEndpointConfig(endpoint.url(), "client id", "client/secret"),
+               objectMapper, "auth code/+value", "https://gw/elicitation/callback");
+
+         assertEquals("access-123", accessToken);
+
+         // RFC 6749 §2.3.1: credentials go in the Authorization Basic header, form-urlencoded then base64.
+         String expectedCredentials = URLEncoder.encode("client id", StandardCharsets.UTF_8)
+               + ":" + URLEncoder.encode("client/secret", StandardCharsets.UTF_8);
+         String expectedHeader = "Basic "
+               + Base64.getEncoder().encodeToString(expectedCredentials.getBytes(StandardCharsets.UTF_8));
+         assertEquals(expectedHeader, endpoint.lastAuthorizationHeader());
+
+         // The body carries grant_type, the (encoded) code and redirect_uri, but not the client credentials.
+         Map<String, String> form = decodeForm(endpoint.lastRequestBody());
+         assertEquals("authorization_code", form.get("grant_type"));
+         assertEquals("auth code/+value", form.get("code"));
+         assertEquals("https://gw/elicitation/callback", form.get("redirect_uri"));
+         assertFalse(form.containsKey("client_id"));
+         assertFalse(form.containsKey("client_secret"));
+      }
+   }
+
+   @Test
+   void testExchangeAuthorizationCodeOmitsBasicAuthWhenSecretAbsent() throws Exception {
+
+      try (CapturingTokenEndpoint endpoint = new CapturingTokenEndpoint(200,
+            "{\"access_token\":\"access-123\"}")) {
+
+         OidcUtils.exchangeAuthorizationCode(
+               new OidcUtils.OidcEndpointConfig(endpoint.url(), "client", null),
+               objectMapper, "code-1", "https://gw/elicitation/callback");
+
+         // Public client (no secret): no Basic header, client_id falls back to the body.
+         assertNull(endpoint.lastAuthorizationHeader());
+         Map<String, String> form = decodeForm(endpoint.lastRequestBody());
+         assertEquals("authorization_code", form.get("grant_type"));
+         assertEquals("client", form.get("client_id"));
+         assertFalse(form.containsKey("client_secret"));
+      }
+   }
+
+   @Test
+   void testExchangeAuthorizationCodeThrowsOnNonOkResponse() throws Exception {
+
+      try (CapturingTokenEndpoint endpoint = new CapturingTokenEndpoint(401,
+            "{\"error\":\"invalid_client\"}")) {
+
+         OidcUtils.OidcEndpointConfig config =
+               new OidcUtils.OidcEndpointConfig(endpoint.url(), "client", "secret");
+
+         assertThrows(AuthenticationException.class,
+               () -> OidcUtils.exchangeAuthorizationCode(config, objectMapper, "code-1",
+                     "https://gw/elicitation/callback"));
+      }
+   }
+
    private static Map<String, String> decodeForm(String body) {
       if (body == null || body.isEmpty()) {
          return Map.of();

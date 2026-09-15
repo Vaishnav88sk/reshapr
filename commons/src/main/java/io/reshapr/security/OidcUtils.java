@@ -57,6 +57,16 @@ public class OidcUtils {
                   HttpRequest.BodyPublishers.ofString(getAuthorizationCodeQueryString(oidcEndpointConfig, authorizationCode, redirectUri)))
             .header("Content-Type", "application/x-www-form-urlencoded");
 
+      // Authenticate the client with HTTP Basic (client_secret_basic), the method RECOMMENDED by
+      // RFC 6749 §2.3.1 over passing the credentials in the request body (client_secret_post). Strict
+      // Authorization Servers (e.g. Axway) reject client_secret_post and answer 401. When the client has
+      // no secret (public client) we fall back to sending the client_id in the body instead (see
+      // getAuthorizationCodeQueryString).
+      if (oidcEndpointConfig.clientSecret() != null) {
+         requestBuilder.header("Authorization",
+               basicAuthHeader(oidcEndpointConfig.clientId(), oidcEndpointConfig.clientSecret()));
+      }
+
       try (HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(3))
             .version(HttpClient.Version.HTTP_1_1).build()) {
@@ -137,11 +147,13 @@ public class OidcUtils {
 
    private static String getAuthorizationCodeQueryString(OidcEndpointConfig oidcEndpointConfig, String authorizationCode, String redirectUri) {
       StringBuilder queryString = new StringBuilder("grant_type=authorization_code");
-      queryString.append("&code=").append(authorizationCode);
+      queryString.append("&code=").append(URLEncoder.encode(authorizationCode, StandardCharsets.UTF_8));
       queryString.append("&redirect_uri=").append(URLEncoder.encode(redirectUri, StandardCharsets.UTF_8));
-      queryString.append("&client_id=").append(oidcEndpointConfig.clientId());
-      if (oidcEndpointConfig.clientSecret() != null) {
-         queryString.append("&client_secret=").append(oidcEndpointConfig.clientSecret());
+      // With a client secret we authenticate via HTTP Basic (see exchangeAuthorizationCode), so the
+      // credentials are NOT duplicated in the body. Without a secret (public client) the client_id is
+      // still required to identify the client, so it goes in the body.
+      if (oidcEndpointConfig.clientSecret() == null) {
+         queryString.append("&client_id=").append(URLEncoder.encode(oidcEndpointConfig.clientId(), StandardCharsets.UTF_8));
       }
       return queryString.toString();
    }
