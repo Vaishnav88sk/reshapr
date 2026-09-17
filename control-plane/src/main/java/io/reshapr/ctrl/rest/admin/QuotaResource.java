@@ -88,16 +88,15 @@ public class QuotaResource {
       // For each quota in the list, set or update the quota for the organization.
       for (QuotaDTO quotaOTD : quotas) {
          logger.debugf("Checking quota on metric '%s' for org '%s'", quotaOTD.metric(), organizationName);
-         Quota quota = Quota.getByMetricAndOrganization(quotaOTD.metric(), organizationName);
+         Quota quota = Quota.getByMetricAndOrganizationForUpdate(quotaOTD.metric(), organizationName);
          logger.debugf("Current quota for metric %s: %s", quotaOTD.metric(), quota);
          if (quota != null) {
-            // Update existing quota.
+            // Update existing quota, preserving already consumed units:
+            // remaining follows the limit delta, clamped between 0 and the new limit.
+            long consumed = quota.limit - quota.remaining;
             quota.enabled = quotaOTD.enabled();
             quota.limit = quotaOTD.limit();
-            // Lower remaining if limit is lower than current remaining.
-            if (quota.remaining > quota.limit) {
-               quota.remaining = quota.limit;
-            }
+            quota.remaining = Math.max(0, quota.limit - Math.max(0, consumed));
             quotaRepository.persist(quota);
             logger.debugf("Updated quota for metric %s for organization %s", quota.metric, organizationName);
          } else {
@@ -136,7 +135,7 @@ public class QuotaResource {
       // For each quota in the list, set or update the quota for the organization.
       for (FullQuotaDTO quotaOTD : quotas) {
          logger.debugf("Checking quota on metric '%s' for org '%s'", quotaOTD.metric(), organizationName);
-         Quota quota = Quota.getByMetricAndOrganization(quotaOTD.metric(), organizationName);
+         Quota quota = Quota.getByMetricAndOrganizationForUpdate(quotaOTD.metric(), organizationName);
          logger.debugf("Current quota for metric %s: %s", quotaOTD.metric(), quota);
          if (quota != null) {
             // Update existing quota.

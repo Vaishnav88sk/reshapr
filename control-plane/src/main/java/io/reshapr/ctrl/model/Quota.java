@@ -15,9 +15,11 @@
  */
 package io.reshapr.ctrl.model;
 
+import io.quarkus.panache.common.Parameters;
 import jakarta.persistence.Cacheable;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.LockModeType;
 import jakarta.persistence.NamedQueries;
 import jakarta.persistence.NamedQuery;
 import jakarta.persistence.QueryHint;
@@ -36,7 +38,7 @@ import jakarta.persistence.UniqueConstraint;
 @NamedQueries({
       @NamedQuery(name = "Quota.getByMetric", query = "from Quota where metric = ?1 and organizationId = ?2",
             hints = @QueryHint(name = "org.hibernate.cacheable", value = "true") ),
-      @NamedQuery(name = "Quota.decrementRemaining", query = "update Quota q set q.remaining = q.remaining - 1 where metric = ?1 and q.organizationId = ?2")
+      @NamedQuery(name = "Quota.decrementRemaining", query = "update Quota q set q.remaining = q.remaining - 1 where metric = ?1 and q.organizationId = ?2 and q.remaining > 0")
 })
 public class Quota extends BaseEntity {
 
@@ -51,6 +53,18 @@ public class Quota extends BaseEntity {
 
    public static Quota getByMetricAndOrganization(String metric, String organizationId) {
       return find("#Quota.getByMetric", metric, organizationId).firstResult();
+   }
+
+   /**
+    * Same as {@link #getByMetricAndOrganization(String, String)} but acquires a pessimistic write
+    * lock on the row and bypasses the query cache. Use for read-modify-write updates to avoid
+    * lost updates against concurrent {@link #decrementRemaining(String, String)} calls.
+    */
+   public static Quota getByMetricAndOrganizationForUpdate(String metric, String organizationId) {
+      return find("metric = :metric and organizationId = :orgId",
+            Parameters.with("metric", metric).and("orgId", organizationId))
+            .withLock(LockModeType.PESSIMISTIC_WRITE)
+            .firstResult();
    }
 
    public static int decrementRemaining(String metric, String organizationId) {
