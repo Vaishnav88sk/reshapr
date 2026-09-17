@@ -67,7 +67,21 @@ public interface Mappers {
 
    List<GatewayViewDTO> toGWResources(List<Gateway> gateways);
 
-   OAuth2ClientConfigurationDTO toResource(OAuth2ClientConfiguration oauth2ClientConfiguration);
+   default OAuth2ClientConfigurationDTO toResource(OAuth2ClientConfiguration oauth2ClientConfiguration) {
+      // Manage mapping explicitly to avoid exposing sensitive information
+      // Was previously using @BeforeMapping, but it doesn't work as the Secret entity
+      // is cached at the Hibernate level and thus next reads see the '*******' values.
+      if (oauth2ClientConfiguration == null) {
+         return null;
+      }
+      return new OAuth2ClientConfigurationDTO(
+            oauth2ClientConfiguration.clientId(),
+            oauth2ClientConfiguration.clientSecret() != null ? "*******" : null,
+            oauth2ClientConfiguration.authorizationEndpoint(),
+            oauth2ClientConfiguration.tokenEndpoint(),
+            oauth2ClientConfiguration.scopes()
+      );
+   }
 
    OAuth2ClientConfiguration toResource(OAuth2ClientConfigurationDTO oauth2ClientConfigurationDTO);
 

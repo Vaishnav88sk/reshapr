@@ -16,7 +16,11 @@
 package io.reshapr.ctrl.model;
 
 import io.reshapr.ctrl.security.CipheredAttributeConverter;
+import io.reshapr.ctrl.security.CipheredJsonStringDeserializer;
+import io.reshapr.ctrl.security.CipheredJsonStringSerializer;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import io.hypersistence.utils.hibernate.type.json.JsonType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -86,6 +90,8 @@ public class Secret extends TenantAwareEntity {
 
    public record OAuth2ClientConfiguration(
          String clientId,
+         @JsonSerialize(using = CipheredJsonStringSerializer.class)
+         @JsonDeserialize(using = CipheredJsonStringDeserializer.class)
          String clientSecret,
          String authorizationEndpoint,
          String tokenEndpoint,
