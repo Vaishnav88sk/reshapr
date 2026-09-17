@@ -15,9 +15,14 @@
  */
 package io.reshapr.ctrl.security;
 
+import io.reshapr.ctrl.config.EncryptionConfig;
+
 import io.quarkus.arc.Unremovable;
+import io.quarkus.runtime.StartupEvent;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
+import jakarta.enterprise.event.Observes;
+import org.jboss.logging.Logger;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
@@ -30,7 +35,6 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * Service for encrypting and decrypting sensitive data stored in the database.
@@ -51,35 +55,104 @@ import java.util.Optional;
 @ApplicationScoped
 public class CipherService {
 
+   /** Get a JBoss logging logger. */
+   private static final Logger logger = Logger.getLogger(CipherService.class);
+
    private static final String AEAD_ALGORITHM = "AES/GCM/NoPadding";
    private static final String LEGACY_ALGORITHM = "AES/ECB/PKCS5Padding";
    private static final int[] AES_KEYSIZES = { 16, 24, 32 };
    private static final int GCM_IV_LENGTH_BYTES = 12;
    private static final int GCM_TAG_LENGTH_BITS = 128;
+   private static final int AES_256_KEY_LENGTH = 32;
 
-   private final Map<String, SecretKeySpec> keysById;
-   private final String activeKeyId;
-   private final SecretKeySpec legacySecretKey;
    private final SecureRandom secureRandom = new SecureRandom();
 
-   public CipherService(
-         @ConfigProperty(name = "reshapr.encryption.keys") Map<String, String> encryptionKeys,
-         @ConfigProperty(name = "reshapr.encryption.active-key-id") String activeKeyId,
-         @ConfigProperty(name = "reshapr.encryption.legacy-key") Optional<String> legacyKey) {
+   private final EncryptionConfig config;
 
-      if (encryptionKeys == null || encryptionKeys.isEmpty()) {
-         throw new IllegalArgumentException("At least one encryption key must be configured under reshapr.encryption.keys");
+   private Map<String, SecretKeySpec> keys;
+   private String activeKid;
+   private SecretKeySpec legacyKey;
+
+   /**
+    * Creates a new instance of the CipherService with the given encryption configuration.
+    * @param config The encryption configuration.
+    */
+   public CipherService(EncryptionConfig config) {
+      this.config = config;
+   }
+
+   @PostConstruct
+   void initialize() {
+      if (config.keys() == null || config.keys().isEmpty()) {
+         throw new IllegalStateException("At least one encryption key must be configured under reshapr.encryption.keys");
       }
-      Map<String, SecretKeySpec> keys = new HashMap<>();
-      encryptionKeys.forEach((kid, key) -> keys.put(kid, toSecretKey(kid, key)));
-      this.keysById = Map.copyOf(keys);
 
-      if (!this.keysById.containsKey(activeKeyId)) {
-         throw new IllegalArgumentException("Active encryption key id '" + activeKeyId + "' not found in reshapr.encryption.keys");
+      Map<String, SecretKeySpec> parsed = new HashMap<>();
+      for (Map.Entry<String, String> entry : config.keys().entrySet()) {
+         String kid = entry.getKey();
+         String b64 = entry.getValue();
+         if (b64 == null || b64.isBlank()) {
+            continue;
+         }
+         byte[] raw = Base64.getDecoder().decode(b64);
+         if (raw.length != AES_256_KEY_LENGTH) {
+            throw new IllegalStateException("Encryption key '" + kid
+                  + "' must be Base64-encoded 32 bytes (AES-256), got " + raw.length + " bytes");
+         }
+         parsed.put(kid, new SecretKeySpec(raw, "AES"));
       }
-      this.activeKeyId = activeKeyId;
 
-      this.legacySecretKey = legacyKey.filter(key -> !key.isBlank()).map(key -> toSecretKey("legacy", key)).orElse(null);
+      if (!parsed.containsKey(config.activeKid())) {
+         throw new IllegalStateException("Active encryption key id '" + config.activeKid() + "' not found in reshapr.encryption.keys");
+      }
+
+      this.keys = Map.copyOf(parsed);
+      this.activeKid = config.activeKid();
+
+      config.legacyKey().filter(s -> !s.isBlank()).ifPresent(k -> {
+         byte[] raw = k.getBytes(StandardCharsets.UTF_8);
+         if (!isKeySizeValid(raw.length)) {
+            throw new IllegalStateException("Legacy encryption key must be 16, 24 or 32 characters long");
+         }
+         this.legacyKey = new SecretKeySpec(raw, "AES");
+      });
+   }
+
+   /**
+    * Forces this service to be instantiated eagerly at application startup so that any encryption
+    * misconfiguration (missing, malformed or wrong-sized keys — see {@link #initialize()}) fails the
+    * boot immediately, instead of surfacing lazily on the first encrypt/decrypt call — which happens
+    * only through Arc lookups from JPA converters and Jackson (de)serializers.
+    * @param event The Quarkus startup event.
+    */
+   void onStart(@Observes StartupEvent event) {
+      logger.infof("CipherService ready: active key id '%s', %d key(s) configured, legacy key %s",
+            activeKid, keys.size(), legacyKey != null ? "present" : "absent");
+   }
+
+   /**
+    * Returns the id (kid) of the key currently used for new encryption operations.
+    * @return The active key id.
+    */
+   public String activeKid() {
+      return activeKid;
+   }
+
+   /**
+    * Tells whether the given value looks like a ciphertext produced by {@link #encrypt(String)}, i.e.
+    * whether it is prefixed by a {@code <kid>:} whose kid belongs to the configured keyset. This is
+    * used to distinguish already-encrypted values from values still stored in clear (for example a
+    * nested JSON property that predates its encryption), so that reads and re-encryption can handle
+    * both transparently.
+    * @param value The value to inspect.
+    * @return {@code true} if the value is prefixed by a known key id, {@code false} otherwise.
+    */
+   public boolean isEncrypted(String value) {
+      if (value == null) {
+         return false;
+      }
+      int separatorIndex = value.indexOf(':');
+      return separatorIndex > 0 && keys.containsKey(value.substring(0, separatorIndex));
    }
 
    /**
@@ -93,12 +166,12 @@ public class CipherService {
          secureRandom.nextBytes(iv);
 
          Cipher cipher = Cipher.getInstance(AEAD_ALGORITHM);
-         cipher.init(Cipher.ENCRYPT_MODE, keysById.get(activeKeyId), new GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv));
+         cipher.init(Cipher.ENCRYPT_MODE, keys.get(activeKid), new GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv));
          byte[] ciphertext = cipher.doFinal(data.getBytes(StandardCharsets.UTF_8));
 
          ByteBuffer buffer = ByteBuffer.allocate(iv.length + ciphertext.length);
          buffer.put(iv).put(ciphertext);
-         return activeKeyId + ":" + Base64.getEncoder().encodeToString(buffer.array());
+         return activeKid + ":" + Base64.getEncoder().encodeToString(buffer.array());
       } catch (GeneralSecurityException e) {
          throw new RuntimeException("Unable to encrypt data", e);
       }
@@ -114,13 +187,13 @@ public class CipherService {
       int separatorIndex = encryptedData.indexOf(':');
       if (separatorIndex > 0) {
          String kid = encryptedData.substring(0, separatorIndex);
-         SecretKeySpec key = keysById.get(kid);
+         SecretKeySpec key = keys.get(kid);
          if (key == null) {
             throw new IllegalStateException("Unable to decrypt value: unknown encryption key id '" + kid + "'");
          }
          return decryptGcm(key, encryptedData.substring(separatorIndex + 1));
       }
-      if (legacySecretKey == null) {
+      if (legacyKey == null) {
          throw new IllegalStateException("Unable to decrypt legacy value: no reshapr.encryption.legacy-key configured");
       }
       return decryptLegacy(encryptedData);
@@ -143,19 +216,11 @@ public class CipherService {
    private String decryptLegacy(String encryptedData) {
       try {
          Cipher cipher = Cipher.getInstance(LEGACY_ALGORITHM);
-         cipher.init(Cipher.DECRYPT_MODE, legacySecretKey);
+         cipher.init(Cipher.DECRYPT_MODE, legacyKey);
          return new String(cipher.doFinal(Base64.getDecoder().decode(encryptedData)), StandardCharsets.UTF_8);
       } catch (GeneralSecurityException e) {
          throw new RuntimeException("Unable to decrypt data", e);
       }
-   }
-
-   private static SecretKeySpec toSecretKey(String kid, String key) {
-      byte[] keyBytes = key.getBytes(StandardCharsets.UTF_8);
-      if (!isKeySizeValid(keyBytes.length)) {
-         throw new IllegalArgumentException("Encryption key '" + kid + "' must be 16, 24 or 32 characters long");
-      }
-      return new SecretKeySpec(keyBytes, "AES");
    }
 
    private static boolean isKeySizeValid(int len) {

@@ -33,9 +33,13 @@ services:
       - RESHAPR_ADMIN_EMAIL=reshapr@example.com
       - RESHAPR_DEFAULT_GATEWAY_TOKENS=my-super-secret-token-xyz
       # Change the encryption key to a secure 32-character string for production use.
-      # This key is used (AES/GCM) to encrypt sensitive data in the control plane, and also to
-      # decrypt values encrypted by older releases (AES/ECB). See reshapr.encryption.* properties
-      # for key rotation support (adding new key ids alongside this one).
+      # AES/GCM keyset used to encrypt sensitive data in the control plane. Each key is a
+      # Base64-encoded 32-byte value (AES-256). New writes use RESHAPR_ENCRYPTION_ACTIVE_KEY_ID;
+      # add more keys.<kid> entries to rotate. In production these come from a secret manager (Vault).
+      - RESHAPR_ENCRYPTION_KEYS_V1=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
+      - RESHAPR_ENCRYPTION_ACTIVE_KEY_ID=v1
+      # Legacy passphrase used to decrypt values written by older releases (AES/ECB, no "kid:"
+      # prefix). Remove once all values have been re-encrypted with the AES/GCM keyset above.
       - RESHAPR_ENCRYPTION_KEY=my-super-secret-key-32-char-long
       # Enable external OIDC ID provider authentication
       #- RESHAPR_AUTHENTICATION_IDP_ENABLED=true

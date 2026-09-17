@@ -15,6 +15,8 @@
  */
 package io.reshapr.ctrl.security;
 
+import io.reshapr.ctrl.config.EncryptionConfig;
+
 import org.junit.jupiter.api.Test;
 
 import javax.crypto.Cipher;
@@ -25,6 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -36,29 +39,59 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class CipherServiceTest {
 
-   private static final String KEY_V1 = "0123456789abcdef";
-   private static final String KEY_V2 = "fedcba9876543210";
+   /** Base64-encoded 32-byte AES-256 keys, as provided via configuration. */
+   private static final String KEY_V1 = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+   private static final String KEY_V2 = "AAcOFRwjKjE4P0ZNVFtiaXB3foWMk5qhqK+2vcTL0tk=";
+   /** A 32-character passphrase reproducing the pre-migration legacy AES/ECB key. */
+   private static final String LEGACY_KEY = "my-super-secret-key-32-char-long";
+
+   private class EncryptionConfigImpl implements EncryptionConfig {
+      private String activeKid;
+      private Map<String, String> keys;
+      private Optional<String> legacyKey;
+
+      public EncryptionConfigImpl(String activeKid, Map<String, String> keys, Optional<String> legacyKey) {
+         this.activeKid = activeKid;
+         this.keys = keys;
+         this.legacyKey = legacyKey;
+      }
+
+      @Override
+      public String activeKid() {
+         return activeKid;
+      }
+
+      @Override
+      public Map<String, String> keys() {
+         return keys;
+      }
+
+      @Override
+      public Optional<String> legacyKey() {
+         return legacyKey;
+      }
+   }
 
    // ---------------------------------------------------------------------
-   //  Constructor validation
+   //  Initialize validation
    // ---------------------------------------------------------------------
 
    @Test
-   void testConstructorRejectsEmptyKeys() {
-      assertThrows(IllegalArgumentException.class,
-            () -> new CipherService(Map.of(), "v1", Optional.empty()));
+   void testInitializeRejectsEmptyKeys() {
+      CipherService service = new CipherService(new EncryptionConfigImpl("v1", Map.of(), Optional.empty()));
+      assertThrows(IllegalStateException.class, service::initialize);
    }
 
    @Test
-   void testConstructorRejectsUnknownActiveKeyId() {
-      assertThrows(IllegalArgumentException.class,
-            () -> new CipherService(Map.of("v1", KEY_V1), "v2", Optional.empty()));
+   void testInitializeRejectsUnknownActiveKeyId() {
+      CipherService service = new CipherService(new EncryptionConfigImpl("v2", Map.of("v1", KEY_V1), Optional.empty()));
+      assertThrows(IllegalStateException.class, service::initialize);
    }
 
    @Test
-   void testConstructorRejectsInvalidKeySize() {
-      assertThrows(IllegalArgumentException.class,
-            () -> new CipherService(Map.of("v1", "too-short"), "v1", Optional.empty()));
+   void testInitializeRejectsInvalidKeySize() {
+      CipherService service = new CipherService(new EncryptionConfigImpl("v1", Map.of("v1", "dG9vLXNob3J0"), Optional.empty()));
+      assertThrows(IllegalStateException.class, service::initialize);
    }
 
    // ---------------------------------------------------------------------
@@ -67,7 +100,8 @@ class CipherServiceTest {
 
    @Test
    void testEncryptThenDecryptReturnsOriginalValue() {
-      var service = new CipherService(Map.of("v1", KEY_V1), "v1", Optional.empty());
+      var service = new CipherService(new EncryptionConfigImpl("v1", Map.of("v1", KEY_V1), Optional.empty()));
+      service.initialize();
 
       String encrypted = service.encrypt("hello world");
 
@@ -76,7 +110,8 @@ class CipherServiceTest {
 
    @Test
    void testEncryptPrefixesCiphertextWithActiveKeyId() {
-      var service = new CipherService(Map.of("v1", KEY_V1), "v1", Optional.empty());
+      var service = new CipherService(new EncryptionConfigImpl("v1", Map.of("v1", KEY_V1), Optional.empty()));
+      service.initialize();
 
       assertTrue(service.encrypt("some-secret").startsWith("v1:"));
    }
@@ -85,7 +120,8 @@ class CipherServiceTest {
    void testEncryptIsNonDeterministic() {
       // Unlike the legacy AES/ECB scheme, GCM uses a random IV so encrypting the same plaintext
       // twice must not yield the same ciphertext.
-      var service = new CipherService(Map.of("v1", KEY_V1), "v1", Optional.empty());
+      var service = new CipherService(new EncryptionConfigImpl("v1", Map.of("v1", KEY_V1), Optional.empty()));
+      service.initialize();
 
       assertNotEquals(service.encrypt("same-value"), service.encrypt("same-value"));
    }
@@ -94,7 +130,9 @@ class CipherServiceTest {
    void testDecryptRejectsTamperedCiphertext() {
       // GCM is authenticated: flipping a byte in the payload must fail decryption rather than
       // silently returning corrupted plaintext.
-      var service = new CipherService(Map.of("v1", KEY_V1), "v1", Optional.empty());
+      var service = new CipherService(new EncryptionConfigImpl("v1", Map.of("v1", KEY_V1), Optional.empty()));
+      service.initialize();
+
       String encrypted = service.encrypt("hello world");
       String tampered = encrypted.substring(0, encrypted.length() - 4) + "abcd";
 
@@ -107,11 +145,14 @@ class CipherServiceTest {
 
    @Test
    void testDecryptUsesKeyIdEmbeddedInCiphertextAfterRotation() {
-      var serviceV1 = new CipherService(Map.of("v1", KEY_V1), "v1", Optional.empty());
+      var serviceV1 = new CipherService(new EncryptionConfigImpl("v1", Map.of("v1", KEY_V1), Optional.empty()));
+      serviceV1.initialize();
+
       String encryptedWithV1 = serviceV1.encrypt("rotate-me");
 
       // After rotation, both keys are configured but "v2" is now active for new writes.
-      var serviceV2 = new CipherService(Map.of("v1", KEY_V1, "v2", KEY_V2), "v2", Optional.empty());
+      var serviceV2 = new CipherService(new EncryptionConfigImpl("v2", Map.of("v1", KEY_V1, "v2", KEY_V2), Optional.empty()));
+      serviceV2.initialize();
 
       // A value encrypted before rotation still decrypts using the retired "v1" key...
       assertEquals("rotate-me", serviceV2.decrypt(encryptedWithV1));
@@ -121,9 +162,26 @@ class CipherServiceTest {
 
    @Test
    void testDecryptRejectsUnknownKeyId() {
-      var service = new CipherService(Map.of("v1", KEY_V1), "v1", Optional.empty());
+      var service = new CipherService(new EncryptionConfigImpl("v1", Map.of("v1", KEY_V1), Optional.empty()));
+      service.initialize();
 
       assertThrows(IllegalStateException.class, () -> service.decrypt("unknown-kid:AAAA"));
+   }
+
+   @Test
+   void testIsEncryptedRecognizesKnownKeyIdPrefix() {
+      var service = new CipherService(new EncryptionConfigImpl("v1", Map.of("v1", KEY_V1, "v2", KEY_V2), Optional.empty()));
+      service.initialize();
+
+      // A value produced by encrypt() carries a known kid and must be recognized...
+      assertTrue(service.isEncrypted(service.encrypt("secret")));
+      // ...as well as a value tagged with any other configured kid.
+      assertTrue(service.isEncrypted("v2:whatever"));
+      // ...but not a plaintext value, even one that happens to contain a colon.
+      assertFalse(service.isEncrypted("plain-secret"));
+      assertFalse(service.isEncrypted("host:5555"));
+      assertFalse(service.isEncrypted("unknown-kid:payload"));
+      assertFalse(service.isEncrypted(null));
    }
 
    // ---------------------------------------------------------------------
@@ -132,16 +190,18 @@ class CipherServiceTest {
 
    @Test
    void testDecryptFallsBackToLegacyEcbWhenNoKidPrefix() throws Exception {
-      String legacyEncrypted = legacyEcbEncrypt(KEY_V1, "pre-existing-secret");
-      var service = new CipherService(Map.of("v1", KEY_V1), "v1", Optional.of(KEY_V1));
+      String legacyEncrypted = legacyEcbEncrypt(LEGACY_KEY, "pre-existing-secret");
+      var service = new CipherService(new EncryptionConfigImpl("v1", Map.of("v1", KEY_V1), Optional.of(LEGACY_KEY)));
+      service.initialize();
 
       assertEquals("pre-existing-secret", service.decrypt(legacyEncrypted));
    }
 
    @Test
    void testDecryptLegacyValueFailsWithoutLegacyKeyConfigured() throws Exception {
-      String legacyEncrypted = legacyEcbEncrypt(KEY_V1, "pre-existing-secret");
-      var service = new CipherService(Map.of("v1", KEY_V1), "v1", Optional.empty());
+      String legacyEncrypted = legacyEcbEncrypt(LEGACY_KEY, "pre-existing-secret");
+      var service = new CipherService(new EncryptionConfigImpl("v1", Map.of("v1", KEY_V1), Optional.empty()));
+      service.initialize();
 
       assertThrows(IllegalStateException.class, () -> service.decrypt(legacyEncrypted));
    }
