@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 import { Command } from 'commander';
+import { createAdminEncryptionCommand } from './encryption.js';
 import { createAdminMembershipCommand } from './membership.js';
 import { createAdminOrganizationCommand } from './organization.js';
 import { createAdminQuotaCommand } from './quota.js';
@@ -29,7 +30,8 @@ export function createAdminCommand(): Command {
     .addCommand(createAdminOrganizationCommand())
     .addCommand(createAdminQuotaCommand())
     .addCommand(createAdminMembershipCommand())
-    .addCommand(createAdminServiceAccountCommand());
+    .addCommand(createAdminServiceAccountCommand())
+    .addCommand(createAdminEncryptionCommand());
 }
 
 export const adminCommand = createAdminCommand();

@@ -110,6 +110,30 @@ reshapr admin service-account create reshapr-system-operator \
 
 Replace `["*"]` with a JSON array of organization names to restrict access.
 
+## Encryption keys
+
+Show the id (kid) of the key currently used for all new encryption:
+
+```shell
+reshapr admin encryption status
+```
+
+Rotate the database encryption keyset — re-encrypts every sensitive column
+(secrets, configuration plans, and the nested OAuth2 `clientSecret`) with the
+active key. Run it after promoting a new active key. The operation is
+idempotent: values already encrypted with the active key are skipped.
+
+```shell
+reshapr admin encryption rotate
+```
+
+The command asks for confirmation before touching the database. Add
+`-y, --yes` to skip the prompt (useful in scripts or CI):
+
+```shell
+reshapr admin encryption rotate --yes
+```
+
 ## Help and structured output
 
 Use `--help` at any command level to discover available operations and options:

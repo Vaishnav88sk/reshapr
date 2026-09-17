@@ -224,6 +224,53 @@ describe('admin commands', () => {
     expect(Context.isEmpty()).toBe(true);
   });
 
+  it('reads the active encryption key id from the status endpoint', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ activeKid: 'v2' }));
+
+    await createAdminCommand().parseAsync([
+      '--admin-api-key', 'key',
+      'encryption', 'status'
+    ], { from: 'user' });
+
+    expectRequest(
+      'https://saved.example/api/admin/encryption/status',
+      'POST',
+      {}
+    );
+    expect(Context.get('encryption')).toEqual({ activeKid: 'v2' });
+  });
+
+  it('rotates encryption keys when confirmed with --yes', async () => {
+    const report = { secretsRotated: 4, configurationPlansRotated: 2 };
+    fetchMock.mockResolvedValue(jsonResponse(report));
+
+    await createAdminCommand().parseAsync([
+      '--admin-api-key', 'key',
+      'encryption', 'rotate', '--yes'
+    ], { from: 'user' });
+
+    expectRequest(
+      'https://saved.example/api/admin/encryption/rotate',
+      'POST',
+      {}
+    );
+    expect(Context.get('rotation')).toEqual(report);
+  });
+
+  it('does not rotate encryption keys without the --yes confirmation', async () => {
+    fetchMock.mockClear();
+    const warnSpy = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+
+    await createAdminCommand().parseAsync([
+      '--admin-api-key', 'key',
+      'encryption', 'rotate'
+    ], { from: 'user' });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled();
+    expect(Context.isEmpty()).toBe(true);
+  });
+
   function expectRequest(url: string, method: string, body: unknown): void {
     expect(fetchMock).toHaveBeenCalledWith(
       url,

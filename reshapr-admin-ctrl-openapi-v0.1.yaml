@@ -400,6 +400,37 @@ paths:
         type: string
       in: path
       required: true
+  /admin/encryption/status:
+    post:
+      operationId: getEncryptionStatus
+      summary: Get the encryption status
+      description: Returns the id (kid) of the key currently used for all new encryption
+        operations.
+      responses:
+        '200':
+          description: The current encryption status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EncryptionStatus'
+      security:
+        - admin-api-key: []
+  /admin/encryption/rotate:
+    post:
+      operationId: rotateEncryptionKeys
+      summary: Rotate the database encryption keyset
+      description: Re-encrypts every sensitive column with the active key. Idempotent -
+        values already encrypted with the active key are skipped.
+      responses:
+        '200':
+          description: The key rotation completed, returning the number of re-encrypted
+            values per table
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RotationReport'
+      security:
+        - admin-api-key: []
 components:
   schemas:
     UserRequest:
@@ -559,6 +590,25 @@ components:
         icon:
           description: The organization icon (can be a URL or a base64 encoded string)
           type: string
+    EncryptionStatus:
+      description: The current database encryption status
+      type: object
+      properties:
+        activeKid:
+          description: The id (kid) of the key currently used for all new encryption operations
+          type: string
+    RotationReport:
+      description: The result of a key rotation, counting re-encrypted values per table
+      type: object
+      properties:
+        secretsRotated:
+          description: The number of re-encrypted values in the secrets table
+          type: integer
+          format: int64
+        configurationPlansRotated:
+          description: The number of re-encrypted values in the configuration plans table
+          type: integer
+          format: int64
   securitySchemes:
     admin-api-key:
       type: apiKey
