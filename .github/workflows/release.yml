@@ -84,7 +84,11 @@ jobs:
         run: |
           cd cli
           npm sbom --sbom-format spdx > reshapr-reshapr-cli-${{ github.event.inputs.version }}.spdx-sbom.json
-          npm publish --provenance
+          if [[ "${{ github.event.inputs.version }}" == *-* ]]; then
+            npm publish --provenance --tag next
+          else
+            npm publish --provenance
+          fi
           npm pack
 
       - name: Genenate NPM SBOM and package at least for GitHub release
