@@ -16,7 +16,6 @@ on:
       - '.gitignore'
       - 'LICENSE'
       - '*.md'
-permissions: read-all
 
 jobs:
   build-install:
