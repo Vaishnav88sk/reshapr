@@ -15,7 +15,6 @@
  */
 package io.reshapr.ctrl.security;
 
-import io.quarkus.security.identity.SecurityIdentity;
 import io.reshapr.ctrl.config.AuthenticationIdentityProviderConfig;
 import io.reshapr.ctrl.model.Organization;
 import io.reshapr.ctrl.model.ServiceAccount;
@@ -34,6 +33,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.quarkus.qute.CheckedTemplate;
 import io.quarkus.qute.TemplateInstance;
 import io.quarkus.security.Authenticated;
+import io.quarkus.security.identity.SecurityIdentity;
 import io.smallrye.common.annotation.RunOnVirtualThread;
 import io.smallrye.jwt.build.Jwt;
 import jakarta.transaction.Transactional;
@@ -59,8 +59,9 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Base64;
-import java.util.Date;
+import java.util.List;
 
 /**
  * Controller for handling authentication and user profile related requests.
@@ -74,6 +75,8 @@ public class AuthenticationController {
    private final Logger logger = Logger.getLogger(getClass());
 
    private static final String RESHAPR_ONBOARDING_COOKIE = "reshapr-onboarding";
+   private static final int CLI_REDIRECT_MIN_PORT = 5556;
+   private static final int CLI_REDIRECT_MAX_PORT = 5599;
 
    public static final String RESHAPR_IDENTITY_PROVIDER = "reshapr";
 
@@ -83,6 +86,8 @@ public class AuthenticationController {
    private final UserRepository userRepository;
    private final OrganizationRepository organizationRepository;
    private final ServiceAccountRepository serviceAccountRepository;
+
+   private final OidcLoginStateStore oidcLoginStateStore;
 
    private final ObjectMapper objectMapper;
    private final SecureRandom secureRandom;
@@ -99,24 +104,26 @@ public class AuthenticationController {
     * @param userRepository The repository to access user data.
     * @param organizationRepository The repository to access organization data
     * @param serviceAccountRepository The repository to access service account data.
+    * @param oidcLoginStateStore The store for pending OIDC login states.
     * @param objectMapper The ObjectMapper for JSON processing.
     */
    public AuthenticationController(AuthenticationIdentityProviderConfig oidcIdentityProviderConfig, OnboardingService onboardingService,
                                    UserRepository userRepository, OrganizationRepository organizationRepository, ServiceAccountRepository serviceAccountRepository,
-                                   ObjectMapper objectMapper) {
+                                   OidcLoginStateStore oidcLoginStateStore, ObjectMapper objectMapper) {
       this.oidcIdentityProviderConfig = oidcIdentityProviderConfig;
       this.onboardingService = onboardingService;
       this.userRepository = userRepository;
       this.organizationRepository = organizationRepository;
       this.serviceAccountRepository = serviceAccountRepository;
+      this.oidcLoginStateStore = oidcLoginStateStore;
       this.objectMapper = objectMapper;
       this.secureRandom = new SecureRandom();
    }
 
    @CheckedTemplate
    public static class Templates {
-      public static native TemplateInstance onboardingForm(String username, String redirectUri);
-      public static native TemplateInstance onboardingError(String username, String organizationName, String redirectUri, String message);
+      public static native TemplateInstance onboardingForm(String username);
+      public static native TemplateInstance onboardingError(String username, String organizationName, String message);
    }
 
    @POST
@@ -150,18 +157,25 @@ public class AuthenticationController {
       // Redirect uri for the OIDC provider is control plane callback.
       String ctrlPlaneRedirectUri = reshaprCtrlPublicUrl + "/auth/callback/oidc";
 
-      // Wrap the client redirect_uri into state JSON in Base64.
-      byte[] bytes = new byte[16];
-      secureRandom.nextBytes(bytes);
-      String csrfToken = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes); // 16 chars
-      String clientData = Base64.getEncoder()
-            .encodeToString(("{\"csrf\":\"" + csrfToken + "\", \"ru\":\"" + redirectUri + "\"" + "}")
-            .getBytes(StandardCharsets.UTF_8));
+      URI validatedRedirectUri;
+      try {
+         validatedRedirectUri = validateRedirectUri(redirectUri);
+      } catch (IllegalArgumentException e) {
+         logger.warnf("Rejected OIDC redirect URI: %s", e.getMessage());
+         return Response.status(Response.Status.BAD_REQUEST).entity("Invalid or unauthorized redirect_uri").build();
+      }
+
+      // Compute and store a random state and nonce to correlate the login request with the callback.
+      String state = randomBase64Url(32);
+      String nonce = randomBase64Url(32);
+      oidcLoginStateStore.createLogin(state,
+         new OidcLoginStateStore.PendingOidcLogin(validatedRedirectUri.toASCIIString(), nonce, Instant.now()));
 
       String oidcEndpoint = oidcIdentityProviderConfig.url();
       oidcEndpoint += "?client_id=" + oidcIdentityProviderConfig.clientId();
       oidcEndpoint += "&redirect_uri=" + URLEncoder.encode(ctrlPlaneRedirectUri, StandardCharsets.UTF_8);
-      oidcEndpoint += "&state=" + clientData;
+      oidcEndpoint += "&state=" + state;
+      oidcEndpoint += "&nonce=" + nonce;
       oidcEndpoint += "&scope=" + URLEncoder.encode(buildScopeParam(), StandardCharsets.UTF_8);
       oidcEndpoint += "&response_type=code";
 
@@ -180,6 +194,16 @@ public class AuthenticationController {
          return Response.status(Response.Status.SERVICE_UNAVAILABLE).build();
       }
 
+      if (authorizationCode == null || authorizationCode.isBlank() || state == null || state.isBlank()) {
+         return Response.status(Response.Status.BAD_REQUEST).entity("Missing authorization code or OIDC state").build();
+      }
+
+      OidcLoginStateStore.PendingOidcLogin pendingLogin = oidcLoginStateStore.consumeLogin(state);
+      if (pendingLogin == null) {
+         return Response.status(Response.Status.BAD_REQUEST).entity("Invalid, expired, or already used OIDC state").build();
+      }
+      String redirectUri = pendingLogin.returnUri();
+
       // Redirect uri for the OIDC provider is control plane callback.
       String ctrlPlaneRedirectUri = reshaprCtrlPublicUrl + "/auth/callback/oidc";
 
@@ -195,17 +219,6 @@ public class AuthenticationController {
       } catch (AuthenticationException e) {
          logger.errorf("OAuth2 token exchange fails with '%s'", e.getMessage());
          return Response.status(Response.Status.UNAUTHORIZED).entity("Failed to exchange authorization code for access token").build();
-      }
-
-      // Decode the clientData from Base64 to get the original redirect_uri.
-      String decodedClientData = new String(Base64.getDecoder().decode(state), StandardCharsets.UTF_8);
-      String redirectUri = null;
-      try {
-         var clientDataJson = objectMapper.readTree(decodedClientData);
-         redirectUri = clientDataJson.get("ru").asText();
-      } catch (Exception e) {
-         logger.errorf(e, "Failed to decode clientData: %s", state);
-         return Response.status(Response.Status.BAD_REQUEST).entity("Invalid client data").build();
       }
 
       User user = null;
@@ -253,17 +266,29 @@ public class AuthenticationController {
             if (user == null) {
                // Either no default organization settings or attach fails...
                // Redirect to onboarding page if user does not exist in database, to allow creating his organization.
+               String onboardingId = randomBase64Url(32);
+               oidcLoginStateStore.createOnboarding(onboardingId,
+                  new OidcLoginStateStore.PendingOidcOnboarding(
+                     jwtPayloadNode.path("iss").asText(null),
+                     jwtPayloadNode.path("sub").asText(null),
+                     username,
+                     jwtPayloadNode.path("email").asText(null),
+                     jwtPayloadNode.path("given_name").asText(null),
+                     jwtPayloadNode.path("family_name").asText(null),
+                     redirectUri,
+                     Instant.now()));
+
                NewCookie cookie = new NewCookie.Builder(RESHAPR_ONBOARDING_COOKIE)
-                     .value(accessToken.split("\\.")[1])
-                     .path("/")
-                     .sameSite(NewCookie.SameSite.STRICT)
-                     .expiry(new Date(System.currentTimeMillis() + Duration.ofMinutes(15).toMillis()))
-                     .httpOnly(true)
-                     .secure(true)
-                     .build();
+                  .value(onboardingId)
+                  .path("/auth/onboarding/oidc")
+                  .sameSite(NewCookie.SameSite.STRICT)
+                  .maxAge((int) Duration.ofMinutes(15).toSeconds())
+                  .httpOnly(true)
+                  .secure(true)
+                  .build();
 
                logger.infof("User '%s' does not exist in database, rendering the onboarding page", username);
-               TemplateInstance page = Templates.onboardingForm(username, redirectUri);
+               TemplateInstance page = Templates.onboardingForm(username);
                return Response.ok(page.render()).cookie(cookie).build();
             }
          }
@@ -282,35 +307,40 @@ public class AuthenticationController {
    @Path("/onboarding/oidc")
    @Produces(MediaType.TEXT_HTML)
    @Transactional
-   public Response completeOnboarding(@CookieParam(RESHAPR_ONBOARDING_COOKIE) String encodedJwtPayload,
-                                      @FormParam("username") String username,
-                                      @FormParam("organizationName") String organizationName,
-                                      @FormParam("redirectUri") String redirectUri) {
+   public Response completeOnboarding(@CookieParam(RESHAPR_ONBOARDING_COOKIE) String onboardingId,
+                                      @FormParam("organizationName") String organizationName) {
+      if (onboardingId == null || onboardingId.isBlank()) {
+         return Response.status(Response.Status.BAD_REQUEST).entity("Missing onboarding state").build();
+      }
+
+      OidcLoginStateStore.PendingOidcOnboarding pendingOnboarding = oidcLoginStateStore.consumeOnboarding(onboardingId);
+      if (pendingOnboarding == null) {
+         return Response.status(Response.Status.BAD_REQUEST).entity("Invalid, expired, or already used onboarding state").build();
+      }
+
+      String username = pendingOnboarding.username();
+      String redirectUri = pendingOnboarding.returnUri();
       User user = null;
 
       // Check if organization already exists.
       Organization organization = organizationRepository.findByName(organizationName);
       if (organization != null) {
          logger.warnf("Organization with name %s already exists", organizationName);
-         TemplateInstance instance = Templates.onboardingError(username, organizationName, redirectUri, "Organization already exists");
+         oidcLoginStateStore.createOnboarding(onboardingId, pendingOnboarding);
+         TemplateInstance instance = Templates.onboardingError(username, organizationName, "Organization already exists");
          return Response.ok(instance.render()).build();
       }
 
       try {
-         logger.infof("completeOnboarding() called with jwtPayload: %s", encodedJwtPayload);
-         // Decode the JWT payload from previous access_token to get the user information.
-         JsonNode jwtPayloadNode = objectMapper.readTree(Base64.getDecoder().decode(encodedJwtPayload));
-         username = jwtPayloadNode.get("preferred_username").asText();
-         String email = jwtPayloadNode.get("email").asText();
-
-         // Extract optional user information from JWT.
-         String firstname = jwtPayloadNode.path("given_name").asText(null);
-         String lastname = jwtPayloadNode.path("family_name").asText(null);
-
          logger.infof("completeOnboarding() called with username: %s", username);
 
          // 1. Create and persist user.
-         user = onboardingService.createUser(new OnboardingService.UserInfo(username, email, null, firstname, lastname));
+         user = onboardingService.createUser(new OnboardingService.UserInfo(
+               username,
+               pendingOnboarding.email(),
+               null,
+               pendingOnboarding.firstName(),
+               pendingOnboarding.lastName()));
 
          // 2. Create and persist organization.
          onboardingService.createOrganization(username, new OnboardingService.OrganizationInfo(organizationName, "Organization for " + username, null));
@@ -319,15 +349,18 @@ public class AuthenticationController {
          onboardingService.initializeOnboardingQuotas(organizationName);
       } catch (EntityAlreadyExistException eaee) {
          logger.warnf("Similar entity already exists", eaee);
-         TemplateInstance instance = Templates.onboardingError(username, organizationName, redirectUri, eaee.getMessage());
+         oidcLoginStateStore.createOnboarding(onboardingId, pendingOnboarding);
+         TemplateInstance instance = Templates.onboardingError(username, organizationName, eaee.getMessage());
          return Response.ok(instance.render()).build();
       } catch (DependencyNotFoundException dnfe) {
          logger.warnf("A required dependency cannot be found", dnfe);
-         TemplateInstance instance = Templates.onboardingError(username, organizationName, redirectUri, dnfe.getMessage());
+         oidcLoginStateStore.createOnboarding(onboardingId, pendingOnboarding);
+         TemplateInstance instance = Templates.onboardingError(username, organizationName, dnfe.getMessage());
          return Response.ok(instance.render()).build();
       }  catch (Exception e) {
-         logger.errorf(e, "Failed to decode JWT payload or to create User/Organization/Quotas");
-         TemplateInstance instance = Templates.onboardingError(username, organizationName, redirectUri, e.getMessage());
+         logger.errorf(e, "Failed to create User/Organization/Quotas");
+         oidcLoginStateStore.createOnboarding(onboardingId, pendingOnboarding);
+         TemplateInstance instance = Templates.onboardingError(username, organizationName, e.getMessage());
          return Response.ok(instance.render()).build();
       }
 
@@ -336,19 +369,20 @@ public class AuthenticationController {
       try {
          token = resolveOrganizationAndGenerateToken(RESHAPR_IDENTITY_PROVIDER, user);
       } catch (WebApplicationException e) {
-         TemplateInstance instance = Templates.onboardingError(username, organizationName, redirectUri, e.getMessage());
+         oidcLoginStateStore.createOnboarding(onboardingId, pendingOnboarding);
+         TemplateInstance instance = Templates.onboardingError(username, organizationName, e.getMessage());
          return Response.ok(instance.render()).build();
       }
 
       // Reset onboarding cookie to prevent replaying the onboarding.
       NewCookie cookie = new NewCookie.Builder(RESHAPR_ONBOARDING_COOKIE)
-            .value("reset")
-            .path("/")
-            .sameSite(NewCookie.SameSite.STRICT)
-            .maxAge(0)
-            .httpOnly(true)
-            .secure(true)
-            .build();
+         .value("reset")
+         .path("/auth/onboarding/oidc")
+         .sameSite(NewCookie.SameSite.STRICT)
+         .maxAge(0)
+         .httpOnly(true)
+         .secure(true)
+         .build();
 
       return Response.seeOther(URI.create(redirectUri + "?token=" + token)).cookie(cookie).build();
    }
@@ -505,6 +539,79 @@ public class AuthenticationController {
          }
       });
       return sb.toString();
+   }
+
+   private String randomBase64Url(int byteCount) {
+      byte[] bytes = new byte[byteCount];
+      secureRandom.nextBytes(bytes);
+      return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+   }
+
+   private URI validateRedirectUri(String redirectUri) {
+      if (redirectUri == null || redirectUri.isBlank()) {
+         throw new IllegalArgumentException("redirect_uri is required");
+      }
+
+      final URI candidate;
+      try {
+         candidate = URI.create(redirectUri);
+      } catch (IllegalArgumentException e) {
+         throw new IllegalArgumentException("redirect_uri is malformed", e);
+      }
+
+      if (!candidate.isAbsolute() || candidate.getHost() == null || candidate.getUserInfo() != null
+            || candidate.getQuery() != null || candidate.getFragment() != null) {
+         throw new IllegalArgumentException("redirect_uri must be an absolute URI without userinfo, query, or fragment");
+      }
+
+      if (isAllowedCliRedirectUri(candidate) || isConfiguredRedirectUri(candidate)) {
+         return candidate;
+      }
+      throw new IllegalArgumentException("redirect_uri is not allowed");
+   }
+
+   private boolean isAllowedCliRedirectUri(URI redirectUri) {
+      if (!oidcIdentityProviderConfig.allowCliLoopbackRedirect()
+            || !"http".equalsIgnoreCase(redirectUri.getScheme())
+            || !isLoopbackHost(redirectUri.getHost())
+            || (redirectUri.getPath() != null && !redirectUri.getPath().isEmpty() && !"/".equals(redirectUri.getPath()))) {
+         return false;
+      }
+
+      int port = redirectUri.getPort();
+      return port >= CLI_REDIRECT_MIN_PORT && port <= CLI_REDIRECT_MAX_PORT;
+   }
+
+   private boolean isConfiguredRedirectUri(URI redirectUri) {
+      return oidcIdentityProviderConfig.allowedRedirectUris()
+            .orElseGet(List::of)
+            .stream()
+            .map(String::trim)
+            .filter(value -> !value.isEmpty())
+            .map(this::parseConfiguredRedirectUri)
+            .anyMatch(redirectUri::equals);
+   }
+
+   private URI parseConfiguredRedirectUri(String configuredRedirectUri) {
+      final URI allowedUri;
+      try {
+         allowedUri = URI.create(configuredRedirectUri);
+      } catch (IllegalArgumentException e) {
+         throw new IllegalArgumentException("Configured OIDC redirect URI is malformed", e);
+      }
+
+      if (!allowedUri.isAbsolute() || allowedUri.getHost() == null || allowedUri.getUserInfo() != null
+            || allowedUri.getQuery() != null || allowedUri.getFragment() != null
+            || (!"https".equalsIgnoreCase(allowedUri.getScheme())
+                  && !("http".equalsIgnoreCase(allowedUri.getScheme()) && isLoopbackHost(allowedUri.getHost())))) {
+         throw new IllegalArgumentException("Configured OIDC redirect URI must use HTTPS or HTTP loopback without userinfo, query, or fragment");
+      }
+      return allowedUri;
+   }
+
+   private boolean isLoopbackHost(String host) {
+      return "localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host)
+            || "::1".equals(host) || "[::1]".equals(host);
    }
 
    private Organization resolveDefaultOrganization(User user) {

@@ -33,7 +33,7 @@ public class NativeConfigurationFeature implements Feature {
 
    @Override
    public void beforeAnalysis(BeforeAnalysisAccess access) {
-      // Register all inner classes in io.github.microcks.util.ai.McpSchema class.
+      // Register all inner classes in io.reshapr.proxy.mcp.McpSchema class.
       Arrays.stream(McpSchema.class.getClasses()).forEach(clazz -> {
          registerClassForReflection(clazz);
 

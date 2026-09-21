@@ -16,6 +16,7 @@
 package io.reshapr.ctrl.config;
 
 import io.smallrye.config.ConfigMapping;
+import io.smallrye.config.WithDefault;
 
 import java.util.List;
 import java.util.Optional;
@@ -30,6 +31,13 @@ public interface AuthenticationIdentityProviderConfig {
 
    /** Additional OAuth2 scopes to request on top of the built-in {@code openid profile email}. */
    Optional<List<String>> scopes();
+
+   /** Exact redirect URIs allowed for browser-based clients such as the Web UI. */
+   Optional<List<String>> allowedRedirectUris();
+
+   /** Whether CLI callbacks on loopback ports 5556 through 5599 are allowed. */
+   @WithDefault("true")
+   boolean allowCliLoopbackRedirect();
 
    /** Access guard configuration: further restrict which IDP users can access Reshapr. */
    GuardAccess guardAccess();

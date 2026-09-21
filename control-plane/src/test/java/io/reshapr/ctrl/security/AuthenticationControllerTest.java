@@ -19,15 +19,24 @@ import io.reshapr.ctrl.config.AuthenticationIdentityProviderConfig;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.ws.rs.core.Response;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Plain unit tests for the JWT parsing / scope building helpers of {@link AuthenticationController}.
@@ -38,6 +47,104 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AuthenticationControllerTest {
 
    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+   private OidcLoginStateStore stateStore;
+
+   @BeforeEach
+   void setUp() {
+      stateStore = mock(OidcLoginStateStore.class);
+   }
+
+   // ---------------------------------------------------------------------
+   //  OIDC state
+   // ---------------------------------------------------------------------
+
+   @Test
+   void testLoginWithOidcStoresOpaqueStateAndNonce() {
+      var controller = controllerWithConfig(configWithRedirectUris(
+         List.of("https://app.example.com/api/auth/callback/oidc")), stateStore);
+      controller.reshaprCtrlPublicUrl = "https://ctrl.example.com";
+
+      try (Response response = controller.loginWithOidc("https://app.example.com/api/auth/callback/oidc")) {
+         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+
+         ArgumentCaptor<String> stateCaptor = ArgumentCaptor.forClass(String.class);
+         ArgumentCaptor<OidcLoginStateStore.PendingOidcLogin> loginCaptor =
+               ArgumentCaptor.forClass(OidcLoginStateStore.PendingOidcLogin.class);
+         verify(stateStore).createLogin(stateCaptor.capture(), loginCaptor.capture());
+
+         String state = stateCaptor.getValue();
+         OidcLoginStateStore.PendingOidcLogin pendingLogin = loginCaptor.getValue();
+         URI location = response.getLocation();
+
+         assertNotNull(location);
+         assertTrue(location.getRawQuery().contains("state=" + state));
+         assertTrue(location.getRawQuery().contains("nonce=" + pendingLogin.nonce()));
+         assertEquals("https://app.example.com/api/auth/callback/oidc", pendingLogin.returnUri());
+         assertFalse(state.contains("app.example.com"));
+      }
+   }
+
+   @Test
+   void testLoginWithOidcAllowsCliLoopbackRedirect() {
+      var controller = controllerWithConfig(config(null, null, null, null, null, null), stateStore);
+      controller.reshaprCtrlPublicUrl = "https://ctrl.example.com";
+
+      try (Response response = controller.loginWithOidc("http://localhost:5556")) {
+         assertEquals(Response.Status.SEE_OTHER.getStatusCode(), response.getStatus());
+      }
+   }
+
+   @Test
+   void testLoginWithOidcRejectsUnauthorizedRedirect() {
+      var controller = controllerWithConfig(configWithRedirectUris(
+            List.of("https://app.example.com/api/auth/callback/oidc")), stateStore);
+      controller.reshaprCtrlPublicUrl = "https://ctrl.example.com";
+
+      try (Response response = controller.loginWithOidc("https://attacker.example.com/callback")) {
+         assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
+         assertEquals("Invalid or unauthorized redirect_uri", response.getEntity());
+      }
+
+      verifyNoInteractions(stateStore);
+   }
+
+   @Test
+   void testLoginWithOidcRejectsLoopbackRedirectOutsideCliPortRange() {
+      var controller = controllerWithConfig(config(null, null, null, null, null, null), stateStore);
+      controller.reshaprCtrlPublicUrl = "https://ctrl.example.com";
+
+      try (Response response = controller.loginWithOidc("http://localhost:8080")) {
+         assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
+      }
+   }
+
+   @Test
+   void testCallbackRejectsUnknownStateBeforeTokenExchange() {
+      var controller = controllerWithConfig(config(null, null, null, null, null, null), stateStore);
+      controller.reshaprCtrlPublicUrl = "https://ctrl.example.com";
+      when(stateStore.consumeLogin("unknown-state")).thenReturn(null);
+
+      try (Response response = controller.callbackFromOidc("authorization-code", "unknown-state")) {
+         assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
+         assertEquals("Invalid, expired, or already used OIDC state", response.getEntity());
+      }
+
+      verify(stateStore).consumeLogin("unknown-state");
+   }
+
+   @Test
+   void testOnboardingRejectsUnknownStateBeforeRepositoryAccess() {
+      var controller = controllerWithConfig(config(null, null, null, null, null, null), stateStore);
+      when(stateStore.consumeOnboarding("unknown-state")).thenReturn(null);
+
+      try (Response response = controller.completeOnboarding("unknown-state", "organization")) {
+         assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
+         assertEquals("Invalid, expired, or already used onboarding state", response.getEntity());
+      }
+
+      verify(stateStore).consumeOnboarding("unknown-state");
+   }
 
    // ---------------------------------------------------------------------
    //  buildScopeParam
@@ -242,7 +349,12 @@ class AuthenticationControllerTest {
    // ---------------------------------------------------------------------
 
    private static AuthenticationController controllerWithConfig(AuthenticationIdentityProviderConfig config) {
-      return new AuthenticationController(config, null, null, null, null, MAPPER);
+      return controllerWithConfig(config, null);
+   }
+
+   private static AuthenticationController controllerWithConfig(AuthenticationIdentityProviderConfig config,
+                                                                  OidcLoginStateStore stateStore) {
+      return new AuthenticationController(config, null, null, null, null, stateStore, MAPPER);
    }
 
    private static JsonNode jwt(String json) throws Exception {
@@ -254,6 +366,19 @@ class AuthenticationControllerTest {
          List<String> scopes,
          String guardGroup, String guardClaim,
          String defaultOrgClaim, String defaultOrgGroupPrefix, String defaultOrgValue) {
+
+      return config(scopes, guardGroup, guardClaim, defaultOrgClaim, defaultOrgGroupPrefix, defaultOrgValue, null);
+      }
+
+      private static AuthenticationIdentityProviderConfig configWithRedirectUris(List<String> allowedRedirectUris) {
+      return config(null, null, null, null, null, null, allowedRedirectUris);
+      }
+
+      private static AuthenticationIdentityProviderConfig config(
+         List<String> scopes,
+         String guardGroup, String guardClaim,
+         String defaultOrgClaim, String defaultOrgGroupPrefix, String defaultOrgValue,
+         List<String> allowedRedirectUris) {
 
       var guard = new AuthenticationIdentityProviderConfig.GuardAccess() {
          @Override public Optional<String> group() { return Optional.ofNullable(guardGroup); }
@@ -271,6 +396,8 @@ class AuthenticationControllerTest {
          @Override public String clientId() { return "client"; }
          @Override public String clientSecret() { return "secret"; }
          @Override public Optional<List<String>> scopes() { return Optional.ofNullable(scopes); }
+         @Override public Optional<List<String>> allowedRedirectUris() { return Optional.ofNullable(allowedRedirectUris); }
+         @Override public boolean allowCliLoopbackRedirect() { return true; }
          @Override public GuardAccess guardAccess() { return guard; }
          @Override public DefaultOrganization defaultOrganization() { return defaultOrg; }
       };
