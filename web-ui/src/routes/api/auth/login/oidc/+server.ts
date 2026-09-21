@@ -15,7 +15,7 @@
  */
 
 import { redirect } from '@sveltejs/kit';
-import { getCtrlUrl, getPublicUrl } from '$lib/server/auth.js';
+import { getCtrlPublicUrl, getPublicUrl } from '$lib/server/auth.js';
 import type { RequestHandler } from './$types.js';
 
 /**
@@ -26,13 +26,13 @@ import type { RequestHandler } from './$types.js';
  * and redirect back to /api/auth/callback/oidc with a ?token= parameter.
  */
 export const GET: RequestHandler = async () => {
-  const ctrlUrl = getCtrlUrl();
+  const ctrlPublicUrl = getCtrlPublicUrl();
   const publicUrl = getPublicUrl();
 
   // The control plane's /auth/login/oidc expects a redirect_uri
   // where it will send the user back with the JWT token.
   const callbackUrl = `${publicUrl}/api/auth/callback/oidc`;
-  const oidcUrl = `${ctrlUrl}/auth/login/oidc?redirect_uri=${encodeURIComponent(callbackUrl)}`;
+  const oidcUrl = `${ctrlPublicUrl}/auth/login/oidc?redirect_uri=${encodeURIComponent(callbackUrl)}`;
 
   redirect(302, oidcUrl);
 };

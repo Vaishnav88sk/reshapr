@@ -29,6 +29,12 @@ export function getCtrlUrl(): string {
   return url.replace(/\/+$/, '');
 }
 
+/** Public control-plane URL used for browser redirects. */
+export function getCtrlPublicUrl(): string {
+  const url = env.RESHAPR_CTRL_PUBLIC_URL ?? getCtrlUrl();
+  return url.replace(/\/+$/, '');
+}
+
 /** Resolved admin API key for the control plane. */
 export function getAdminApiKey(): string {
   return env.RESHAPR_ADMIN_API_KEY ?? '';
