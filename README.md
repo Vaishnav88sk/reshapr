@@ -66,10 +66,10 @@ reshapr run
 
 You should see a message like this:
 ```sh
-ℹ️  Resolved 'latest' to release '0.2.2'.
-ℹ️  Downloading compose file from https://raw.githubusercontent.com/reshaprio/reshapr/refs/tags/0.2.2/install/docker-compose-all-in-one.yml...
-✅ Compose file saved to /Users/<you>/.reshapr/docker-compose-0.2.2.yml
-ℹ️  Starting Reshapr containers (release: 0.2.2)...
+ℹ️  Resolved 'latest' to release '1.0.0'.
+ℹ️  Downloading compose file from https://raw.githubusercontent.com/reshaprio/reshapr/refs/tags/1.0.0/install/docker-compose-all-in-one.yml...
+✅ Compose file saved to /Users/<you>/.reshapr/docker-compose-1.0.0.yml
+ℹ️  Starting Reshapr containers (release: 1.0.0)...
 ✅ Reshapr containers started successfully.
 ```
 
@@ -80,11 +80,11 @@ reshapr login -s http://localhost:5555 -u admin -p password
 
 Import an OpenAPI file:
 ```sh
-reshapr import -u https://raw.githubusercontent.com/open-meteo/open-meteo/refs/heads/main/openapi.yml \
+reshapr import -u https://raw.githubusercontent.com/open-meteo/open-meteo/refs/heads/main/openapi/forecast.yml \
   --backendEndpoint https://api.open-meteo.com
 ```
 
-You now have a fully functional MCP Server powered by reShapr at http://localhost:7777/mcp/reshapr/Open-Meteo+APIs/1.0 🎉
+You now have a fully functional MCP Server powered by reShapr at http://localhost:7777/mcp/reshapr/open-meteo-weather-forecast-api-1-0-default 🎉
 
 You can try it out using an MCP client, [explore the CLI](https://reshapr.io/docs/tutorials/getting-started) and 
 [more features](https://reshapr.io/docs/references/features)!
