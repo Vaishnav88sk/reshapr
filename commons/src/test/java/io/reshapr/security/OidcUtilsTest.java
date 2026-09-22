@@ -26,6 +26,7 @@ import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
@@ -204,6 +205,71 @@ class OidcUtilsTest {
                () -> OidcUtils.exchangeAuthorizationCode(config, objectMapper, "code-1",
                      "https://gw/elicitation/callback"));
       }
+   }
+
+   @Test
+   void testExchangeOidcAuthorizationCodeReturnsAccessAndIdTokens() throws Exception {
+      try (CapturingTokenEndpoint endpoint = new CapturingTokenEndpoint(200,
+            "{\"access_token\":\"access-123\",\"id_token\":\"id-123\"}")) {
+
+         OidcUtils.OidcAuthorizationCodeTokens tokens = OidcUtils.exchangeOidcAuthorizationCode(
+               new OidcUtils.OidcEndpointConfig(endpoint.url(), "client", "secret"),
+               objectMapper, "code-1", "https://ctrl.example.com/auth/callback/oidc");
+
+         assertEquals("access-123", tokens.accessToken());
+         assertEquals("id-123", tokens.idToken());
+      }
+   }
+
+   @Test
+   void testExchangeOidcAuthorizationCodeRejectsMissingIdToken() throws Exception {
+      try (CapturingTokenEndpoint endpoint = new CapturingTokenEndpoint(200,
+            "{\"access_token\":\"access-123\"}")) {
+
+         assertThrows(AuthenticationException.class,
+               () -> OidcUtils.exchangeOidcAuthorizationCode(
+                     new OidcUtils.OidcEndpointConfig(endpoint.url(), "client", "secret"),
+                     objectMapper, "code-1", "https://ctrl.example.com/auth/callback/oidc"));
+      }
+   }
+
+   @Test
+   void testValidateJwtClaimsAcceptsMatchingNonceAndFutureExpiration() throws Exception {
+      Instant now = Instant.ofEpochSecond(1_000);
+      String token = unsignedJwt("{\"exp\":1001,\"nonce\":\"expected\"}");
+
+      assertEquals("expected", OidcUtils.validateJwtClaims(token, objectMapper, now, "expected").get("nonce").asText());
+   }
+
+   @Test
+   void testValidateJwtClaimsRejectsExpiredToken() {
+      Instant now = Instant.ofEpochSecond(1_000);
+      String token = unsignedJwt("{\"exp\":1000,\"nonce\":\"expected\"}");
+
+      assertThrows(AuthenticationException.class,
+            () -> OidcUtils.validateJwtClaims(token, objectMapper, now, "expected"));
+   }
+
+   @Test
+   void testValidateJwtClaimsRejectsMissingExpiration() {
+      String token = unsignedJwt("{\"nonce\":\"expected\"}");
+
+      assertThrows(AuthenticationException.class,
+            () -> OidcUtils.validateJwtClaims(token, objectMapper, Instant.ofEpochSecond(1_000), "expected"));
+   }
+
+   @Test
+   void testValidateJwtClaimsRejectsMismatchedNonce() {
+      String token = unsignedJwt("{\"exp\":1001,\"nonce\":\"other\"}");
+
+      assertThrows(AuthenticationException.class,
+            () -> OidcUtils.validateJwtClaims(token, objectMapper, Instant.ofEpochSecond(1_000), "expected"));
+   }
+
+   private static String unsignedJwt(String claims) {
+      Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
+      return encoder.encodeToString("{\"alg\":\"none\"}".getBytes(StandardCharsets.UTF_8)) + "."
+            + encoder.encodeToString(claims.getBytes(StandardCharsets.UTF_8)) + ".signature";
    }
 
    private static Map<String, String> decodeForm(String body) {

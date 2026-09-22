@@ -207,14 +207,13 @@ public class AuthenticationController {
       // Redirect uri for the OIDC provider is control plane callback.
       String ctrlPlaneRedirectUri = reshaprCtrlPublicUrl + "/auth/callback/oidc";
 
-      // Exchange authorization code for access token.
-      String accessToken = null;
+      // Exchange authorization code for access and ID tokens.
+      OidcUtils.OidcAuthorizationCodeTokens oidcTokens;
       try {
-         accessToken = OidcUtils.exchangeAuthorizationCode(
+         oidcTokens = OidcUtils.exchangeOidcAuthorizationCode(
                new OidcUtils.OidcEndpointConfig(oidcIdentityProviderConfig.tokenUrl(), oidcIdentityProviderConfig.clientId(),
                      oidcIdentityProviderConfig.clientSecret()),
                objectMapper, authorizationCode, ctrlPlaneRedirectUri);
-
 
       } catch (AuthenticationException e) {
          logger.errorf("OAuth2 token exchange fails with '%s'", e.getMessage());
@@ -223,9 +222,9 @@ public class AuthenticationController {
 
       User user = null;
       try {
-         // Now decode access_token to get user and check he is actually in database.
-         String jwtPayload = new String(Base64.getDecoder().decode(accessToken.split("\\.")[1]), StandardCharsets.UTF_8);
-         JsonNode jwtPayloadNode = objectMapper.readTree(jwtPayload);
+         // Validate token lifetime and bind the ID token to the nonce generated for this login.
+         OidcUtils.validateJwtClaims(oidcTokens.idToken(), objectMapper, Instant.now(), pendingLogin.nonce());
+         JsonNode jwtPayloadNode = OidcUtils.validateJwtClaims(oidcTokens.accessToken(), objectMapper, Instant.now(), null);
          String username = jwtPayloadNode.get("preferred_username").asText();
 
          // Enforce optional access guard (group / claim) before doing anything else.
@@ -292,9 +291,12 @@ public class AuthenticationController {
                return Response.ok(page.render()).cookie(cookie).build();
             }
          }
+      } catch (AuthenticationException e) {
+         logger.warnf("OIDC token validation failed: %s", e.getMessage());
+         return Response.status(Response.Status.UNAUTHORIZED).entity("Failed to validate OIDC tokens").build();
       } catch (Exception e) {
-         logger.errorf(e, "Failed to decode access_token: %s", accessToken);
-         return Response.status(Response.Status.UNAUTHORIZED).entity("Failed to decode access_token").build();
+         logger.errorf(e, "Failed to validate OIDC tokens");
+         return Response.status(Response.Status.UNAUTHORIZED).entity("Failed to validate OIDC tokens").build();
       }
 
       // Generate a token for the authenticated user

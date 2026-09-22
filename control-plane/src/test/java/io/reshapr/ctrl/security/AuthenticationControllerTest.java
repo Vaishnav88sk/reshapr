@@ -16,15 +16,22 @@
 package io.reshapr.ctrl.security;
 
 import io.reshapr.ctrl.config.AuthenticationIdentityProviderConfig;
+import io.reshapr.ctrl.repository.UserRepository;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpServer;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 
@@ -131,6 +138,52 @@ class AuthenticationControllerTest {
       }
 
       verify(stateStore).consumeLogin("unknown-state");
+   }
+
+   @Test
+   void testCallbackRejectsMismatchedIdTokenNonceBeforeUserLookup() throws Exception {
+      String accessToken = jwtToken("{\"exp\":" + Instant.now().plusSeconds(60).getEpochSecond()
+            + ",\"preferred_username\":\"alice\"}");
+      String idToken = jwtToken("{\"exp\":" + Instant.now().plusSeconds(60).getEpochSecond()
+            + ",\"nonce\":\"other-nonce\"}");
+
+      try (TokenEndpoint endpoint = new TokenEndpoint(accessToken, idToken)) {
+         UserRepository userRepository = mock(UserRepository.class);
+         var controller = controllerForCallback(endpoint.url(), userRepository);
+         when(stateStore.consumeLogin("login-state")).thenReturn(
+               new OidcLoginStateStore.PendingOidcLogin(
+                     "https://app.example.com/api/auth/callback/oidc", "expected-nonce", Instant.now()));
+
+         try (Response response = controller.callbackFromOidc("authorization-code", "login-state")) {
+            assertEquals(Response.Status.UNAUTHORIZED.getStatusCode(), response.getStatus());
+            assertEquals("Failed to validate OIDC tokens", response.getEntity());
+         }
+
+         verifyNoInteractions(userRepository);
+      }
+   }
+
+   @Test
+   void testCallbackRejectsExpiredAccessTokenBeforeUserLookup() throws Exception {
+      String accessToken = jwtToken("{\"exp\":" + Instant.now().minusSeconds(1).getEpochSecond()
+            + ",\"preferred_username\":\"alice\"}");
+      String idToken = jwtToken("{\"exp\":" + Instant.now().plusSeconds(60).getEpochSecond()
+            + ",\"nonce\":\"expected-nonce\"}");
+
+      try (TokenEndpoint endpoint = new TokenEndpoint(accessToken, idToken)) {
+         UserRepository userRepository = mock(UserRepository.class);
+         var controller = controllerForCallback(endpoint.url(), userRepository);
+         when(stateStore.consumeLogin("login-state")).thenReturn(
+               new OidcLoginStateStore.PendingOidcLogin(
+                     "https://app.example.com/api/auth/callback/oidc", "expected-nonce", Instant.now()));
+
+         try (Response response = controller.callbackFromOidc("authorization-code", "login-state")) {
+            assertEquals(Response.Status.UNAUTHORIZED.getStatusCode(), response.getStatus());
+            assertEquals("Failed to validate OIDC tokens", response.getEntity());
+         }
+
+         verifyNoInteractions(userRepository);
+      }
    }
 
    @Test
@@ -357,8 +410,51 @@ class AuthenticationControllerTest {
       return new AuthenticationController(config, null, null, null, null, stateStore, MAPPER);
    }
 
+   private AuthenticationController controllerForCallback(String tokenUrl, UserRepository userRepository) {
+      AuthenticationIdentityProviderConfig config = mock(AuthenticationIdentityProviderConfig.class);
+      when(config.enabled()).thenReturn(true);
+      when(config.tokenUrl()).thenReturn(tokenUrl);
+      when(config.clientId()).thenReturn("client");
+      when(config.clientSecret()).thenReturn("secret");
+      AuthenticationController controller = new AuthenticationController(
+            config, null, userRepository, null, null, stateStore, MAPPER);
+      controller.reshaprCtrlPublicUrl = "https://ctrl.example.com";
+      return controller;
+   }
+
    private static JsonNode jwt(String json) throws Exception {
       return MAPPER.readTree(json);
+   }
+
+   private static String jwtToken(String claims) {
+      Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
+      return encoder.encodeToString("{\"alg\":\"none\"}".getBytes(StandardCharsets.UTF_8)) + "."
+            + encoder.encodeToString(claims.getBytes(StandardCharsets.UTF_8)) + ".signature";
+   }
+
+   private static class TokenEndpoint implements AutoCloseable {
+      private final HttpServer server;
+
+      TokenEndpoint(String accessToken, String idToken) throws IOException {
+         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+         server.createContext("/token", exchange -> {
+            String json = "{\"access_token\":\"" + accessToken + "\",\"id_token\":\"" + idToken + "\"}";
+         byte[] response = json.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+         });
+         server.start();
+      }
+
+      String url() {
+         return "http://127.0.0.1:" + server.getAddress().getPort() + "/token";
+      }
+
+      @Override
+      public void close() {
+         server.stop(0);
+      }
    }
 
    /** Build an in-memory config exposing exactly the guardrail properties under test. */

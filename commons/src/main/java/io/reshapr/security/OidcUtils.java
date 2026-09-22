@@ -26,6 +26,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 
@@ -50,6 +51,30 @@ public class OidcUtils {
     */
    public static String exchangeAuthorizationCode(OidcEndpointConfig oidcEndpointConfig, ObjectMapper objectMapper,
                                                   String authorizationCode, String redirectUri) throws AuthenticationException {
+      return exchangeAuthorizationCodeTokens(oidcEndpointConfig, objectMapper, authorizationCode, redirectUri).accessToken();
+   }
+
+   /**
+    * Exchange an OIDC authorization code for access and ID tokens.
+    * @param oidcEndpointConfig the OIDC endpoint configuration to use for the exchange.
+    * @param objectMapper the ObjectMapper to use for JSON parsing.
+    * @param authorizationCode the authorization code to exchange.
+    * @param redirectUri the redirect uri used for the exchange.
+    * @return The access and ID tokens.
+    * @throws AuthenticationException if the token endpoint returns an error or omits the ID token.
+    */
+   public static OidcAuthorizationCodeTokens exchangeOidcAuthorizationCode(OidcEndpointConfig oidcEndpointConfig,
+            ObjectMapper objectMapper, String authorizationCode, String redirectUri) throws AuthenticationException {
+
+      OidcAuthorizationCodeTokens tokens = exchangeAuthorizationCodeTokens(oidcEndpointConfig, objectMapper, authorizationCode, redirectUri);
+      if (tokens.idToken() == null || tokens.idToken().isBlank()) {
+         throw new AuthenticationException("OIDC token endpoint response did not contain an id_token");
+      }
+      return tokens;
+   }
+
+   private static OidcAuthorizationCodeTokens exchangeAuthorizationCodeTokens(OidcEndpointConfig oidcEndpointConfig,
+            ObjectMapper objectMapper, String authorizationCode, String redirectUri) throws AuthenticationException {
       // Build the request to the token endpoint.
       HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
             .uri(URI.create(oidcEndpointConfig.endpointUrl()))
@@ -78,14 +103,62 @@ public class OidcUtils {
             throw new AuthenticationException("OAuth2 token endpoint returned error " + response.statusCode());
          }
 
-         // Now parse the response to extract the access token.
+         // Now parse the response to extract the access and optional ID tokens.
          JsonNode jsonResponse = objectMapper.readTree(response.body());
-         return jsonResponse.get("access_token").asText();
+         JsonNode accessTokenNode = jsonResponse.get("access_token");
+         if (accessTokenNode == null || accessTokenNode.isNull() || accessTokenNode.asText().isBlank()) {
+            throw new AuthenticationException("OAuth2 token endpoint response did not contain an access_token");
+         }
+         JsonNode idTokenNode = jsonResponse.get("id_token");
+         return new OidcAuthorizationCodeTokens(
+               accessTokenNode.asText(),
+               idTokenNode == null || idTokenNode.isNull() ? null : idTokenNode.asText());
       } catch (Exception e) {
          if (!(e instanceof AuthenticationException)) {
             throw new AuthenticationException("Failed to exchange authorization code: " + e.getMessage());
          }
          throw (AuthenticationException)e;
+      }
+   }
+
+   /**
+    * Decode JWT claims and require a non-expired token and, when supplied, an exact nonce match.
+    * This method validates claims only; it does not verify the JWT signature, issuer, or audience.
+    * @param token the compact JWT.
+    * @param objectMapper the ObjectMapper to use for JSON parsing.
+    * @param now the time against which {@code exp} is checked.
+    * @param expectedNonce the expected OIDC nonce, or {@code null} when no nonce check is required.
+    * @return the validated JWT claims.
+    * @throws AuthenticationException if the JWT is malformed, expired, or has an invalid nonce.
+    */
+   public static JsonNode validateJwtClaims(String token, ObjectMapper objectMapper, Instant now,
+                                             String expectedNonce) throws AuthenticationException {
+      try {
+         String[] tokenParts = token == null ? new String[0] : token.split("\\.", -1);
+         if (tokenParts.length != 3) {
+            throw new AuthenticationException("OIDC token is not a compact JWT");
+         }
+
+         JsonNode claims = objectMapper.readTree(Base64.getUrlDecoder().decode(tokenParts[1]));
+         JsonNode expirationNode = claims.get("exp");
+         if (expirationNode == null || !expirationNode.isIntegralNumber()) {
+            throw new AuthenticationException("OIDC token does not contain a valid exp claim");
+         }
+         if (expirationNode.asLong() <= now.getEpochSecond()) {
+            throw new AuthenticationException("OIDC token has expired");
+         }
+
+         if (expectedNonce != null) {
+            JsonNode nonceNode = claims.get("nonce");
+            if (nonceNode == null || !nonceNode.isTextual() || !expectedNonce.equals(nonceNode.asText())) {
+               throw new AuthenticationException("OIDC ID token nonce does not match the login request");
+            }
+         }
+         return claims;
+      } catch (AuthenticationException e) {
+         throw e;
+      } catch (Exception e) {
+         throw new AuthenticationException("Failed to decode OIDC token claims: " + e.getMessage());
       }
    }
 
@@ -196,6 +269,15 @@ public class OidcUtils {
     */
    @RegisterForReflection
    public record OidcEndpointConfig(String endpointUrl, String clientId, String clientSecret) {
+   }
+
+   /**
+    * Tokens returned by an OIDC authorization-code exchange.
+    * @param accessToken the issued access token.
+    * @param idToken the issued ID token.
+    */
+   @RegisterForReflection
+   public record OidcAuthorizationCodeTokens(String accessToken, String idToken) {
    }
 
    /**
