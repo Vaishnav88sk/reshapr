@@ -2,9 +2,11 @@
 [![Container](https://img.shields.io/badge/dynamic/json?color=blueviolet&logo=docker&style=for-the-badge&label=Quay.io&query=tags[1].name&url=https://quay.io/api/v1/repository/reshapr/reshapr-ctrl/tag/?limit=10&page=1&onlyActiveTags=true)](https://quay.io/repository/reshapr/reshapr-ctrl?tab=tags)
 [![Version](https://img.shields.io/maven-central/v/io.reshapr/reshapr-parent?color=blue&logo=openjdk&style=for-the-badge)]((https://central.sonatype.com/search?q=io.reshapr))
 [![NPM](https://img.shields.io/npm/v/@reshapr/reshapr-cli?color=CB3837&logo=npm&style=for-the-badge)](https://www.npmjs.com/package/@reshapr/reshapr-cli)
+[![NPM Downloads](https://img.shields.io/npm/dm/@reshapr/reshapr-cli?color=CB3837&logo=npm&style=for-the-badge&label=CLI%20downloads)](https://www.npmjs.com/package/@reshapr/reshapr-cli)
 [![License](https://img.shields.io/github/license/reshaprio/reshapr?style=for-the-badge&logo=apache)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Project Chat](https://img.shields.io/badge/discord-reshapr-pink.svg?color=7289da&style=for-the-badge&logo=discord)](https://discord.gg/KyDUdam34h)
 [![GitHub stars](https://img.shields.io/github/stars/reshaprio/reshapr?style=for-the-badge&logo=github&color=ffad05)](https://github.com/reshaprio/reshapr)
+[![GitHub forks](https://img.shields.io/github/forks/reshaprio/reshapr?style=for-the-badge&logo=github&color=ffad05)](https://github.com/reshaprio/reshapr/forks)
 
 # Welcome to reShapr 🚀
 
@@ -88,6 +90,25 @@ You now have a fully functional MCP Server powered by reShapr at http://localhos
 
 You can try it out using an MCP client, [explore the CLI](https://reshapr.io/docs/tutorials/getting-started) and 
 [more features](https://reshapr.io/docs/references/features)!
+
+## Build Status
+
+The current development version is `1.0.1-SNAPSHOT`.
+
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/reshaprio/reshapr/build-verify.yml?logo=github&style=for-the-badge)](https://github.com/reshaprio/reshapr/actions)
+
+#### Signature, Provenance, SBOM
+
+[![Static Badge](https://img.shields.io/badge/supply_chain-signed_SBOM_%26_checksums-blue?logo=securityscorecard&label=Supply%20Chain)](https://github.com/reshaprio/reshapr/releases)
+
+#### Sonarcloud Quality metrics
+[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=reshaprio_reshapr&metric=code_smells)](https://sonarcloud.io/summary/overall?id=reshaprio_reshapr&branch=main)
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=reshaprio_reshapr&metric=reliability_rating)](https://sonarcloud.io/summary/overall?id=reshaprio_reshapr&branch=main)
+[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=reshaprio_reshapr&metric=bugs)](https://sonarcloud.io/summary/overall?id=reshaprio_reshapr&branch=main)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=reshaprio_reshapr&metric=coverage)](https://sonarcloud.io/summary/overall?id=reshaprio_reshapr&branch=main)
+[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=reshaprio_reshapr&metric=sqale_index)](https://sonarcloud.io/summary/overall?id=reshaprio_reshapr&branch=main)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=reshaprio_reshapr&metric=security_rating)](https://sonarcloud.io/summary/overall?id=reshaprio_reshapr&branch=main)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=reshaprio_reshapr&metric=sqale_rating)](https://sonarcloud.io/summary/overall?id=reshaprio_reshapr&branch=main)
 
 ## Contributing
 
