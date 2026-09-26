@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
@@ -81,14 +82,14 @@ class ProxyServiceTest {
 
    @Test
    void shouldAddUpstreamServiceTimeHeaderOnSuccess() {
-      HttpResponse<byte[]> mockHttpResponse = Mockito.mock(HttpResponse.class);
+      HttpResponse<InputStream> mockHttpResponse = Mockito.mock(HttpResponse.class);
       Mockito.when(mockHttpResponse.statusCode()).thenReturn(200);
-      Mockito.when(mockHttpResponse.body()).thenReturn("{}".getBytes());
+      Mockito.when(mockHttpResponse.body()).thenReturn(new java.io.ByteArrayInputStream("{}".getBytes()));
       Mockito.when(mockHttpResponse.headers()).thenReturn(HttpHeaders.of(Map.of(), (k, v) -> true));
 
       ProxyService proxyService = new ProxyService(null, null) {
          @Override
-         protected HttpResponse<byte[]> doCallBackend(Map<String, List<String>> requestHeaders, HttpRequest.Builder requestBuilder,
+         protected HttpResponse<InputStream> doCallBackendStreaming(Map<String, List<String>> requestHeaders, HttpRequest.Builder requestBuilder,
                                                       String backendEndpoint) {
             try {
                Thread.sleep(50); // simulate network delay
@@ -97,6 +98,7 @@ class ProxyServiceTest {
          }
       };
       proxyService.defaultBackendTimeout = 3000L;
+      proxyService.maxPayloadSize = 10485760L;
 
       ConfigurationEntry config = new ConfigurationEntry("id", "test", "http://example.com", null, List.of(), List.of(), null, null, null);
       
@@ -114,7 +116,7 @@ class ProxyServiceTest {
    void shouldAddUpstreamServiceTimeHeaderOnException() {
       ProxyService proxyService = new ProxyService(null, null) {
          @Override
-         protected HttpResponse<byte[]> doCallBackend(Map<String, List<String>> requestHeaders, HttpRequest.Builder requestBuilder,
+         protected HttpResponse<InputStream> doCallBackendStreaming(Map<String, List<String>> requestHeaders, HttpRequest.Builder requestBuilder,
                                                       String backendEndpoint) throws IOException {
             try {
                Thread.sleep(50); // simulate network delay before failure
@@ -123,6 +125,7 @@ class ProxyServiceTest {
          }
       };
       proxyService.defaultBackendTimeout = 3000L;
+      proxyService.maxPayloadSize = 10485760L;
 
       ConfigurationEntry config = new ConfigurationEntry("id", "test", "http://example.com", null, List.of(), List.of(), null, null, null);
       
