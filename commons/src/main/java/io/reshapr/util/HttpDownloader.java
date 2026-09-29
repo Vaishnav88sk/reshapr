@@ -32,6 +32,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyStore;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
@@ -135,7 +136,10 @@ public final class HttpDownloader {
          HttpClient client = buildHttpClient(remoteUrl, secret, disableSSLValidation);
          HttpRequest request = buildHttpRequest(remoteUrl, secret);
 
-         Path tempFile = Files.createTempFile("reshapr-" + System.currentTimeMillis(), ".download");
+         Path tempFile = Files.createTempFile(
+               "reshapr-" + System.currentTimeMillis(),
+               ".download",
+               PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
 
          HttpResponse<Path> response = client.send(request, HttpResponse.BodyHandlers.ofFile(tempFile));
 
