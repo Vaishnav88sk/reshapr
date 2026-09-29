@@ -30,4 +30,13 @@ public class ReshaprTenantContext {
    public static void setCurrentTenant(String tenant) {
       CURRENT_TENANT.set(tenant);
    }
+
+   /**
+    * Clear the current tenant from the thread-local store. Must be called (ideally in a
+    * {@code finally} block) after any code path that called {@link #setCurrentTenant(String)},
+    * otherwise the tenant ID leaks into the next request handled by the same pooled thread.
+    */
+   public static void clearCurrentTenant() {
+      CURRENT_TENANT.remove();
+   }
 }

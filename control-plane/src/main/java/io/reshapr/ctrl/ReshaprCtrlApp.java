@@ -95,9 +95,14 @@ public class ReshaprCtrlApp {
       // Set the tenant context to "reshapr" for initialization.
       // This ensures that the default organization and admin user are created in the "reshapr" tenant.
       ReshaprTenantContext.setCurrentTenant(ROOT_TENANT_ID);
-
-      User admin = initializeAdminAccount();
-      initializeDefaultGatewayProperties(admin);
+      try {
+         User admin = initializeAdminAccount();
+         initializeDefaultGatewayProperties(admin);
+      } finally {
+         // Always clear the ThreadLocal so the startup thread does not carry the tenant ID
+         // into subsequent work when the thread is reused from the pool.
+         ReshaprTenantContext.clearCurrentTenant();
+      }
 
       logger.info("reShapr Control Plane startup complete.");
    }
