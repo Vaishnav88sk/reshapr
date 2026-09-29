@@ -54,10 +54,10 @@ public class McpReactiveController {
       ServiceEntry serviceEntry = gatewayRegistry.getService(serviceId);
       if (serviceEntry == null) {
          logger.errorf("Service with id %s not found", serviceId);
-
+         return Uni.createFrom().item(Response.status(Response.Status.NOT_FOUND).build());
       }
 
-      return handleMcpRequest(serviceEntry,request, headers)
+      return handleMcpRequest(serviceEntry, request, headers)
             .onItem().transform(response -> {
                if (response.error() != null) {
                   return Response.status(Response.Status.BAD_REQUEST).entity(response.error()).build();
@@ -76,7 +76,7 @@ public class McpReactiveController {
 
       logger.infof("Handling a Mcp Http streamable call on service: %s, version: %s in organization: %s", service, version, organizationId);
 
-      // If serviceName was encoded with '+' instead of '%20', remove them.
+      // If serviceName was encoded with '+' instead of '%20', replace them.
       if (service.contains("+")) {
          service = service.replace('+', ' ');
       }
@@ -84,10 +84,10 @@ public class McpReactiveController {
       ServiceEntry serviceEntry = gatewayRegistry.getService(organizationId, service, version);
       if (serviceEntry == null) {
          logger.errorf("Service %s, version: %s in organization: %s not found", service, version, organizationId);
-
+         return Uni.createFrom().item(Response.status(Response.Status.NOT_FOUND).build());
       }
 
-      return handleMcpRequest(serviceEntry,request, headers)
+      return handleMcpRequest(serviceEntry, request, headers)
             .onItem().transform(response -> {
                if (response.error() != null) {
                   return Response.status(Response.Status.BAD_REQUEST).entity(response.error()).build();
