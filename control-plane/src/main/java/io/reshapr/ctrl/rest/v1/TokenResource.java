@@ -24,7 +24,6 @@ import io.quarkus.security.identity.SecurityIdentity;
 import io.reshapr.ctrl.service.DependencyNotFoundException;
 import io.reshapr.ctrl.service.TokenManagerService;
 import io.smallrye.common.annotation.RunOnVirtualThread;
-import jakarta.inject.Inject;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
@@ -47,15 +46,21 @@ public class TokenResource {
    private final TokenManagerService tokenManagerService;
    private final ApiTokenRepository apiTokenRepository;
    private final Mappers v1Mappers;
+   private final SecurityIdentity securityIdentity;
 
-   @Inject
-   SecurityIdentity securityIdentity;
-
+   /**
+    * Build a TokenResource with required dependencies.
+    * @param tokenManagerService The token manager service.
+    * @param apiTokenRepository The API token repository.
+    * @param v1Mappers The v1 mappers.
+    * @param securityIdentity The current security identity.
+    */
    public TokenResource(TokenManagerService tokenManagerService, ApiTokenRepository apiTokenRepository,
-                        Mappers v1Mappers) {
+                        Mappers v1Mappers, SecurityIdentity securityIdentity) {
       this.tokenManagerService = tokenManagerService;
       this.apiTokenRepository = apiTokenRepository;
       this.v1Mappers = v1Mappers;
+      this.securityIdentity = securityIdentity;
    }
 
    @GET

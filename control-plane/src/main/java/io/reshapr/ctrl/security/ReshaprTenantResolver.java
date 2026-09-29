@@ -21,7 +21,6 @@ import io.quarkus.vertx.http.runtime.CurrentVertxRequest;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.mutiny.core.Vertx;
 import jakarta.enterprise.context.RequestScoped;
-import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
 /**
@@ -40,11 +39,18 @@ public class ReshaprTenantResolver implements TenantResolver {
 
    public static final String TENANT_ID_CONTEXT_KEY = "organizationId";
 
-   @Inject
-   RoutingContext context;
+   private final RoutingContext context;
+   private final CurrentVertxRequest vertxRequest;
 
-   @Inject
-   CurrentVertxRequest vertxRequest;
+   /**
+    * Build a ReshaprTenantResolver with required dependencies.
+    * @param context The current Vert.x routing context.
+    * @param vertxRequest The current Vert.x request wrapper.
+    */
+   public ReshaprTenantResolver(RoutingContext context, CurrentVertxRequest vertxRequest) {
+      this.context = context;
+      this.vertxRequest = vertxRequest;
+   }
 
    @Override
    public String getDefaultTenantId() {

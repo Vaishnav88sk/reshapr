@@ -22,7 +22,6 @@ import io.quarkus.panache.common.Sort;
 import io.quarkus.security.Authenticated;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.smallrye.common.annotation.RunOnVirtualThread;
-import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
@@ -40,12 +39,16 @@ public class QuotaResource {
    private final Logger logger = Logger.getLogger(getClass());
 
    private final Mappers v1Mappers;
+   private final SecurityIdentity securityIdentity;
 
-   @Inject
-   SecurityIdentity securityIdentity;
-
-   public QuotaResource(Mappers v1Mappers) {
+   /**
+    * Build a QuotaResource with required dependencies.
+    * @param v1Mappers The v1 mappers.
+    * @param securityIdentity The current security identity.
+    */
+   public QuotaResource(Mappers v1Mappers, SecurityIdentity securityIdentity) {
       this.v1Mappers = v1Mappers;
+      this.securityIdentity = securityIdentity;
    }
 
    @GET
