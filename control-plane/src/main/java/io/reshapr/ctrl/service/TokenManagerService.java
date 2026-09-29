@@ -37,6 +37,9 @@ public class TokenManagerService {
    /** Get a JBoss logging logger. */
    private final Logger logger = Logger.getLogger(getClass());
 
+   /** Shared, thread-safe SecureRandom — reused to avoid repeated entropy-pool drain. */
+   private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
    private final ApiTokenRepository apiTokenRepository;
    private final UserRepository userRepository;
 
@@ -88,9 +91,8 @@ public class TokenManagerService {
    }
 
    private static String generateRandomBase64Token(int byteLength) {
-      SecureRandom secureRandom = new SecureRandom();
       byte[] token = new byte[byteLength];
-      secureRandom.nextBytes(token);
+      SECURE_RANDOM.nextBytes(token);
       return Base64.getUrlEncoder().withoutPadding().encodeToString(token);
    }
 }
