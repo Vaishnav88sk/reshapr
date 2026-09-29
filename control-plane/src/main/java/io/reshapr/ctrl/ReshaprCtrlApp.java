@@ -104,8 +104,7 @@ public class ReshaprCtrlApp {
 
    /** Initialize the admin account if configured. */
    private User initializeAdminAccount() {
-      if (adminName != null && adminName.isPresent() && adminEmail != null && adminEmail.isPresent()
-            && adminPassword != null && adminPassword.isPresent()) {
+      if (adminName.isPresent() && adminEmail.isPresent() && adminPassword.isPresent()) {
          logger.info("Admin user is configured. Checking if it exists and creating it if not...");
 
          // Check if admin already exists.
@@ -144,7 +143,7 @@ public class ReshaprCtrlApp {
 
    /** Initialize default gateway properties if configured. */
    private void initializeDefaultGatewayProperties(User admin) {
-      if (defaultGatewayTokens != null && defaultGatewayTokens.isPresent()) {
+      if (defaultGatewayTokens.isPresent()) {
          logger.info("Default gateway tokens are configured. Initializing them...");
          DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -177,7 +176,7 @@ public class ReshaprCtrlApp {
                "in the configuration to initialize them.");
       }
 
-      if (defaultGatewayLabels != null && defaultGatewayLabels.isPresent()) {
+      if (defaultGatewayLabels.isPresent()) {
          logger.info("Default gateway group labels are configured. Updating them...");
 
          GatewayGroup defaultGatewayGroup = gatewayGroupRepository.findById(GatewayGroup.DEFAULT_GATEWAY_GROUP_ID);
