@@ -17,23 +17,33 @@ package io.reshapr.ctrl.util;
 
 import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
-import io.quarkus.runtime.Startup;
+import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Produces;
 
 /**
  * A CDI producer for HazelcastInstance. This allows us to inject HazelcastInstance
  * wherever needed in the application. The instance is created at application startup.
+ * <p>
+ * Note: {@code @Startup} must not be applied to {@code @Produces} methods (CDI spec violation).
+ * The eager initialization is achieved by observing {@link StartupEvent} instead.
  * @author laurent
  */
 @ApplicationScoped
 public class HazelcastProducer {
 
+   private HazelcastInstance hazelcastInstance;
+
+   /** Eagerly create the Hazelcast instance at application startup. */
+   void onStart(@Observes StartupEvent ev) {
+      hazelcastInstance = Hazelcast.newHazelcastInstance();
+   }
+
    @Produces
    @ApplicationScoped
-   @Startup
    public HazelcastInstance createInstance() {
       // Hazelcast will load the hazelcast-kubernetes.yaml file.
-      return Hazelcast.newHazelcastInstance();
+      return hazelcastInstance;
    }
 }
