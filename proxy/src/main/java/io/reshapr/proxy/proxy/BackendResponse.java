@@ -15,8 +15,10 @@
  */
 package io.reshapr.proxy.proxy;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * The response of a backend call, as returned by {@link ProxyService} or {@link GrpcProxyService}.
@@ -38,5 +40,29 @@ public record BackendResponse(
    public BackendResponse(int status, byte[] content, Map<String, List<String>> headers) {
       this(status, content, headers, -1L);
    }
-}
 
+   @Override
+   public boolean equals(Object o) {
+      if (this == o) return true;
+      if (!(o instanceof BackendResponse other)) return false;
+      return status == other.status
+            && upstreamServiceTimeMs == other.upstreamServiceTimeMs
+            && Arrays.equals(content, other.content)
+            && Objects.equals(headers, other.headers);
+   }
+
+   @Override
+   public int hashCode() {
+      int result = Objects.hash(status, headers, upstreamServiceTimeMs);
+      result = 31 * result + Arrays.hashCode(content);
+      return result;
+   }
+
+   @Override
+   public String toString() {
+      return "BackendResponse[status=" + status
+            + ", content=" + Arrays.toString(content)
+            + ", headers=" + headers
+            + ", upstreamServiceTimeMs=" + upstreamServiceTimeMs + "]";
+   }
+}

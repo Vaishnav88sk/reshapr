@@ -27,8 +27,10 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 
 import static java.util.stream.Collectors.groupingBy;
 
@@ -86,7 +88,31 @@ public class RegistryResource {
       return Response.ok(services).build();
    }
 
-   private record RegistryContentSummary(Date lastUpdate, int totalServices, String[] organizationIds) {}
+   private record RegistryContentSummary(Date lastUpdate, int totalServices, String[] organizationIds) {
+
+      @Override
+      public boolean equals(Object o) {
+         if (this == o) return true;
+         if (!(o instanceof RegistryContentSummary other)) return false;
+         return totalServices == other.totalServices
+               && Objects.equals(lastUpdate, other.lastUpdate)
+               && Arrays.equals(organizationIds, other.organizationIds);
+      }
+
+      @Override
+      public int hashCode() {
+         int result = Objects.hash(lastUpdate, totalServices);
+         result = 31 * result + Arrays.hashCode(organizationIds);
+         return result;
+      }
+
+      @Override
+      public String toString() {
+         return "RegistryContentSummary[lastUpdate=" + lastUpdate
+               + ", totalServices=" + totalServices
+               + ", organizationIds=" + Arrays.toString(organizationIds) + "]";
+      }
+   }
 
    private ServiceEntryDTO toServiceEntryDTO(ServiceEntry serviceEntry) {
       ConfigurationEntry configurationEntry = gatewayRegistry.getConfiguration(serviceEntry);
