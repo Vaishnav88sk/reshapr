@@ -34,8 +34,10 @@ public class ArtifactImporterFactory {
    /** Get a JBoss logging logger. */
    private static final Logger log = Logger.getLogger(ArtifactImporterFactory.class);
 
-   /** A RegExp for detecting a line containing the openapi: 3 pragma. */
-   public static final String OPENAPI_3_REGEXP = ".*['\\\"]?openapi['\\\"]?\\s*:\\s*['\\\"]?[3\\.].*";
+   /** Keyword that identifies an OpenAPI spec key - matched as a simple case-insensitive string. */
+   static final String OPENAPI_3_PREFIX = "openapi";
+   /** Version prefix that must follow the openapi key to be considered an OpenAPI 3.x spec. */
+   static final String OPENAPI_3_VERSION_PREFIX = "3.";
 
    private ArtifactImporterFactory() {
       // Private constructor to hide the implicit one as it's a utility class.
@@ -69,9 +71,16 @@ public class ArtifactImporterFactory {
 
    private static ArtifactImporter checkOpenAPIImporters(String line, File artifactFile,
                                                          ReferenceResolver referenceResolver) throws IOException {
-      if (line.matches(OPENAPI_3_REGEXP)) {
-         log.info("Found an openapi: 3 pragma in file so assuming it's an OpenAPI spec to import");
-         return new OpenAPIImporter(artifactFile.getPath(), referenceResolver);
+      // Use simple string operations instead of a regex to avoid catastrophic backtracking (ReDoS).
+      // The line has already been trimmed by the caller.
+      int colonIdx = line.indexOf(':');
+      if (colonIdx > 0) {
+         String key = line.substring(0, colonIdx).replace("'", "").replace("\"", "").strip();
+         String value = line.substring(colonIdx + 1).replace("'", "").replace("\"", "").strip();
+         if (OPENAPI_3_PREFIX.equalsIgnoreCase(key) && value.startsWith(OPENAPI_3_VERSION_PREFIX)) {
+            log.info("Found an openapi: 3 pragma in file so assuming it's an OpenAPI spec to import");
+            return new OpenAPIImporter(artifactFile.getPath(), referenceResolver);
+         }
       }
       return null;
    }

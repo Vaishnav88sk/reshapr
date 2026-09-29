@@ -57,7 +57,8 @@ public final class SlugUtil {
             .replaceAll("\\p{M}+", "");
       return normalized.toLowerCase(Locale.ROOT)
             .replaceAll("[^a-z0-9]+", "-")
-            .replaceAll("(^-+)|(-+$)", "");
+            .replaceAll("^-+", "")
+            .replaceAll("-+$", "");
    }
 }
 
