@@ -32,9 +32,7 @@ import jakarta.ws.rs.core.HttpHeaders;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.ConnectException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -149,14 +147,10 @@ public class ProxyService {
       // Start counter and do the call.
       long startMs = System.currentTimeMillis();
       try {
-         // Call the backend using a stream to prevent OutOfMemoryErrors on massive payloads.
-         HttpResponse<InputStream> responseStream = doCallBackendStreaming(requestHeaders, requestBuilder, externalUrl.toString());
+         // Call the backend using our custom limiting BodyHandler to prevent OutOfMemoryErrors on massive payloads without performance regression.
+         HttpResponse<byte[]> responseStream = doCallBackendStreaming(requestHeaders, requestBuilder, externalUrl.toString(), maxPayloadSize);
 
-         // Read the stream into a byte array, enforcing the max payload size limit.
-         byte[] responseBody;
-         try (InputStream is = responseStream.body()) {
-            responseBody = readStreamWithLimit(is, maxPayloadSize);
-         }
+         byte[] responseBody = responseStream.body();
 
          if (logger.isDebugEnabled()) {
             logger.debugf("Proxy returned: '%s'", responseStream.statusCode());
@@ -202,8 +196,8 @@ public class ProxyService {
    }
 
    @WithSpan(kind = SpanKind.CLIENT)
-   protected HttpResponse<InputStream> doCallBackendStreaming(Map<String, List<String>> requestHeaders, HttpRequest.Builder requestBuilder,
-                                                @SpanAttribute("backendEndpoint") String backendEndpoint) throws IOException, InterruptedException {
+   protected HttpResponse<byte[]> doCallBackendStreaming(Map<String, List<String>> requestHeaders, HttpRequest.Builder requestBuilder,
+                                                @SpanAttribute("backendEndpoint") String backendEndpoint, long limit) throws IOException, InterruptedException {
 
       // Inject OpenTelemetry tracing headers here to get correct parent (this current client span).
       HeadersUtil.injectTracingHeaders(requestHeaders);
@@ -213,25 +207,70 @@ public class ProxyService {
 
       // Round-robin shard selection: spreads I/O event processing over SHARD_COUNT selector threads.
       HttpClient client = CLIENTS[Math.floorMod(CURSOR.getAndIncrement(), SHARD_COUNT)];
-      return client.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofInputStream());
+      return client.send(requestBuilder.build(), limitingBodyHandler(limit));
    }
 
    /**
-    * Reads an InputStream into a byte array, enforcing a strict maximum size limit to prevent OOM errors.
+    * Returns a BodyHandler that enforces a strict maximum size limit to prevent OOM errors,
+    * with zero buffering overhead.
     */
-   private byte[] readStreamWithLimit(InputStream is, long limit) throws IOException {
-      try (ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
-         byte[] chunk = new byte[8192];
-         int n;
-         long total = 0;
-         while ((n = is.read(chunk)) != -1) {
-            total += n;
-            if (total > limit) {
-               throw new PayloadTooLargeException("Payload Too Large: response exceeds maximum allowed size of " + limit + " bytes");
+   private HttpResponse.BodyHandler<byte[]> limitingBodyHandler(long limit) {
+      return responseInfo -> {
+         responseInfo.headers().firstValueAsLong("Content-Length").ifPresent(len -> {
+            if (len > limit) {
+               throw new PayloadTooLargeException("Payload Too Large: response Content-Length (" + len + " bytes) exceeds maximum allowed size of " + limit + " bytes");
             }
-            buffer.write(chunk, 0, n);
+         });
+         return new LimitingBodySubscriber(HttpResponse.BodySubscribers.ofByteArray(), limit);
+      };
+   }
+
+   private static class LimitingBodySubscriber implements HttpResponse.BodySubscriber<byte[]> {
+      private final HttpResponse.BodySubscriber<byte[]> delegate;
+      private final long limit;
+      private long total = 0;
+      private java.util.concurrent.Flow.Subscription subscription;
+
+      public LimitingBodySubscriber(HttpResponse.BodySubscriber<byte[]> delegate, long limit) {
+         this.delegate = delegate;
+         this.limit = limit;
+      }
+
+      @Override
+      public java.util.concurrent.CompletionStage<byte[]> getBody() {
+         return delegate.getBody();
+      }
+
+      @Override
+      public void onSubscribe(java.util.concurrent.Flow.Subscription subscription) {
+         this.subscription = subscription;
+         delegate.onSubscribe(subscription);
+      }
+
+      @Override
+      public void onNext(List<java.nio.ByteBuffer> item) {
+         long chunk = 0;
+         for (java.nio.ByteBuffer b : item) {
+            chunk += b.remaining();
          }
-         return buffer.toByteArray();
+         total += chunk;
+         if (total > limit) {
+            if (subscription != null) {
+               subscription.cancel();
+            }
+            throw new PayloadTooLargeException("Payload Too Large: response exceeds maximum allowed size of " + limit + " bytes");
+         }
+         delegate.onNext(item);
+      }
+
+      @Override
+      public void onError(Throwable throwable) {
+         delegate.onError(throwable);
+      }
+
+      @Override
+      public void onComplete() {
+         delegate.onComplete();
       }
    }
 
