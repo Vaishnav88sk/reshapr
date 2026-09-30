@@ -101,8 +101,7 @@
   let allOrganizations = $state<Organization[]>([]);
   let orgsLoading = $state(true);
   let orgQuery = $state('');
-  let suggestionsOpen = $state(false);
-  let highlightIndex = $state(-1);
+
   let selectedOrg = $state<Organization | null>(null);
 
   const filteredOrganizations = $derived(
@@ -113,7 +112,6 @@
 
   // Only a capped number of suggestions is rendered; keyboard navigation
   // operates on this same visible slice for consistency.
-  const visibleSuggestions = $derived(filteredOrganizations.slice(0, 12));
 
   // ── Quotas state ──────────────────────────────────────────
   let quotaStates = $state<QuotaState[]>([]);
@@ -166,28 +164,9 @@
   }
 
   // ── Organization selection ────────────────────────────────
-  function handleSearchKeydown(e: KeyboardEvent) {
-    if (!suggestionsOpen || visibleSuggestions.length === 0) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      highlightIndex = (highlightIndex + 1) % visibleSuggestions.length;
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      highlightIndex =
-        highlightIndex <= 0 ? visibleSuggestions.length - 1 : highlightIndex - 1;
-    } else if (e.key === 'Enter' && highlightIndex >= 0) {
-      e.preventDefault();
-      selectOrganization(visibleSuggestions[highlightIndex]);
-    } else if (e.key === 'Escape') {
-      suggestionsOpen = false;
-    }
-  }
-
   function selectOrganization(org: Organization) {
     selectedOrg = org;
     orgQuery = org.name;
-    suggestionsOpen = false;
-    highlightIndex = -1;
     loadQuotas(org.name);
   }
 
@@ -323,8 +302,6 @@
 <svelte:head>
   <title>Quotas — reShapr</title>
 </svelte:head>
-
-<svelte:document onclick={() => (suggestionsOpen = false)} />
 
 <div class="space-y-6">
   <PageHeader

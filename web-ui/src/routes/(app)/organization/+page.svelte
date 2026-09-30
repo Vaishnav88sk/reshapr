@@ -154,7 +154,11 @@
   {:else if !isOwner}
     <Alert.Root class="mb-6">
       <Alert.Title class="flex items-center gap-2">
-        <HugeiconsIcon icon={Building01Icon} size={18} />
+        {#if auth.currentOrgIcon && auth.currentOrgIcon.startsWith('http')}
+          <img src={auth.currentOrgIcon} alt="Logo" class="h-5 w-5 object-cover rounded-sm" />
+        {:else}
+          <HugeiconsIcon icon={Building01Icon} size={18} />
+        {/if}
         {auth.user.org}
       </Alert.Title>
       <Alert.Description class="text-sm mt-2">
@@ -167,7 +171,14 @@
       <!-- Members List -->
       <Card.Root>
         <Card.Header>
-          <Card.Title class="text-lg">Members of {auth.user.org}</Card.Title>
+          <Card.Title class="flex items-center gap-2 text-lg">
+            {#if auth.currentOrgIcon && auth.currentOrgIcon.startsWith('http')}
+              <img src={auth.currentOrgIcon} alt="Logo" class="h-6 w-6 object-cover rounded-sm" />
+            {:else}
+              <HugeiconsIcon icon={Building01Icon} size={20} />
+            {/if}
+            Members of {auth.user.org}
+          </Card.Title>
           <Card.Description>Manage who has access to this organization.</Card.Description>
         </Card.Header>
         <Card.Content>

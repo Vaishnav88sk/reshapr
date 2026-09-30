@@ -203,8 +203,12 @@
             onclick={(e) => { e.stopPropagation(); orgSelectorOpen = !orgSelectorOpen; }}
             class="flex w-full items-center gap-2 rounded-md border border-sidebar-border px-2 py-1.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
           >
-            <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary/10 text-primary">
-              <HugeiconsIcon icon={Building01Icon} size={14} />
+            <span class="flex h-5 w-5 shrink-0 overflow-hidden items-center justify-center rounded bg-primary/10 text-primary">
+              {#if auth.currentOrgIcon && auth.currentOrgIcon.startsWith('http')}
+                <img src={auth.currentOrgIcon} alt="Logo" class="h-full w-full object-cover" />
+              {:else}
+                <HugeiconsIcon icon={Building01Icon} size={14} />
+              {/if}
             </span>
             <span class="flex-1 truncate text-left font-medium">{auth.currentOrg}</span>
             {#if auth.hasMultipleOrgs}
@@ -229,8 +233,12 @@
                       ? 'bg-accent text-accent-foreground font-medium'
                       : 'text-popover-foreground hover:bg-accent/50'}"
                 >
-                  <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary/10 text-primary">
-                    <HugeiconsIcon icon={Building01Icon} size={14} />
+                  <span class="flex h-5 w-5 shrink-0 overflow-hidden items-center justify-center rounded bg-primary/10 text-primary">
+                    {#if org.icon && org.icon.startsWith('http')}
+                      <img src={org.icon} alt="Logo" class="h-full w-full object-cover" />
+                    {:else}
+                      <HugeiconsIcon icon={Building01Icon} size={14} />
+                    {/if}
                   </span>
                   <span class="truncate">{org.name}</span>
                 </button>
@@ -245,8 +253,12 @@
             <Tooltip.Trigger>
               {#snippet child({ props })}
                 <div class="flex justify-center py-2" {...props}>
-                  <span class="flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground/60">
-                    <HugeiconsIcon icon={Building01Icon} size={16} />
+                  <span class="flex h-8 w-8 overflow-hidden items-center justify-center rounded-md text-sidebar-foreground/60">
+                    {#if auth.currentOrgIcon && auth.currentOrgIcon.startsWith('http')}
+                      <img src={auth.currentOrgIcon} alt="Logo" class="h-full w-full object-cover" />
+                    {:else}
+                      <HugeiconsIcon icon={Building01Icon} size={16} />
+                    {/if}
                   </span>
                 </div>
               {/snippet}
