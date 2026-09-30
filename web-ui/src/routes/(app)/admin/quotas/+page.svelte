@@ -299,7 +299,9 @@
       if (res.ok) {
         const updated = (await res.json()) as Quota[];
         quotaStates = KNOWN_METRICS.map((def) => buildState(def, updated));
-        saveSuccess = 'Quotas updated successfully.';
+        saveSuccess = `Quotas updated successfully for ${selectedOrg.name}.`;
+        selectedOrg = null;
+        orgQuery = '';
       } else if (res.status === 404) {
         saveError = 'Organization not found.';
       } else if (res.status === 403) {
@@ -348,209 +350,169 @@
     {/snippet}
   </PageHeader>
 
-  <!-- ── Organization search ─────────────────────────────── -->
-  <div class="max-w-xl space-y-2">
-    <Label for="orgSearch">Organization</Label>
-    <div class="relative" role="none" onclick={(e) => e.stopPropagation()}>
-      <span
-        class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-      >
-        <HugeiconsIcon icon={Search01Icon} size={16} />
-      </span>
-      <Input
-        id="orgSearch"
-        type="text"
-        class="pl-9"
-        placeholder="Search an organization…"
-        bind:value={orgQuery}
-        autocomplete="off"
-        onfocus={() => {
-          suggestionsOpen = true;
-          highlightIndex = -1;
-        }}
-        oninput={() => {
-          suggestionsOpen = true;
-          highlightIndex = -1;
-        }}
-        onkeydown={handleSearchKeydown}
-      />
-      {#if suggestionsOpen}
-        <ul
-          class="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
-        >
-          {#if filteredOrganizations.length > 0}
-            {#each visibleSuggestions as suggestion, i (suggestion.name)}
-              <li>
-                <button
-                  type="button"
-                  class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground {i ===
-                  highlightIndex
-                    ? 'bg-accent text-accent-foreground'
-                    : ''}"
-                  onmousedown={() => selectOrganization(suggestion)}
-                >
-                  <span
-                    class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary/10 text-primary"
-                  >
-                    <HugeiconsIcon icon={Building01Icon} size={12} />
-                  </span>
-                  <span class="font-medium">{suggestion.name}</span>
-                  {#if suggestion.description}
-                    <span class="truncate text-xs text-muted-foreground">— {suggestion.description}</span>
-                  {/if}
-                </button>
-              </li>
-            {/each}
-            {#if filteredOrganizations.length > 12}
-              <li class="px-2 py-1.5 text-xs text-muted-foreground">
-                {filteredOrganizations.length - 12} more… keep typing to narrow down.
-              </li>
-            {/if}
-          {:else if orgsLoading}
-            <li class="flex items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground">
-              <div
-                class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent"
-              ></div>
-              Loading organizations…
-            </li>
-          {:else}
-            <li class="px-2 py-1.5 text-sm text-muted-foreground">No organization found.</li>
-          {/if}
-        </ul>
-      {/if}
-    </div>
-    <p class="text-xs text-muted-foreground">
-      {#if orgsLoading}
-        Loading organizations… ({allOrganizations.length} loaded)
-      {:else}
-        Start typing to find an organization by name ({allOrganizations.length} total).
-      {/if}
-    </p>
-  </div>
-
-  <!-- ── Quotas panel ────────────────────────────────────── -->
-  {#if selectedOrg}
-    {#if quotasLoading}
-      <div class="flex items-center justify-center py-12">
-        <div
-          class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"
-        ></div>
-        <span class="ml-3 text-sm text-muted-foreground">Loading quotas…</span>
-      </div>
-    {:else if quotasError}
-      <div class="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
-        {quotasError}
-      </div>
-    {:else}
-      <div class="space-y-4">
-        {#each quotaStates as state, i (state.metric)}
-          <Card>
-            <CardContent class="space-y-4 p-5">
-              <!-- Header row: icon, label, enable toggle -->
-              <div class="flex items-start justify-between gap-4">
-                <div class="flex items-start gap-3">
-                  <span
-                    class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-                  >
-                    <HugeiconsIcon icon={state.icon} class="size-5" />
-                  </span>
-                  <div>
-                    <div class="text-sm font-semibold text-foreground">{state.label}</div>
-                    <div class="text-xs text-muted-foreground">{state.description}</div>
-                  </div>
-                </div>
-                <div class="flex shrink-0 items-center gap-2">
-                  <Label for="enabled-{state.metric}" class="text-xs text-muted-foreground">
-                    {state.enabled ? 'Enabled' : 'Disabled'}
-                  </Label>
-                  <Switch
-                    id="enabled-{state.metric}"
-                    checked={state.enabled}
-                    onCheckedChange={(v) => {
-                      quotaStates[i].enabled = v;
-                      saveSuccess = '';
-                    }}
-                  />
-                </div>
-              </div>
-
-              <!-- Live usage gauge (previews the edited limit) -->
-              <QuotaGauge
-                quota={previewQuota(state)}
-                label="Usage"
-                class={state.enabled ? '' : 'opacity-50'}
-              />
-
-              <!-- Limit editor: slider + numeric input -->
-              <div class="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
-                <div class="flex items-center gap-3">
-                  <span class="w-6 text-right text-xs text-muted-foreground tabular-nums">0</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max={sliderMax(state)}
-                    step="1"
-                    value={state.limit}
-                    disabled={!state.enabled}
-                    oninput={(e) => clampLimit(quotaStates[i], e.currentTarget.valueAsNumber)}
-                    class="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-muted accent-primary disabled:cursor-not-allowed disabled:opacity-50"
-                    aria-label="{state.label} limit"
-                  />
-                  <span class="w-10 text-left text-xs text-muted-foreground tabular-nums"
-                    >{sliderMax(state)}</span
-                  >
-                </div>
-                <div class="flex items-center gap-2">
-                  <Label for="limit-{state.metric}" class="text-xs text-muted-foreground">Limit</Label>
-                  <Input
-                    id="limit-{state.metric}"
-                    type="number"
-                    min="0"
-                    class="w-28"
-                    value={state.limit}
-                    disabled={!state.enabled}
-                    oninput={(e) => clampLimit(quotaStates[i], e.currentTarget.valueAsNumber)}
-                  />
-                </div>
-              </div>
-
-              <p class="text-xs text-muted-foreground">
-                {#if state.enabled}
-                  {state.used} used · {Math.max(0, state.limit - state.used)} remaining after save
-                {:else}
-                  Quota disabled — this metric is not enforced for the organization.
-                {/if}
-              </p>
-            </CardContent>
-          </Card>
-        {/each}
-      </div>
-
-      {#if saveError}
-        <div class="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {saveError}
+  {#if !selectedOrg}
+    <div class="space-y-4">
+      <div class="max-w-xl space-y-2">
+        <Label for="orgSearch">Search Organizations</Label>
+        <div class="relative">
+          <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+            <HugeiconsIcon icon={Search01Icon} size={16} />
+          </span>
+          <Input
+            id="orgSearch"
+            type="text"
+            class="pl-9"
+            placeholder="Search an organization..."
+            bind:value={orgQuery}
+            autocomplete="off"
+          />
         </div>
-      {/if}
+        <p class="text-xs text-muted-foreground">
+          {#if orgsLoading}
+            Loading organizations... ({allOrganizations.length} loaded)
+          {:else}
+            {filteredOrganizations.length} organizations found.
+          {/if}
+        </p>
+      </div>
+
       {#if saveSuccess}
         <div class="rounded-md bg-primary/10 px-4 py-3 text-sm text-primary">
           {saveSuccess}
         </div>
       {/if}
-    {/if}
+
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {#each filteredOrganizations as org (org.name)}
+          <Card class="cursor-pointer hover:bg-accent/50 transition-colors" onclick={() => selectOrganization(org)}>
+            <CardContent class="p-4 flex items-center gap-3">
+              <span class="flex h-10 w-10 shrink-0 overflow-hidden items-center justify-center rounded-lg bg-primary/10 text-primary">
+                {#if org.icon && org.icon.startsWith('http')}
+                  <img src={org.icon} alt="{org.name} logo" class="h-full w-full object-cover" />
+                {:else}
+                  <HugeiconsIcon icon={Building01Icon} size={20} />
+                {/if}
+              </span>
+              <div class="flex-1 overflow-hidden">
+                <p class="font-medium truncate">{org.name}</p>
+                <p class="text-xs text-muted-foreground truncate">{org.description || 'No description'}</p>
+              </div>
+            </CardContent>
+          </Card>
+        {/each}
+        {#if filteredOrganizations.length === 0 && !orgsLoading}
+          <div class="col-span-full py-8 text-center text-sm text-muted-foreground">
+            No organizations found matching your search.
+          </div>
+        {/if}
+      </div>
+    </div>
   {:else}
-    <Card>
-      <CardContent class="flex flex-col items-center gap-2 py-12 text-center">
-        <span
-          class="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary"
-        >
-          <HugeiconsIcon icon={Building01Icon} class="size-6" />
-        </span>
-        <p class="text-sm font-medium text-foreground">No organization selected</p>
-        <p class="max-w-sm text-sm text-muted-foreground">
-          Use the search box above to pick an organization and manage its quota limits.
-        </p>
-      </CardContent>
-    </Card>
+    <!-- ── Quotas panel ────────────────────────────────────── -->
+    <div class="space-y-4">
+      <div class="mb-2">
+        <Button variant="ghost" onclick={() => { selectedOrg = null; orgQuery = ''; saveSuccess = ''; }}>
+          ← Back to Organizations
+        </Button>
+      </div>
+
+      {#if quotasLoading}
+        <div class="flex items-center justify-center py-12">
+          <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+          <span class="ml-3 text-sm text-muted-foreground">Loading quotas...</span>
+        </div>
+      {:else if quotasError}
+        <div class="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {quotasError}
+        </div>
+      {:else}
+        <div class="space-y-4">
+          {#each quotaStates as state, i (state.metric)}
+            <Card>
+              <CardContent class="space-y-4 p-5">
+                <!-- Header row: icon, label, enable toggle -->
+                <div class="flex items-start justify-between gap-4">
+                  <div class="flex items-start gap-3">
+                    <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <HugeiconsIcon icon={state.icon} class="size-5" />
+                    </span>
+                    <div>
+                      <div class="text-sm font-semibold text-foreground">{state.label}</div>
+                      <div class="text-xs text-muted-foreground">{state.description}</div>
+                    </div>
+                  </div>
+                  <div class="flex shrink-0 items-center gap-2">
+                    <Label for="enabled-{state.metric}" class="text-xs text-muted-foreground">
+                      {state.enabled ? 'Enabled' : 'Disabled'}
+                    </Label>
+                    <Switch
+                      id="enabled-{state.metric}"
+                      checked={state.enabled}
+                      onCheckedChange={(v) => {
+                        quotaStates[i].enabled = v;
+                        saveSuccess = '';
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <!-- Live usage gauge (previews the edited limit) -->
+                <QuotaGauge
+                  quota={previewQuota(state)}
+                  label="Usage"
+                  class={state.enabled ? '' : 'opacity-50'}
+                />
+
+                <!-- Limit editor: slider + numeric input -->
+                <div class="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                  <div class="flex items-center gap-3">
+                    <span class="w-6 text-right text-xs text-muted-foreground tabular-nums">0</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max={sliderMax(state)}
+                      step="1"
+                      value={state.limit}
+                      disabled={!state.enabled}
+                      oninput={(e) => clampLimit(quotaStates[i], e.currentTarget.valueAsNumber)}
+                      class="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-muted accent-primary disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label="{state.label} limit"
+                    />
+                    <span class="w-10 text-left text-xs text-muted-foreground tabular-nums">{sliderMax(state)}</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <Label for="limit-{state.metric}" class="text-xs text-muted-foreground">Limit</Label>
+                    <Input
+                      id="limit-{state.metric}"
+                      type="number"
+                      min="0"
+                      class="w-28"
+                      value={state.limit}
+                      disabled={!state.enabled}
+                      oninput={(e) => clampLimit(quotaStates[i], e.currentTarget.valueAsNumber)}
+                    />
+                  </div>
+                </div>
+
+                <p class="text-xs text-muted-foreground">
+                  {#if state.enabled}
+                    {state.used} used · {Math.max(0, state.limit - state.used)} remaining after save
+                  {:else}
+                    Quota disabled — this metric is not enforced for the organization.
+                  {/if}
+                </p>
+              </CardContent>
+            </Card>
+          {/each}
+        </div>
+
+        {#if saveError}
+          <div class="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {saveError}
+          </div>
+        {/if}
+      {/if}
+    </div>
   {/if}
 </div>
 
