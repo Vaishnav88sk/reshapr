@@ -304,6 +304,9 @@ public class OptimizedOpenAPIMcpToolConverter extends McpToolConverter {
                if (parameter.path(JSON_SCHEMA_REQUIRED_ELEMENT).asBoolean(false)) {
                   requiredPropertiesNode.add(paramName);
                }
+               if (parameter.has("description")) {
+                  propertyNode.put("description", parameter.get("description").asText());
+               }
 
                // Check the parameter type and default to string.
                JsonNode paramSchema = parameter.get("schema");
