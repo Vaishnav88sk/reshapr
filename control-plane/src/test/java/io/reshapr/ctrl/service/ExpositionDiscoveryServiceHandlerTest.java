@@ -38,6 +38,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 /**
+ * This is a unit test for the ExpositionDiscoveryServiceHandler class.
  * @author vaishnav
  */
 @ExtendWith(MockitoExtension.class)
@@ -100,5 +101,53 @@ class ExpositionDiscoveryServiceHandlerTest {
         ExpositionDiscoveryResponse response = captor.getValue();
         assertEquals(1, response.getExpositionsCount());
         assertEquals("exp-1", response.getExpositions(0).getId());
+    }
+
+    @Test
+    void testDiscoverExpositionsSendsOAuth2StaticAudiences() throws Exception {
+        ExpositionDiscoveryRequest request = ExpositionDiscoveryRequest.newBuilder()
+              .setGatewayId("gw-1")
+              .build();
+
+        Exposition exposition = new Exposition();
+        exposition.id = "exp-1";
+
+        GatewayGroup group = new GatewayGroup();
+        group.name = "group-1";
+        exposition.gatewayGroup = group;
+
+        ConfigurationPlan plan = new ConfigurationPlan();
+        plan.id = "plan-1";
+        plan.name = "plan-1";
+        plan.backendEndpoint = "http://backend";
+        plan.oauth2Configuration = new ConfigurationPlan.OAuth2Configuration(
+              List.of("https://sso.example.com/realms/test"),
+              "https://sso.example.com/realms/test/protocol/openid-connect/certs",
+              List.of("profile"),
+              List.of("inv-mcp-router", "other-audience"),
+              false);
+
+        Service service = new Service();
+        service.id = "srv-1";
+        service.name = "srv";
+        service.version = "1.0";
+        service.organizationId = "org-1";
+        service.type = ServiceType.REST;
+        plan.service = service;
+        exposition.service = service;
+        exposition.configurationPlan = plan;
+
+        when(expositionManagerService.getGatewayExpositions(eq("gw-1"), any(), any(), nullable(String.class)))
+              .thenReturn(List.of(exposition));
+
+        handler.discoverExpositions(request, responseObserver);
+
+        ArgumentCaptor<ExpositionDiscoveryResponse> captor = ArgumentCaptor.forClass(ExpositionDiscoveryResponse.class);
+        verify(responseObserver, times(1)).onNext(captor.capture());
+
+        var oauth2 = captor.getValue().getExpositions(0).getConfiguration().getOauth2Configuration();
+        assertEquals(List.of("inv-mcp-router", "other-audience"), oauth2.getStaticAudiencesList());
+        assertEquals(List.of("profile"), oauth2.getScopesList());
+        assertFalse(oauth2.getDisableAudienceValidation());
     }
 }

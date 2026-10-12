@@ -433,6 +433,9 @@ public class ExpositionDiscoveryServiceHandler extends ExpositionDiscoveryServic
          if (configuration.oauth2Configuration.disableAudienceValidation()) {
             oauth2Builder.setDisableAudienceValidation(true);
          }
+         if (configuration.oauth2Configuration.staticAudiences() != null) {
+            oauth2Builder.addAllStaticAudiences(configuration.oauth2Configuration.staticAudiences());
+         }
          builder.setOauth2Configuration(oauth2Builder.build());
       }
       if (configuration.backendTimeout != null) {
