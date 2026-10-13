@@ -198,8 +198,9 @@ public class CustomToolScriptRunner {
       try {
          return future.get(timeoutMillis, TimeUnit.MILLISECONDS);
       } catch (TimeoutException e) {
-         // Best-effort cancellation: interruptible blocking (sleep, I/O) is cancelled; a pure
-         // CPU loop in the JS engine cannot be interrupted and the orphan thread will finish later.
+         // Cancellation interrupts the script thread: blocking calls (sleep, I/O) are cancelled and the
+         // Wasm interpreter checks the interrupt flag on every branch and call, so even a pure CPU
+         // loop in the JS engine (e.g. while(true){}) is stopped with a WasmInterruptedException.
          future.cancel(true);
          throw new CustomToolScriptException("Custom tool script timed out",
                "Custom tool script timed out after " + timeoutMillis + " ms", e);

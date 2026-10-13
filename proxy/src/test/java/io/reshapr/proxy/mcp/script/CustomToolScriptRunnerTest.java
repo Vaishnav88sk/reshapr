@@ -403,6 +403,29 @@ class CustomToolScriptRunnerTest {
             () -> runner.run(script, Map.of(), builtins));
    }
 
+   @Test
+   void testCpuLoopIsInterruptedOnTimeout() throws Exception {
+      CustomToolScriptRunner runner = new CustomToolScriptRunner(MAPPER, 200);
+
+      for (String script : List.of("while (true) {}", "let i = 0; for (;;) { i++; }")) {
+         assertThrows(CustomToolScriptRunner.CustomToolScriptException.class,
+               () -> runner.run(script, Map.of(), null));
+      }
+
+      // The interrupted script threads must terminate rather than keep spinning in the background.
+      long deadline = System.currentTimeMillis() + 5000;
+      while (countScriptThreads() > 0 && System.currentTimeMillis() < deadline) {
+         Thread.sleep(50);
+      }
+      assertEquals(0, countScriptThreads());
+   }
+
+   private static long countScriptThreads() {
+      return Thread.getAllStackTraces().keySet().stream()
+            .filter(t -> t.getName().startsWith("rs-script-") && t.isAlive())
+            .count();
+   }
+
    private static Map<String, Object> parseQuietly(String json) {
       try {
          return parse(json);
