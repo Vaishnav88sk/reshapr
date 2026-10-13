@@ -344,7 +344,7 @@ public class ReshaprCustomToolsMcpToolConverter extends McpToolConverter {
       ReshaprToolsBuiltins builtins = new ReshaprToolsBuiltins(exposition, gatewayRegistry, toolCallExecutor,
             headers, declaredTools, toolCallExecutor.scriptMaxToolCalls());
       CustomToolScriptRunner runner = new CustomToolScriptRunner(JSON_MAPPER, toolCallExecutor.scriptTimeoutMillis(),
-            null, toolCallExecutor.scriptMaxToolCalls());
+            null, toolCallExecutor.scriptMaxMemoryPages());
 
       try {
          String result = runner.run(script, request.arguments(), builtins, parentDepth + 1);
