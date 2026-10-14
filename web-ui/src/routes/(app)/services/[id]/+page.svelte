@@ -27,6 +27,7 @@
 		TooltipTrigger
 	} from '$lib/components/ui/tooltip/index.js';
 	import { cn } from '$lib/utils.js';
+	import { toolNameForOperation } from '$lib/toolName.js';
 	import { HugeiconsIcon } from '@hugeicons/svelte';
 	import {
 		Search01Icon,
@@ -239,6 +240,19 @@
 				</div>
 
 				<h4 class="leading-snug font-semibold break-all">{op.name}</h4>
+
+				<div>
+					<span
+						title="Name of the MCP tool exposed for this operation"
+						class={cn(
+							'inline-flex max-w-full items-center gap-1.5 rounded-md px-2 py-0.5 font-mono text-xs break-all ring-1 ring-inset',
+							CAPABILITY_STYLES.RESHAPR_CUSTOM_TOOLS
+						)}
+					>
+						<HugeiconsIcon icon={Wrench01Icon} size={12} class="shrink-0" />
+						{toolNameForOperation(ctx.service?.type, op.name)}
+					</span>
+				</div>
 
 				{#if op.inputName || op.outputName}
 					<div

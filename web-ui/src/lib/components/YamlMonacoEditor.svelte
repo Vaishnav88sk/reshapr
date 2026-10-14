@@ -20,6 +20,9 @@
 	import { artifactModelUri, buildMonacoYamlSchemaForPath } from '$lib/monaco/schemas.js';
 	import { RESHAPR_DARK_THEME, defineReshaprDarkTheme } from '$lib/monaco/theme.js';
 	import { theme } from '$lib/stores/theme.svelte.js';
+	import { registerToolCompletion } from '$lib/monaco/toolCompletion.js';
+	import type { ReshaprArtifactKind } from '$lib/artifacts/types.js';
+	import type { ToolSuggestion } from '$lib/artifacts/validators.js';
 	import ScrollableCode from '$lib/components/ScrollableCode.svelte';
 	import type * as Monaco from 'monaco-editor';
 
@@ -38,6 +41,8 @@
 		height = '24rem',
 		schemaUri = undefined,
 		warnings = [],
+		kind = undefined,
+		getToolSuggestions = undefined,
 		onChange = undefined,
 		onValidationChange = undefined
 	}: {
@@ -48,6 +53,9 @@
 		schemaUri?: string;
 		/** Non-blocking content warnings shown below the schema summary (also set as markers). */
 		warnings?: EditorWarning[];
+		/** Artifact kind and tool source, enabling tool-name completion. */
+		kind?: ReshaprArtifactKind;
+		getToolSuggestions?: () => Promise<ToolSuggestion[]>;
 		onChange?: (value: string) => void;
 		onValidationChange?: (markers: Monaco.editor.IMarker[]) => void;
 	} = $props();
@@ -90,6 +98,7 @@
 		let markerDisposable: Monaco.IDisposable | null = null;
 		let contentDisposable: Monaco.IDisposable | null = null;
 		let lineCountDisposable: Monaco.IDisposable | null = null;
+		let completionDisposable: Monaco.IDisposable | null = null;
 
 		void (async () => {
 			if (!container) return;
@@ -141,6 +150,10 @@
 				});
 				editor = instance;
 
+				if (kind && getToolSuggestions && !readOnly) {
+					completionDisposable = registerToolCompletion(monaco, textModel, kind, getToolSuggestions);
+				}
+
 				if (onChange) {
 					contentDisposable = textModel.onDidChangeContent(() => {
 						onChange(textModel.getValue());
@@ -167,6 +180,7 @@
 			markerDisposable?.dispose();
 			contentDisposable?.dispose();
 			lineCountDisposable?.dispose();
+			completionDisposable?.dispose();
 			editor?.dispose();
 			model?.dispose();
 			editor = null;

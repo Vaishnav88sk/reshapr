@@ -291,6 +291,8 @@
 			value={content}
 			readOnly={!editable}
 			{schemaUri}
+			{kind}
+			getToolSuggestions={async () => (await loadReferenceIndex()).toolSuggestions}
 			warnings={editable ? validatorWarnings : []}
 			height="min(70vh, 32rem)"
 			onChange={(value) => {

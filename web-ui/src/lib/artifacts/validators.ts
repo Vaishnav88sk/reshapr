@@ -17,6 +17,7 @@
 import { isMap, isScalar, isSeq, parseDocument } from 'yaml';
 import type { Document, Node, Scalar, YAMLMap } from 'yaml';
 import type { ServiceApi } from '$lib/serviceHub.js';
+import { toolNameForOperation } from '$lib/toolName.js';
 import type { ReshaprArtifactKind, ServiceRef } from './types.js';
 
 /**
@@ -41,9 +42,18 @@ export type ValidatorWarning = {
  * A cross-reference index resolved once from the control plane. It answers "does this tool /
  * service exist in reShapr?" for reference-existence validators.
  */
+export type ToolSuggestion = {
+	name: string;
+	/** `operation` for a backend operation, otherwise the name of the artifact providing the tool. */
+	origin: 'operation' | 'artifact';
+	detail: string;
+};
+
 export type ReshaprReferenceIndex = {
-	/** Tool names available on the current service (backend operations + custom-tool capabilities). */
+	/** Tool names (as exposed over MCP, not raw operation names) of the current service + custom-tool capabilities. */
 	knownTools: Set<string>;
+	/** Completion candidates: operation-derived tools and tools brought by custom artifacts. */
+	toolSuggestions: ToolSuggestion[];
 	/** Known services expressed as `${name}:${version}` for cross-service references. */
 	knownServices: Set<string>;
 };
@@ -218,6 +228,7 @@ export async function buildReferenceIndex(
 ): Promise<ReshaprReferenceIndex> {
 	const knownTools = new Set<string>();
 	const knownServices = new Set<string>();
+	const toolSuggestions: ToolSuggestion[] = [];
 
 	try {
 		const services = await api.listServices();
@@ -235,11 +246,19 @@ export async function buildReferenceIndex(
 
 	if (serviceId) {
 		try {
-			const svc = (await api.getService(serviceId)) as { operations?: unknown } | null;
+			const svc = (await api.getService(serviceId)) as {
+				type?: unknown;
+				operations?: unknown;
+			} | null;
+			const svcType = svc && svc.type != null ? String(svc.type) : null;
 			const ops = svc && Array.isArray(svc.operations) ? svc.operations : [];
 			for (const op of ops) {
 				const name = (op as { name?: unknown } | null)?.name;
-				if (typeof name === 'string') knownTools.add(name);
+				if (typeof name === 'string') {
+					const toolName = toolNameForOperation(svcType, name);
+					knownTools.add(toolName);
+					toolSuggestions.push({ name: toolName, origin: 'operation', detail: `Operation ${name}` });
+				}
 			}
 		} catch {
 			/* best-effort */
@@ -248,9 +267,20 @@ export async function buildReferenceIndex(
 			const refs = await api.listArtifactRefsByService(serviceId);
 			if (Array.isArray(refs)) {
 				for (const ref of refs) {
-					const caps = (ref as { capabilities?: unknown } | null)?.capabilities;
+					const r = ref as { capabilities?: unknown; type?: unknown; name?: unknown } | null;
+					const caps = r?.capabilities;
 					if (Array.isArray(caps)) {
-						for (const cap of caps) if (typeof cap === 'string') knownTools.add(cap);
+						for (const cap of caps) {
+							if (typeof cap !== 'string') continue;
+							knownTools.add(cap);
+							if (r?.type === 'RESHAPR_CUSTOM_TOOLS') {
+								toolSuggestions.push({
+									name: cap,
+									origin: 'artifact',
+									detail: `Custom tool from artifact ${typeof r.name === 'string' ? r.name : ''}`.trim()
+								});
+							}
+						}
 					}
 				}
 			}
@@ -259,7 +289,7 @@ export async function buildReferenceIndex(
 		}
 	}
 
-	return { knownTools, knownServices };
+	return { knownTools, knownServices, toolSuggestions };
 }
 
 /* -------------------------------------------------------------------------------------------------
