@@ -88,7 +88,7 @@ class ProxyServiceTest {
 
       ProxyService proxyService = new ProxyService(null, null) {
          @Override
-         protected HttpResponse<byte[]> doCallBackendStreaming(Map<String, List<String>> requestHeaders, HttpRequest.Builder requestBuilder,
+         protected HttpResponse<byte[]> doCallBackend(Map<String, List<String>> requestHeaders, HttpRequest.Builder requestBuilder,
                                                       String backendEndpoint, long limit) {
             try {
                Thread.sleep(50); // simulate network delay
@@ -115,7 +115,7 @@ class ProxyServiceTest {
    void shouldAddUpstreamServiceTimeHeaderOnException() {
       ProxyService proxyService = new ProxyService(null, null) {
          @Override
-         protected HttpResponse<byte[]> doCallBackendStreaming(Map<String, List<String>> requestHeaders, HttpRequest.Builder requestBuilder,
+         protected HttpResponse<byte[]> doCallBackend(Map<String, List<String>> requestHeaders, HttpRequest.Builder requestBuilder,
                                                       String backendEndpoint, long limit) throws IOException {
             try {
                Thread.sleep(50); // simulate network delay before failure

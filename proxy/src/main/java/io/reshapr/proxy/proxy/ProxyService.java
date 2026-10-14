@@ -150,7 +150,7 @@ public class ProxyService {
       long startMs = System.currentTimeMillis();
       try {
          // Call the backend using our custom limiting BodyHandler to prevent OutOfMemoryErrors on massive payloads without performance regression.
-         HttpResponse<byte[]> responseStream = doCallBackendStreaming(requestHeaders, requestBuilder, externalUrl.toString(), maxPayloadSize);
+         HttpResponse<byte[]> responseStream = doCallBackend(requestHeaders, requestBuilder, externalUrl.toString(), maxPayloadSize);
 
          byte[] responseBody = responseStream.body();
 
@@ -198,7 +198,7 @@ public class ProxyService {
    }
 
    @WithSpan(kind = SpanKind.CLIENT)
-   protected HttpResponse<byte[]> doCallBackendStreaming(Map<String, List<String>> requestHeaders, HttpRequest.Builder requestBuilder,
+   protected HttpResponse<byte[]> doCallBackend(Map<String, List<String>> requestHeaders, HttpRequest.Builder requestBuilder,
                                                 @SpanAttribute("backendEndpoint") String backendEndpoint, long limit) throws IOException, InterruptedException {
 
       // Inject OpenTelemetry tracing headers here to get correct parent (this current client span).
