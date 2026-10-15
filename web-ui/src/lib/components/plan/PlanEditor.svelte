@@ -1184,7 +1184,7 @@
 						bind:value={oauthScopesText}
 						rows={3}
 						disabled={loading}
-						placeholder="openid\nprofile\nmcp:invoke"
+						placeholder="openid&#10;profile&#10;mcp:invoke"
 					/>
 					<p class="text-muted-foreground text-xs">One scope per line.</p>
 				</div>
