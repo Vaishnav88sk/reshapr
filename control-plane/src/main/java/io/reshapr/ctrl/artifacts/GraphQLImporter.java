@@ -26,6 +26,7 @@ import graphql.language.Document;
 import graphql.language.FieldDefinition;
 import graphql.language.InputValueDefinition;
 import graphql.language.ListType;
+import graphql.language.NonNullType;
 import graphql.language.ObjectTypeDefinition;
 import graphql.language.Type;
 import graphql.language.TypeName;
@@ -42,7 +43,7 @@ import java.util.List;
 
 /**
  * An implementation of ArtifactImporter that deals with GraphQL Schema documents.
- *  * @author laurent
+ * @author laurent
  */
 public class GraphQLImporter implements ArtifactImporter {
 
@@ -166,10 +167,12 @@ public class GraphQLImporter implements ArtifactImporter {
       return builder.substring(0, builder.length() - 2);
    }
 
-   /** Get the short string representation of a type. eg. 'Film' or '[Films]'. */
+   /** Get the short string representation of a type. eg. 'Film', '[Films]' or 'Film!'. */
    private String getTypeName(Type type) {
       if (type instanceof ListType listType) {
          return "[" + getTypeName(listType.getType()) + "]";
+      } else if (type instanceof NonNullType nonNullType) {
+         return getTypeName(nonNullType.getType()) + "!";
       } else if (type instanceof TypeName typeName) {
          return typeName.getName();
       }

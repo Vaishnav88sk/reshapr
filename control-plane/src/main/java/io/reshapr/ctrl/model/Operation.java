@@ -16,6 +16,7 @@
 package io.reshapr.ctrl.model;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Embeddable;
 
 /**
@@ -31,7 +32,9 @@ public class Operation {
    public String action;
 
    @Column(name = "input_name")
+   @Convert(converter = TrimmedStringConverter.class)
    public String inputName;
    @Column(name = "output_name")
+   @Convert(converter = TrimmedStringConverter.class)
    public String outputName;
 }
