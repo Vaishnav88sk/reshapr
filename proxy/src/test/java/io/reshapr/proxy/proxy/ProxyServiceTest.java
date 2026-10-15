@@ -24,6 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
@@ -42,19 +44,22 @@ class ProxyServiceTest {
 
    @Test
    void shouldThrowHttpTimeoutExceptionWhenRequestTimeoutExpires() throws Exception {
-      HttpClient client = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofMillis(300))
-            .version(HttpClient.Version.HTTP_1_1)
-            .build();
+      // A local server that accepts connections but never answers: deterministic on any network.
+      try (ServerSocket silentServer = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
+         HttpClient client = HttpClient.newBuilder()
+               .connectTimeout(Duration.ofSeconds(5))
+               .version(HttpClient.Version.HTTP_1_1)
+               .build();
 
-      HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("http://10.255.255.1/api"))
-            .timeout(Duration.ofMillis(300))
-            .GET()
-            .build();
+         HttpRequest request = HttpRequest.newBuilder()
+               .uri(URI.create("http://127.0.0.1:" + silentServer.getLocalPort() + "/api"))
+               .timeout(Duration.ofMillis(200))
+               .GET()
+               .build();
 
-      assertThrows(java.net.http.HttpTimeoutException.class,
-            () -> client.send(request, HttpResponse.BodyHandlers.ofByteArray()));
+         assertThrows(java.net.http.HttpTimeoutException.class,
+               () -> client.send(request, HttpResponse.BodyHandlers.ofByteArray()));
+      }
    }
 
    @Test
