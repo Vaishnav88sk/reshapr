@@ -1,8 +1,8 @@
 ---
 openapi: 3.0.2
 info:
-  title: reShapr Authentication API v0.1
-  version: 0.0.1
+  title: reShapr Authentication API
+  version: 1.1
   description: reShapr control plane authentication REST API
   contact:
     name: Laurent Broudoux

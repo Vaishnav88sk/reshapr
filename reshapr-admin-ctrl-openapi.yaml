@@ -1,8 +1,8 @@
 ---
 openapi: 3.0.2
 info:
-  title: reShapr Admin Ctrl API v0.1
-  version: 0.0.1
+  title: reShapr Admin Ctrl API
+  version: 1.1
   description: reShapr control place administration REST API
   contact:
     name: Laurent Broudoux

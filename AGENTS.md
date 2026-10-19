@@ -12,15 +12,15 @@ Three core runtime services communicate via gRPC, plus a web UI and a CLI:
                              ┌─────────────────────────────────────┐
                              │         reShapr Platform            │
                              │                                     │
-  ┌──────────┐  MCP/HTTP     │  ┌──────────────────────────────┐  │
-  │  AI Agent│──────────────>│  │      Gateway (proxy)         │  │──> REST / GraphQL / gRPC
-  │  or LLM  │               │  │      :7777                   │  │    Backend APIs
-  └──────────┘               │  └──────────┬───────────────────┘  │
+  ┌──────────┐  MCP/HTTP     │  ┌──────────────────────────────┐   │
+  │  AI Agent│──────────────>│  │      Gateway (proxy)         │   │──> REST / GraphQL / gRPC
+  │  or LLM  │               │  │      :7777                   │   │    Backend APIs
+  └──────────┘               │  └──────────┬───────────────────┘   │
                              │             │ gRPC (EDS + GHS)      │
-  ┌──────────┐  REST API     │  ┌──────────▼───────────────────┐  │
-  │  CLI /   │──────────────>│  │    Control Plane (ctrl)      │──┼──> PostgreSQL
-  │  Web UI  │               │  │    :5555                     │  │
-  └──────────┘               │  └──────────────────────────────┘  │
+  ┌──────────┐  REST API     │  ┌──────────▼───────────────────┐   │
+  │  CLI /   │──────────────>│  │    Control Plane (ctrl)      │───┼──> PostgreSQL
+  │  Web UI  │               │  │    :5555                     │   │
+  └──────────┘               │  └──────────────────────────────┘   │
                              └─────────────────────────────────────┘
 ```
 
@@ -137,7 +137,7 @@ See [install/README.md](install/README.md) for the full list of Compose stacks (
 ## OpenAPI Specs
 
 Three API specifications in project root describe the public interfaces:
-- `reshapr-public-openapi-v0.1.yaml` — public-facing API
-- `reshapr-admin-ctrl-openapi-v0.1.yaml` — admin control plane API  
-- `reshapr-authentication-openapi-v0.1.yaml` — authentication endpoints
+- `reshapr-public-openapi.yaml` — public-facing API
+- `reshapr-admin-ctrl-openapi.yaml` — admin control plane API  
+- `reshapr-authentication-openapi.yaml` — authentication endpoints
 
