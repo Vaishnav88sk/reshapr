@@ -16,7 +16,7 @@
 
 /*
  * Shared model types mirroring the control plane's public OpenAPI contract
- * (reshapr-public-openapi-v0.1.yaml) for ConfigurationPlan, Exposition and Secret. `id` and
+ * (reshapr-public-openapi.yaml) for ConfigurationPlan, Exposition and Secret. `id` and
  * `organizationId` are kept optional so the same types can describe both request payloads built
  * by the CLI (before the control plane assigns them) and responses returned by the API.
  */
