@@ -25,13 +25,16 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyStore;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
@@ -135,7 +138,7 @@ public final class HttpDownloader {
          HttpClient client = buildHttpClient(remoteUrl, secret, disableSSLValidation);
          HttpRequest request = buildHttpRequest(remoteUrl, secret);
 
-         Path tempFile = Files.createTempFile("reshapr-" + System.currentTimeMillis(), ".download");
+         Path tempFile = Files.createTempFile(DownloadDir.PATH, "reshapr-", ".download");
 
          HttpResponse<Path> response = client.send(request, HttpResponse.BodyHandlers.ofFile(tempFile));
 
@@ -150,6 +153,27 @@ public final class HttpDownloader {
          throw new IOException("Failed to download " + remoteUrl, e);
       }
    }
+
+
+   /**
+    * Private (owner-only) directory holding downloaded files, created lazily on first use.
+    */
+   private static final class DownloadDir {
+      static final Path PATH = create();
+
+      private static Path create() {
+         try {
+            if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
+               return Files.createTempDirectory("reshapr-downloads-",
+                     PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+            }
+            return Files.createTempDirectory("reshapr-downloads-");
+         } catch (IOException e) {
+            throw new UncheckedIOException("Unable to create private download directory", e);
+         }
+      }
+   }
+
 
    /**
     * Build an {@link HttpClient} with the appropriate SSL context for the given URL and secret.
