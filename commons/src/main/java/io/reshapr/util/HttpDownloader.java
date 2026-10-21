@@ -156,7 +156,8 @@ public final class HttpDownloader {
 
 
    /**
-    * Private (owner-only) directory holding downloaded files, created lazily on first use.
+    * Private directory holding downloaded files, created lazily on first use: an owner-only temp directory
+    * on POSIX systems, a per-user directory elsewhere.
     */
    private static final class DownloadDir {
       static final Path PATH = create();
@@ -167,7 +168,8 @@ public final class HttpDownloader {
                return Files.createTempDirectory("reshapr-downloads-",
                      PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
             }
-            return Files.createTempDirectory("reshapr-downloads-");
+            // Non-POSIX (e.g. Windows): avoid the shared temp dir, use a per-user directory instead.
+            return Files.createDirectories(Path.of(System.getProperty("user.home"), ".reshapr", "downloads"));
          } catch (IOException e) {
             throw new UncheckedIOException("Unable to create private download directory", e);
          }
