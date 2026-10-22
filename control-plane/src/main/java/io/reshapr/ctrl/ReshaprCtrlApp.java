@@ -104,8 +104,7 @@ public class ReshaprCtrlApp {
 
    /** Initialize the admin account if configured. */
    private User initializeAdminAccount() {
-      if (adminName != null && adminName.isPresent() && adminEmail != null && adminEmail.isPresent()
-            && adminPassword != null && adminPassword.isPresent()) {
+      if (adminName.isPresent() && adminEmail.isPresent() && adminPassword.isPresent()) {
          logger.info("Admin user is configured. Checking if it exists and creating it if not...");
 
          // Check if admin already exists.
@@ -144,40 +143,15 @@ public class ReshaprCtrlApp {
 
    /** Initialize default gateway properties if configured. */
    private void initializeDefaultGatewayProperties(User admin) {
-      if (defaultGatewayTokens != null && defaultGatewayTokens.isPresent()) {
+      if (defaultGatewayTokens.isPresent()) {
          logger.info("Default gateway tokens are configured. Initializing them...");
-         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-
-         int i = 1;
-         for (String token : defaultGatewayTokens.get()) {
-            if (token != null && !token.isBlank()) {
-               String tokenName = "default-gateway-token-" + i++;
-               // Check token existence and create it if it doesn't exist.
-               ApiToken apiToken = apiTokenRepository.findByNameAndOrganizationId(tokenName, ROOT_TENANT_ID);
-               if (apiToken == null) {
-                  logger.debugf("Default gateway token '%s' doesn't exists. Create it.", tokenName);
-                  apiToken = new ApiToken();
-                  apiToken.name = tokenName;
-                  apiToken.token = token;
-                  apiToken.organizationId = ROOT_TENANT_ID;
-                  apiToken.validUntil = LocalDateTime.parse("2027-12-24 23:59:59", formatter).atOffset(ZoneOffset.UTC);
-                  if (admin != null) {
-                     apiToken.user = admin;
-                  }
-               } else {
-                  logger.warnf("Default gateway token '%s' already exists. Update it.", tokenName);
-                  logger.warnf("Be sure to update the configuration of the proxies that use it.");
-                  apiToken.token = token;
-               }
-               apiTokenRepository.persist(apiToken);
-            }
-         }
+         initializeDefaultGatewayTokens(admin);
       } else {
          logger.warn("Default gateway tokens are not configured. Please set 'reshapr.default-gateway-tokens' " +
                "in the configuration to initialize them.");
       }
 
-      if (defaultGatewayLabels != null && defaultGatewayLabels.isPresent()) {
+      if (defaultGatewayLabels.isPresent()) {
          logger.info("Default gateway group labels are configured. Updating them...");
 
          GatewayGroup defaultGatewayGroup = gatewayGroupRepository.findById(GatewayGroup.DEFAULT_GATEWAY_GROUP_ID);
@@ -186,6 +160,36 @@ public class ReshaprCtrlApp {
       } else {
          logger.warn("Default gateway group labels are not configured. Please set 'reshapr.default-gateway-labels' " +
                "in the configuration to initialize them.");
+      }
+   }
+
+   /** Initialize default gateway tokens if configured. */
+   private void initializeDefaultGatewayTokens(User admin) {
+      DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+      int i = 1;
+      for (String token : defaultGatewayTokens.get()) {
+         if (token != null && !token.isBlank()) {
+            String tokenName = "default-gateway-token-" + i++;
+            // Check token existence and create it if it doesn't exist.
+            ApiToken apiToken = apiTokenRepository.findByNameAndOrganizationId(tokenName, ROOT_TENANT_ID);
+            if (apiToken == null) {
+               logger.debugf("Default gateway token '%s' doesn't exists. Create it.", tokenName);
+               apiToken = new ApiToken();
+               apiToken.name = tokenName;
+               apiToken.token = token;
+               apiToken.organizationId = ROOT_TENANT_ID;
+               apiToken.validUntil = LocalDateTime.parse("2027-12-24 23:59:59", formatter).atOffset(ZoneOffset.UTC);
+               if (admin != null) {
+                  apiToken.user = admin;
+               }
+            } else {
+               logger.warnf("Default gateway token '%s' already exists. Update it.", tokenName);
+               logger.warnf("Be sure to update the configuration of the proxies that use it.");
+               apiToken.token = token;
+            }
+            apiTokenRepository.persist(apiToken);
+         }
       }
    }
 }

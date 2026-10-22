@@ -17,7 +17,6 @@ package io.reshapr.ctrl.util;
 
 import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
-import io.quarkus.runtime.Startup;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 
@@ -30,8 +29,6 @@ import jakarta.enterprise.inject.Produces;
 public class HazelcastProducer {
 
    @Produces
-   @ApplicationScoped
-   @Startup
    public HazelcastInstance createInstance() {
       // Hazelcast will load the hazelcast-kubernetes.yaml file.
       return Hazelcast.newHazelcastInstance();
