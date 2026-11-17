@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest';
 // This suite guards the CVE dependency pins:
 //   - dompurify >= 3.4.17 (GHSA-cg2g-xh64-v4q7, GHSA-mrv2-3pqr-j5jr)
 //   - vite >= 8.3.3 (GHSA-587h-7wmj-h5pm)
+//   - @sveltejs/kit >= 3.1.1 (GHSA-3r8g-jcqq-3p5j, GHSA-m9j8-jcmv-hp69)
 // The lockfiles below are the source of truth for what is installed.
 
 const repoRoot = new URL('../../', import.meta.url);
@@ -56,6 +57,10 @@ describe('CVE dependency pins', () => {
 
   it('web-ui resolves vite >= 8.3.3', () => {
     expect(atLeast(resolvedVersion('web-ui', 'vite'), '8.3.3')).toBe(true);
+  });
+
+  it('web-ui resolves @sveltejs/kit >= 3.1.1', () => {
+    expect(atLeast(resolvedVersion('web-ui', '@sveltejs/kit'), '3.1.1')).toBe(true);
   });
 
   it('github-user-mcp-app resolves vite >= 8.3.3', () => {
