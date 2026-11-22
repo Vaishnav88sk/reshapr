@@ -1,5 +1,6 @@
-# Build stage: use Node.js to build the SvelteKit app
-FROM node:25-alpine AS build
+# Build stage: run on the native builder architecture because Vite/Node output is platform-independent
+# and running vite build under linux/arm64 QEMU emulation intermittently triggers SIGILL hangs.
+FROM --platform=$BUILDPLATFORM node:25-alpine@sha256:bdf2cca6fe3dabd014ea60163eca3f0f7015fbd5c7ee1b0e9ccb4ced6eb02ef4 AS build
 
 WORKDIR /app
 
@@ -11,16 +12,18 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# Prune dev dependencies for a leaner production image
+# Prune dev dependencies and build-time native addons for a leaner, arch-independent production image
 RUN npm prune --omit=dev \
     && rm -rf /app/node_modules/.vite \
     && rm -rf /app/node_modules/@hugeicons \
-    && rm -rf /app/node_modules/@rolldown
+    && rm -rf /app/node_modules/@rolldown \
+    && rm -rf /app/node_modules/lightningcss* \
+    && rm -rf /app/node_modules/@tailwindcss/oxide*
 
 # -----------------------------------------------------------
 # Production stage: Red Hat UBI9 minimal
 # -----------------------------------------------------------
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8-1793862054
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8-1793862054@sha256:4b79c93106c14ad1c234907f83441ff0e4f8d24e78426a36e159098e9f7e6fa5
 
 # Install Node.js 22 via microdnf
 RUN echo -e "[nodejs]\nname=nodejs\nstream=22\nprofiles=\nstate=enabled" > /etc/dnf/modules.d/nodejs.module \
