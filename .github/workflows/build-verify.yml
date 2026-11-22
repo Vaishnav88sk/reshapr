@@ -17,6 +17,9 @@ on:
       - 'LICENSE'
       - '*.md'
 
+permissions:
+  contents: read
+
 jobs:
   main-install:
     runs-on: ubuntu-26.04

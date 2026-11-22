@@ -6,6 +6,9 @@ on:
     - cron: '0 1 * * *'
   workflow_dispatch: # allow manual trigger
 
+permissions:
+  contents: read
+
 jobs:
   e2e:
     runs-on: ubuntu-26.04

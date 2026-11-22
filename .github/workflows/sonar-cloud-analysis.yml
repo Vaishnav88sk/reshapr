@@ -9,6 +9,9 @@ on:
   schedule:
     - cron: '0 4 * * *'  # Everyday at 4am UTC
 
+permissions:
+  contents: read
+
 jobs:
   build:
     # Skip on pull_request from forks and Dependabot: SONAR_TOKEN isn't exposed to
