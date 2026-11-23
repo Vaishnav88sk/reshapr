@@ -21,6 +21,10 @@ on:
         required: false
         default: 'ALWAYS'
         type: string
+
+permissions:
+  contents: read
+
 jobs:
   release:
     name: Release
